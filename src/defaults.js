@@ -1,15 +1,74 @@
 // Default lists. Door types and defects can be edited in Settings;
 // these are only the starting point.
 
-export const STATUSES = [
-  { id: 'not_inspected', label: 'Not inspected', short: 'To do', color: 'var(--st-todo)' },
-  { id: 'pass', label: 'Pass', short: 'Pass', color: 'var(--st-pass)' },
-  { id: 'fail', label: 'Fail', short: 'Fail', color: 'var(--st-fail)' },
-  { id: 'no_access', label: 'No access', short: 'No access', color: 'var(--st-noaccess)' },
-  { id: 'repaired', label: 'Repaired', short: 'Repaired', color: 'var(--st-repaired)' },
-];
+// ---- Status schemes ----
+// Each project picks a scheme. Status ids are the same in every scheme
+// (so data, sync and Claude queries stay simple); only the wording and the
+// set offered change.
+//   pass = the good outcome (green), fail = the bad outcome (red),
+//   na = not applicable (grey), no_access (orange), repaired (blue),
+//   not_inspected = still to do (hollow white pin).
+const COLORS = {
+  not_inspected: 'var(--st-todo)',
+  pass: 'var(--st-pass)',
+  fail: 'var(--st-fail)',
+  na: 'var(--st-na)',
+  no_access: 'var(--st-noaccess)',
+  repaired: 'var(--st-repaired)',
+};
 
-export const statusById = Object.fromEntries(STATUSES.map((s) => [s.id, s]));
+export const SCHEMES = {
+  passfail: {
+    id: 'passfail',
+    name: 'Pass / Fail',
+    hint: 'Pass, Fail, Not applicable, No access, Repaired',
+    order: ['not_inspected', 'pass', 'fail', 'na', 'no_access', 'repaired'],
+    labels: { not_inspected: 'Not inspected', pass: 'Pass', fail: 'Fail', na: 'Not applicable', no_access: 'No access', repaired: 'Repaired' },
+    short: { not_inspected: 'To do', pass: 'Pass', fail: 'Fail', na: 'N/A', no_access: 'No access', repaired: 'Repaired' },
+    answers: { pass: 'Pass', fail: 'Fail', na: 'N/A' },
+    rateLabel: 'fail rate',
+    checkChart: 'Failure rate by inspection check',
+    checkChartSub: 'Share of doors failing each check (N/A answers excluded)',
+    summary: (n, of, p) => `${n} of ${of} doors inspected (${p}%) did not meet the required standard and need remedial work.`,
+  },
+  action: {
+    id: 'action',
+    name: 'Action required',
+    hint: 'No action required, Action required, Not applicable, No access',
+    order: ['not_inspected', 'pass', 'fail', 'na', 'no_access'],
+    labels: { not_inspected: 'Not inspected', pass: 'No action required', fail: 'Action required', na: 'Not applicable', no_access: 'No access', repaired: 'Repaired' },
+    short: { not_inspected: 'To do', pass: 'No action', fail: 'Action', na: 'N/A', no_access: 'No access', repaired: 'Repaired' },
+    answers: { pass: 'No action', fail: 'Action', na: 'N/A' },
+    rateLabel: 'need action',
+    checkChart: 'Action required by inspection check',
+    checkChartSub: 'Share of doors needing action on each check (N/A answers excluded)',
+    summary: (n, of, p) => `${n} of ${of} doors inspected (${p}%) require action.`,
+  },
+};
+export const DEFAULT_SCHEME = 'passfail';
+
+const ALL_IDS = ['not_inspected', 'pass', 'fail', 'na', 'no_access', 'repaired'];
+
+// The active scheme. These are live bindings: every module that imports
+// STATUSES / statusById / ANSWERS sees the current project's wording.
+export let SCHEME = SCHEMES[DEFAULT_SCHEME];
+export let STATUSES = [];
+export let statusById = {};
+export let ANSWERS = [];
+
+export function useScheme(projectOrId) {
+  const id = typeof projectOrId === 'string' ? projectOrId : projectOrId?.scheme;
+  SCHEME = SCHEMES[id] || SCHEMES[DEFAULT_SCHEME];
+  const make = (sid) => ({ id: sid, label: SCHEME.labels[sid], short: SCHEME.short[sid], color: COLORS[sid] });
+  statusById = Object.fromEntries(ALL_IDS.map((sid) => [sid, make(sid)]));
+  STATUSES = SCHEME.order.map((sid) => statusById[sid]);
+  ANSWERS = ['pass', 'fail', 'na'].map((aid) => ({ id: aid, label: SCHEME.answers[aid] }));
+  return SCHEME;
+}
+useScheme(DEFAULT_SCHEME);
+
+// Doors that count towards the fail / action rate
+export const isInspected = (d) => !['not_inspected', 'no_access', 'na'].includes(d.status || 'not_inspected');
 
 // Recommended actions — a door can have several. Edit the list in Settings.
 export const DEFAULT_ACTIONS = [
@@ -56,11 +115,6 @@ export const DEFAULT_MATERIALS = [
   { id: 'm-latch', name: 'Fire-rated latch / lock', unit: 'each', cost: 0 },
 ];
 
-export const ANSWERS = [
-  { id: 'pass', label: 'Pass' },
-  { id: 'fail', label: 'Fail' },
-  { id: 'na', label: 'N/A' },
-];
 
 // Older records stored one action as a string; newer ones store a list.
 export function doorActions(d) {

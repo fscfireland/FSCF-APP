@@ -3,7 +3,7 @@
 // Built entirely on the phone (works offline once the library is cached).
 
 import * as db from './db.js';
-import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor } from './defaults.js';
+import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected } from './defaults.js';
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
 import { fmtDate } from './ui.js';
 
@@ -21,13 +21,16 @@ const C = {
   bar: [61, 90, 115], // single-series bars: one neutral ink-blue
 };
 const STATUS_RGB = {
-  not_inspected: [138, 151, 163],
+  not_inspected: [91, 104, 117], // drawn hollow on plans
+  na: [154, 166, 177],
   pass: [46, 133, 64],
   fail: [204, 42, 31],
   no_access: [217, 138, 0],
   repaired: [33, 102, 196],
 };
-const ANSWER_TXT = { pass: 'Pass', fail: 'Fail', na: 'N/A' };
+// Fill used for "not inspected" in the pie and legend (pins are hollow)
+const TODO_FILL = [214, 220, 226];
+const fillFor = (id) => (id === 'not_inspected' ? TODO_FILL : STATUS_RGB[id]);
 
 const A4 = { w: 210, h: 297 };
 const M = 16; // page margin, mm
@@ -68,16 +71,16 @@ async function loadBitmap(blob) {
   return img;
 }
 
-function drawPin(g, x, y, r, color, label) {
+function drawPin(g, x, y, r, color, label, hollow = false) {
   g.beginPath();
   g.arc(x, y, r, 0, Math.PI * 2);
-  g.fillStyle = '#fff';
+  g.fillStyle = hollow ? rgbCss(color) : '#fff';
   g.fill();
   g.beginPath();
-  g.arc(x, y, r * 0.84, 0, Math.PI * 2);
-  g.fillStyle = rgbCss(color);
+  g.arc(x, y, r * (hollow ? 0.8 : 0.84), 0, Math.PI * 2);
+  g.fillStyle = hollow ? '#fff' : rgbCss(color);
   g.fill();
-  g.fillStyle = '#fff';
+  g.fillStyle = hollow ? rgbCss(C.ink) : '#fff';
   g.font = `700 ${Math.round(r * (String(label).length > 2 ? 0.8 : 1.05))}px Helvetica, Arial, sans-serif`;
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -100,7 +103,10 @@ async function planWithPins(plan, doors) {
   g.fillRect(0, 0, c.width, c.height);
   g.drawImage(bmp, 0, 0, c.width, c.height);
   const r = Math.max(16, Math.max(c.width, c.height) * 0.016);
-  for (const d of doors) drawPin(g, d.x * c.width, d.y * c.height, r, STATUS_RGB[d.status || 'not_inspected'], d.pinNo);
+  for (const d of doors) {
+    const st = d.status || 'not_inspected';
+    drawPin(g, d.x * c.width, d.y * c.height, r, STATUS_RGB[st], d.pinNo, st === 'not_inspected');
+  }
   return { bmp, data: await canvasJpeg(c), w: c.width, h: c.height };
 }
 
@@ -118,7 +124,8 @@ async function planCrop(bmp, plan, door) {
   g.fillStyle = '#fff';
   g.fillRect(0, 0, c.width, c.height);
   g.drawImage(bmp, cx, cy, cw, ch, 0, 0, c.width, c.height);
-  drawPin(g, (door.x * plan.width - cx) * k, (door.y * plan.height - cy) * k, 28, STATUS_RGB[door.status || 'not_inspected'], door.pinNo);
+  const st = door.status || 'not_inspected';
+  drawPin(g, (door.x * plan.width - cx) * k, (door.y * plan.height - cy) * k, 28, STATUS_RGB[st], door.pinNo, st === 'not_inspected');
   return canvasJpeg(c, 0.82);
 }
 
@@ -155,6 +162,8 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   const { photos: withPhotos = true, passDetail = true, costs = false } = opts;
   onProgress('Loading PDF tools…');
   const jsPDF = await loadJsPdf();
+  const scheme = useScheme(project);
+  const ANSWER_TXT = scheme.answers;
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
   doc.setFont('helvetica', 'normal');
 
@@ -166,8 +175,8 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   const reportDate = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' });
 
   const counts = Object.fromEntries(STATUSES.map((s) => [s.id, 0]));
-  for (const d of doors) counts[d.status || 'not_inspected']++;
-  const inspected = doors.filter((d) => !['not_inspected', 'no_access'].includes(d.status || 'not_inspected'));
+  for (const d of doors) counts[d.status || 'not_inspected'] = (counts[d.status || 'not_inspected'] || 0) + 1;
+  const inspected = doors.filter(isInspected);
   const pct = (n, of) => (of ? Math.round((n / of) * 100) : 0);
 
   // ---------- helpers ----------
@@ -288,9 +297,9 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   y += 8;
   const tiles = [
     ['Doors surveyed', doors.length, C.ink],
-    ['Pass', counts.pass, STATUS_RGB.pass],
-    ['Fail', counts.fail, STATUS_RGB.fail],
-    ['No access', counts.no_access, STATUS_RGB.no_access],
+    [statusById.pass.label, counts.pass || 0, STATUS_RGB.pass],
+    [statusById.fail.label, counts.fail || 0, STATUS_RGB.fail],
+    [statusById.no_access.label, counts.no_access || 0, STATUS_RGB.no_access],
   ];
   const tw = (CW - 3 * 4) / 4;
   tiles.forEach(([label, n, col], i) => {
@@ -307,8 +316,9 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   y += 34;
   if (inspected.length) {
     para(
-      `${counts.fail} of ${inspected.length} doors inspected (${pct(counts.fail, inspected.length)}%) did not meet the required standard and need remedial work.` +
+      scheme.summary(counts.fail || 0, inspected.length, pct(counts.fail || 0, inspected.length)) +
         (counts.no_access ? ` ${counts.no_access} door(s) could not be accessed.` : '') +
+        (counts.na ? ` ${counts.na} door(s) were not applicable.` : '') +
         (counts.not_inspected ? ` ${counts.not_inspected} door(s) are not yet inspected.` : ''),
       11
     );
@@ -328,7 +338,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   heading('Summary of findings', `${doors.length} door sets recorded across ${plans.length} plan(s).`);
 
   // Status pie + legend table
-  const parts = STATUSES.map((s) => ({ label: s.label, value: counts[s.id], color: STATUS_RGB[s.id], id: s.id })).filter((p) => p.value);
+  const parts = STATUSES.map((s) => ({ label: s.label, value: counts[s.id] || 0, color: fillFor(s.id), id: s.id })).filter((p) => p.value);
   font('bold', 11);
   text('Door status', M, y + 3);
   y += 6;
@@ -336,9 +346,9 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     const size = 62;
     doc.addImage(donutPng(parts), 'PNG', M, y, size, size);
     font('bold', 16);
-    text(`${pct(counts.fail, inspected.length)}%`, M + size / 2, y + size / 2 + 1, { align: 'center' });
+    text(`${pct(counts.fail || 0, inspected.length)}%`, M + size / 2, y + size / 2 + 1, { align: 'center' });
     font('normal', 7.5, C.ink2);
-    text('fail rate', M + size / 2, y + size / 2 + 5.5, { align: 'center' });
+    text(scheme.rateLabel, M + size / 2, y + size / 2 + 5.5, { align: 'center' });
     let ly = y + 8;
     const lx = M + size + 12;
     font('bold', 8.5, C.ink2);
@@ -374,9 +384,9 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   if (answeredQs.length) {
     font('bold', 11);
     ensure(answeredQs.length * 7 + 20);
-    text('Failure rate by inspection check', M, y + 3);
+    text(scheme.checkChart, M, y + 3);
     font('normal', 8.5, C.ink2);
-    text('Share of doors failing each check (N/A answers excluded)', M, y + 8);
+    text(scheme.checkChartSub, M, y + 8);
     y += 13;
     barChart(
       answeredQs.map((r) => ({ label: r.label, value: pct(r.fails, r.of), display: `${pct(r.fails, r.of)}%  (${r.fails}/${r.of})` })),
@@ -433,8 +443,10 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     let lx = M;
     const ly = y + ih + 7;
     for (const s of STATUSES) {
-      doc.setFillColor(...STATUS_RGB[s.id]);
-      doc.circle(lx + 2, ly - 1.2, 1.8, 'F');
+      doc.setFillColor(...(s.id === 'not_inspected' ? [255, 255, 255] : STATUS_RGB[s.id]));
+      doc.setDrawColor(...STATUS_RGB[s.id]);
+      doc.setLineWidth(0.5);
+      doc.circle(lx + 2, ly - 1.2, 1.8, s.id === 'not_inspected' ? 'FD' : 'F');
       font('normal', 8.5, C.ink);
       text(s.label, lx + 5.5, ly);
       lx += doc.getTextWidth(s.label) + 12;
@@ -473,7 +485,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   }
 
   // ---------- 5. Door pages ----------
-  const detailDoors = doors.filter((d) => passDetail || (d.status || 'not_inspected') !== 'pass');
+  const detailDoors = doors.filter((d) => passDetail || !['pass', 'na'].includes(d.status || 'not_inspected'));
   let n = 0;
   for (const d of detailDoors) {
     n++;
@@ -483,9 +495,12 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     // header band
     doc.setFillColor(...C.soft);
     doc.roundedRect(M, y, CW, 20, 2, 2, 'F');
-    doc.setFillColor(...STATUS_RGB[st]);
-    doc.circle(M + 10, y + 10, 6.5, 'F');
-    font('bold', String(d.pinNo).length > 2 ? 9 : 12, [255, 255, 255]);
+    const hollow = st === 'not_inspected';
+    doc.setFillColor(...(hollow ? [255, 255, 255] : STATUS_RGB[st]));
+    doc.setDrawColor(...STATUS_RGB[st]);
+    doc.setLineWidth(0.8);
+    doc.circle(M + 10, y + 10, 6.5, hollow ? 'FD' : 'F');
+    font('bold', String(d.pinNo).length > 2 ? 9 : 12, hollow ? C.ink : [255, 255, 255]);
     text(String(d.pinNo ?? ''), M + 10, y + 11.8, { align: 'center' });
     font('bold', 14);
     text(d.ref || `Door ${d.pinNo}`, M + 21, y + 8.5);

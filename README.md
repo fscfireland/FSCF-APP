@@ -8,8 +8,12 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 
 - **Projects**: one per site (site name, client, address, inspection date).
 - **Plans**: upload a floor plan as a PDF or an image. Each PDF page becomes its own plan. Pinch to zoom and drag to pan. Double-tap zooms in.
-- **Pins**: tap **Add door**, then tap the plan. Pins are numbered 1, 2, 3… per project and coloured by status:
-  grey = not inspected, green = pass, red = fail, amber = no access, blue = repaired.
+- **Status schemes** (chosen per project):
+  - *Pass / Fail*: Pass (green), Fail (red), Not applicable (grey), No access (orange), Repaired (blue).
+  - *Action required*: No action required (green), Action required (red), Not applicable (grey), No access (orange).
+
+  Doors not yet inspected show as hollow white pins. The checklist answers, door list, Excel and PDF all use the project's wording.
+- **Pins**: tap **Add door**, then tap the plan. Pins are numbered 1, 2, 3… per project and coloured by status.
   To move a pin, open it and tap **Move pin**, then drag it or tap the new spot.
 - **Door record**: door ref, location, door type (FD30/EI 30 etc.), leaf configuration, status, photos (camera or gallery), defects with suggested remedial work and quantity, recommended action, notes, and inspected on/by. It saves as you type.
   Adding a defect to a door that's "Not inspected" or "Pass" sets it to "Fail" automatically.

@@ -99,7 +99,7 @@ export class PlanViewer {
     for (const p of pins) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'pin' + (p.id === selectedId ? ' is-selected' : '');
+      b.className = 'pin' + (p.id === selectedId ? ' is-selected' : '') + (p.hollow ? ' is-hollow' : '');
       b.dataset.id = p.id;
       b.style.left = p.x * 100 + '%';
       b.style.top = p.y * 100 + '%';

@@ -3,14 +3,15 @@
 //         Material totals · Defect totals
 
 import * as db from './db.js';
-import { STATUSES, statusById, doorActions, materialsTotal, ANSWERS } from './defaults.js';
+import { STATUSES, statusById, doorActions, materialsTotal, ANSWERS, useScheme } from './defaults.js';
 import { loadSheetJS, saveFile, safeName } from './files.js';
 
 const EURO = '"€"#,##0.00';
-const answerLabel = Object.fromEntries(ANSWERS.map((a) => [a.id, a.label]));
 
 export async function exportProjectXlsx(project, questions = []) {
   const XLSX = await loadSheetJS();
+  const scheme = useScheme(project);
+  const answerLabel = Object.fromEntries(ANSWERS.map((a) => [a.id, a.label]));
   const doors = await db.projectDoors(project.id);
   const plans = await db.projectPlans(project.id);
   const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
@@ -29,7 +30,7 @@ export async function exportProjectXlsx(project, questions = []) {
 
   // --- Summary
   const counts = Object.fromEntries(STATUSES.map((s) => [s.id, 0]));
-  for (const d of doors) counts[d.status || 'not_inspected']++;
+  for (const d of doors) counts[d.status || 'not_inspected'] = (counts[d.status || 'not_inspected'] || 0) + 1;
   const defectRows = doors.flatMap((d) => d.defects || []);
   const matTotal = doors.reduce((t, d) => t + materialsTotal(d), 0);
   const summary = [
@@ -39,10 +40,11 @@ export async function exportProjectXlsx(project, questions = []) {
     ['Site', project.site || ''],
     ['Address', project.address || ''],
     ['Inspection date', project.date || ''],
+    ['Status scheme', scheme.name],
     ['Exported', new Date().toLocaleString('en-IE')],
     [],
     ['Doors recorded', doors.length],
-    ...STATUSES.map((s) => [s.label, counts[s.id]]),
+    ...STATUSES.map((s) => [s.label, counts[s.id] || 0]),
     [],
     ['Defects recorded', defectRows.length],
     ['Materials total (€ ex VAT)', matTotal],
@@ -55,7 +57,7 @@ export async function exportProjectXlsx(project, questions = []) {
   // --- Doors (one row per door)
   const doorHeader = [
     'Pin', 'Door ref', 'Plan / level', 'Location / room', 'Door type', 'Leaf config', 'Status',
-    'Recommended actions', 'Questions failed', 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Notes', 'Inspected on', 'Inspected by',
+    'Recommended actions', `Questions: ${ANSWERS[1].label}`, 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Notes', 'Inspected on', 'Inspected by',
   ];
   const doorRows = doors.map((d) => [
     d.pinNo ?? '',
@@ -93,11 +95,11 @@ export async function exportProjectXlsx(project, questions = []) {
       }
     }
   }
-  const cHeader = ['Pin', 'Door ref', 'Location / room', 'Status', ...qCols.map((q, i) => `Q${i + 1}. ${q.text}`), 'Pass', 'Fail', 'N/A'];
+  const cHeader = ['Pin', 'Door ref', 'Location / room', 'Status', ...qCols.map((q, i) => `Q${i + 1}. ${q.text}`), ...ANSWERS.map((a) => a.label)];
   const cRows = doors.map((d) => {
     const ans = qCols.map((q) => answerLabel[d.checks?.[q.id]?.answer] || '');
     return [d.pinNo ?? '', d.ref || '', d.location || '', statusLabel(d), ...ans,
-      ans.filter((a) => a === 'Pass').length, ans.filter((a) => a === 'Fail').length, ans.filter((a) => a === 'N/A').length];
+      ...['pass', 'fail', 'na'].map((id) => qCols.filter((q) => d.checks?.[q.id]?.answer === id).length)];
   });
   const ws2 = XLSX.utils.aoa_to_sheet([cHeader, ...cRows]);
   ws2['!cols'] = [6, 12, 22, 13, ...qCols.map(() => 18), 6, 6, 6].map((wch) => ({ wch }));

@@ -3,7 +3,7 @@
 import * as db from './db.js';
 import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
-  ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan,
+  ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -150,12 +150,17 @@ function statusBar(doors) {
 
 function countStatuses(doors) {
   const c = Object.fromEntries(STATUSES.map((s) => [s.id, 0]));
-  for (const d of doors) c[d.status || 'not_inspected']++;
+  for (const d of doors) {
+    const k = d.status || 'not_inspected';
+    c[k] = (c[k] || 0) + 1;
+  }
   return c;
 }
 
 function projectCard(p, doors) {
+  const scheme = useScheme(p);
   const c = countStatuses(doors);
+  const lc = (id) => statusById[id].short.toLowerCase();
   return `
     <button class="project-card" data-id="${p.id}">
       <div class="pc-top">
@@ -163,29 +168,40 @@ function projectCard(p, doors) {
         <div class="pc-date">${esc(fmtDate(p.date))}</div>
       </div>
       <div class="pc-sub">${esc([p.client, p.address].filter(Boolean).join(' · '))}</div>
+      <div class="pc-scheme">${esc(scheme.name)}</div>
       ${doors.length ? statusBar(doors) : ''}
       <div class="pc-counts">
         <span><b>${doors.length}</b> doors</span>
-        ${c.fail ? `<span class="dot" style="--c:var(--st-fail)">${c.fail} fail</span>` : ''}
-        ${c.pass ? `<span class="dot" style="--c:var(--st-pass)">${c.pass} pass</span>` : ''}
-        ${c.not_inspected ? `<span class="dot" style="--c:var(--st-todo)">${c.not_inspected} to do</span>` : ''}
+        ${c.fail ? `<span class="dot" style="--c:var(--st-fail)">${c.fail} ${lc('fail')}</span>` : ''}
+        ${c.pass ? `<span class="dot" style="--c:var(--st-pass)">${c.pass} ${lc('pass')}</span>` : ''}
+        ${c.not_inspected ? `<span class="dot is-hollow" style="--c:var(--st-todo)">${c.not_inspected} to do</span>` : ''}
       </div>
     </button>`;
 }
 
 async function editProject(existing) {
-  const p = existing || { client: '', site: '', address: '', date: today() };
+  const p = existing || { client: '', site: '', address: '', date: today(), scheme: lists.lastScheme || DEFAULT_SCHEME };
+  const cur = p.scheme || DEFAULT_SCHEME;
   const r = await dialog({
     title: existing ? 'Project details' : 'New project',
     body: `
       <label class="field"><span>Site name</span><input name="site" id="pf-site" required value="${esc(p.site)}" placeholder="e.g. Tearmann Ward, Cavan General"></label>
       <label class="field"><span>Client</span><input name="client" id="pf-client" value="${esc(p.client)}" placeholder="e.g. HSE Estates"></label>
       <label class="field"><span>Address</span><input name="address" id="pf-address" value="${esc(p.address)}" placeholder="Town, county / Eircode"></label>
-      <label class="field"><span>Inspection date</span><input type="date" name="date" id="pf-date" value="${esc(p.date)}"></label>`,
+      <label class="field"><span>Inspection date</span><input type="date" name="date" id="pf-date" value="${esc(p.date)}"></label>
+      <fieldset class="scheme-set">
+        <legend>Status scheme</legend>
+        ${Object.values(SCHEMES).map((sc) => `
+          <label class="scheme-opt">
+            <input type="radio" name="scheme" value="${sc.id}" ${sc.id === cur ? 'checked' : ''}>
+            <span><b>${esc(sc.name)}</b><small>${esc(sc.hint)}</small></span>
+          </label>`).join('')}
+      </fieldset>`,
     buttons: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Create project', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return null;
   const rec = await db.put('projects', { ...p, ...r.data, id: p.id || db.uid(), nextPin: p.nextPin || 1 });
+  if (r.data.scheme && r.data.scheme !== lists.lastScheme) await saveLists({ lastScheme: r.data.scheme });
   if (!existing) go({ view: 'project', projectId: rec.id, tab: 'plans' });
   else refresh();
   return rec;
@@ -195,7 +211,7 @@ async function loadDemo() {
   const b = busy('Creating demo project…');
   try {
     const project = await db.put('projects', {
-      id: db.uid(), site: 'DEMO – Rosewood Nursing Home', client: 'Example client', address: 'Bailieborough, Co. Cavan', date: today(), nextPin: 1, demo: true,
+      id: db.uid(), site: 'DEMO – Rosewood Nursing Home', client: 'Example client', address: 'Bailieborough, Co. Cavan', date: today(), nextPin: 1, demo: true, scheme: 'passfail',
     });
     const canvas = drawDemoPlan();
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.9));
@@ -208,6 +224,7 @@ async function loadDemo() {
       { x: 0.73, y: 0.44, ref: 'GF-04', location: 'Store', status: 'no_access', doorType: 'FD30 (EI 30)' },
       { x: 0.19, y: 0.56, ref: 'GF-05', location: 'Kitchen', status: 'repaired', doorType: 'FD60S (EI 60-Sa)' },
       { x: 0.42, y: 0.56, ref: 'GF-06', location: 'Dining', status: 'not_inspected', doorType: '' },
+      { x: 0.835, y: 0.44, ref: 'GF-08', location: 'Office', status: 'na', doorType: 'Non-rated' },
       { x: 0.875, y: 0.56, ref: 'GF-07', location: 'Stair core', status: 'fail', doorType: 'FD60S (EI 60-Sa)', defects: [1, 9] },
     ];
     let n = 1;
@@ -217,7 +234,7 @@ async function loadDemo() {
         status: d.status, doorType: d.doorType, leaf: 'Single leaf',
         defects: (d.defects || []).map((i) => ({ ...DEFAULT_DEFECTS[i], qty: 1 })),
         actions: d.defects ? ['Repair / upgrade on site'] : [],
-        checks: d.status === 'not_inspected' || d.status === 'no_access' ? {} : Object.fromEntries(DEFAULT_QUESTIONS.map((q, i) => [q.id, { text: q.text, answer: d.defects && i % 3 === 1 ? 'fail' : 'pass' }])),
+        checks: ['not_inspected', 'no_access', 'na'].includes(d.status) ? {} : Object.fromEntries(DEFAULT_QUESTIONS.map((q, i) => [q.id, { text: q.text, answer: d.defects && i % 3 === 1 ? 'fail' : 'pass' }])),
         materials: d.defects ? [{ id: db.uid(), name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m) — example price', unit: 'length', qty: 3, cost: 6.5 }] : [],
         notes: '', inspectedOn: d.status === 'not_inspected' ? '' : today(), inspectedBy: 'Demo',
       });
@@ -235,6 +252,7 @@ async function loadDemo() {
 async function renderProject() {
   const project = await db.get('projects', state.projectId);
   if (!project) return go({ view: 'projects' }, { replace: true });
+  useScheme(project);
   const plans = await db.projectPlans(project.id);
   const doors = await db.projectDoors(project.id);
   const tab = state.tab || 'plans';
@@ -364,7 +382,7 @@ function doorRow(d, planName) {
   const nDef = (d.defects || []).length;
   return `
     <button class="door-row" data-id="${d.id}" role="row">
-      <span class="pin-badge" style="--pin:${s.color}">${d.pinNo ?? ''}</span>
+      <span class="pin-badge ${s.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${s.color}">${d.pinNo ?? ''}</span>
       <span class="dr-main">
         <b>${esc(d.ref || 'No ref')}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
         <small>${esc([d.doorType, planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}</small>
@@ -412,7 +430,7 @@ function renderExportTab(body, project, plans, doors) {
       </ul>
       <div class="opt-list">
         <label class="check-line"><input type="checkbox" id="pdf-photos" checked> Include photos</label>
-        <label class="check-line"><input type="checkbox" id="pdf-pass" checked> Include a page for doors that passed</label>
+        <label class="check-line"><input type="checkbox" id="pdf-pass" checked> Include pages for doors marked ${esc(statusById.pass.label)} or ${esc(statusById.na.label)}</label>
         <label class="check-line"><input type="checkbox" id="pdf-costs"> Include material costs <span class="muted">(leave off for the client copy)</span></label>
       </div>
       <button class="btn primary" id="pdf">${icon('download')} Export PDF report</button>
@@ -471,6 +489,7 @@ let selectedPin = null;
 
 async function renderPlan() {
   const plan = await db.get('plans', state.planId);
+  useScheme(await db.get('projects', state.projectId));
   if (!plan) return go({ view: 'project', projectId: state.projectId, tab: 'plans' }, { replace: true });
   mode = null;
   selectedPin = null;
@@ -572,13 +591,14 @@ async function refreshPins() {
     doors.map((d) => ({
       id: d.id, x: d.x, y: d.y, label: d.pinNo,
       color: statusById[d.status || 'not_inspected'].color,
+      hollow: (d.status || 'not_inspected') === 'not_inspected',
       title: `Pin ${d.pinNo} ${d.ref || ''} ${statusById[d.status || 'not_inspected'].label}`,
     })),
     selectedPin || state.doorId
   );
   const c = countStatuses(doors);
   const el = $('#plan-counts');
-  if (el) el.textContent = `${doors.length} doors · ${c.fail} fail · ${c.not_inspected} to do`;
+  if (el) el.textContent = `${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
 }
 
 // ---------- Door record sheet ----------
@@ -615,12 +635,13 @@ async function renderSheet() {
 async function drawSheet(door) {
   const el = $('#sheet');
   const plan = await db.get('plans', door.planId);
+  useScheme(await db.get('projects', door.projectId));
   const s = statusById[door.status || 'not_inspected'];
   const types = [...new Set([...(lists.doorTypes || []), door.doorType].filter(Boolean))];
   el.innerHTML = `
     <div class="sheet-grip" aria-hidden="true"></div>
     <header class="sheet-head">
-      <span class="pin-badge lg" id="sh-badge" style="--pin:${s.color}">${door.pinNo}</span>
+      <span class="pin-badge lg ${s.id === 'not_inspected' ? 'is-hollow' : ''}" id="sh-badge" style="--pin:${s.color}">${door.pinNo}</span>
       <div class="sheet-title"><b id="sh-title">${esc(door.ref || 'Door ' + door.pinNo)}</b><small>${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
       <button class="icon-btn" id="sh-close" aria-label="Close">${icon('close')}</button>
     </header>
@@ -701,6 +722,7 @@ async function drawSheet(door) {
   const setStatus = (id) => {
     const st = statusById[id];
     $('#sh-badge').style.setProperty('--pin', st.color);
+    $('#sh-badge').classList.toggle('is-hollow', id === 'not_inspected');
     const patch = { status: id };
     if (id !== 'not_inspected' && !current.inspectedOn) {
       patch.inspectedOn = today();
@@ -716,6 +738,7 @@ async function drawSheet(door) {
       patch.status = 'fail';
       $(`input[name=status][value=fail]`, el).checked = true;
       $('#sh-badge').style.setProperty('--pin', statusById.fail.color);
+      $('#sh-badge').classList.remove('is-hollow');
     }
     if (!current.inspectedOn) {
       patch.inspectedOn = today();
