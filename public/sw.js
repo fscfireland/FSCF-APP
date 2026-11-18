@@ -1,11 +1,13 @@
 // Service worker: keeps the app (and the PDF/Excel libraries) on the phone
 // so it opens and works with no signal. Your data is in IndexedDB, not here.
-const VERSION = 'fscf-doors-v0.1.0';
+const VERSION = 'fscf-doors-v0.3.0';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 const LIBS = [
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+  'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js',
 ];
 
 self.addEventListener('install', (e) => {

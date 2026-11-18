@@ -18,6 +18,7 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 - **Materials**: a priced materials list in Settings. Each door shows quantity × unit cost per line and a door total (€ ex VAT).
 - **Door list**: all doors on a project, with status filter chips and counts, plus search.
 - **Excel export**: Summary, Doors, Checklist, Defects (pricing), Materials and Material totals (with formulas and totals), and Defect totals.
+- **PDF report**: a client report you can send as it is. It has a cover page with headline figures, summary charts (door status pie, failure rate by inspection check, most common defects), each plan marked up with numbered pins, a door schedule, and a page per door with its plan location, checklist, defects, actions and photos. Material costs are optional, so you can keep them out of the client copy.
 - **Settings**: edit the questions, actions, materials and prices, the defect list (each with its default remedial wording), door types and the inspector name. You can also back up and restore everything, photos included.
 
 ## Running it (for developers)
@@ -40,6 +41,7 @@ npm run build    # builds dist/ for hosting
 | `src/db.js` | On-phone database (IndexedDB), with sync-ready fields |
 | `src/files.js` | PDF and photo processing, file saving |
 | `src/export.js` | Excel workbook |
+| `src/report.js` | PDF report with charts and photos |
 | `src/backup.js` | Backup and restore |
 | `src/defaults.js` | Statuses, door types, default defect list |
 | `public/sw.js` | Offline caching (service worker) |

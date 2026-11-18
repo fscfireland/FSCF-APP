@@ -444,3 +444,5 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   .m-edit .me-name { grid-column: 1 / 3; }
   .m-edit .me-del { grid-column: 3; grid-row: 1; }
 }
+
+.opt-list { display: grid; gap: 10px; margin: 0 0 14px; }

@@ -42,7 +42,7 @@
 | Status colours: Priority 1/2/3 (red/orange/yellow), Completed (green), Verified (blue) | Inspection statuses: Not inspected (grey), Pass (green), Fail (red), No access (amber), Repaired (blue) |
 | Task: title, category, photos, checklist | Door record: ref, location, type, leaf, defects + remedial + qty, photos, action, notes |
 | Task list with filters | Door list with status chips and counts |
-| CSV/PDF task reports, plan export with pins | Excel export built for pricing; PDF report with plan, pins and photos is next |
+| CSV/PDF task reports, plan export with pins | Excel export built for pricing, plus a client PDF report with charts, marked-up plans and photos |
 
 ## Roadmap
 
@@ -53,5 +53,4 @@
    - Run `supabase/schema.sql`.
    - Add login and background sync.
    - Connect Supabase to Claude.
-3. **Then:** client PDF report (plan with pins, door pages with photos).
 4. **Later:** Finnan as a second user, sharing with clients, report templates, links to the quotes and invoices workbook.

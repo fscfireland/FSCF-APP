@@ -8,6 +8,7 @@ import {
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
+import { exportProjectPdf } from './report.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today } from './ui.js';
 
@@ -400,8 +401,21 @@ function renderExportTab(body, project, plans, doors) {
       <button class="btn" id="backup">Save backup of this project</button>
     </section>
     <section class="panel">
-      <h2 class="h2">Client PDF report</h2>
-      <p class="muted">Coming next: a client-facing report with the plan, pins, photos and defects.</p>
+      <h2 class="h2">${icon('report')} Client PDF report</h2>
+      <p>A report for the client with these sections:</p>
+      <ul class="sheet-list">
+        <li>Cover page with the headline figures</li>
+        <li>Summary charts: door status pie, failure rate by inspection check, most common defects</li>
+        <li>Each plan marked up with numbered, colour-coded pins</li>
+        <li>Door schedule</li>
+        <li>A page per door with its plan location, checklist, defects, actions and photos</li>
+      </ul>
+      <div class="opt-list">
+        <label class="check-line"><input type="checkbox" id="pdf-photos" checked> Include photos</label>
+        <label class="check-line"><input type="checkbox" id="pdf-pass" checked> Include a page for doors that passed</label>
+        <label class="check-line"><input type="checkbox" id="pdf-costs"> Include material costs <span class="muted">(leave off for the client copy)</span></label>
+      </div>
+      <button class="btn primary" id="pdf">${icon('download')} Export PDF report</button>
     </section>
     <section class="panel danger-zone">
       <button class="btn ghost danger-text" id="del-proj">${icon('trash')} Delete project</button>
@@ -415,6 +429,19 @@ function renderExportTab(body, project, plans, doors) {
     } catch (e) {
       b.done();
       toast(e.message, 'error');
+    }
+  };
+  $('#pdf').onclick = async () => {
+    const b = busy('Building PDF report…');
+    try {
+      const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: $('#pdf-costs').checked };
+      const r = await exportProjectPdf(project, lists, opts, b.update);
+      b.done();
+      if (r === 'saved') toast('PDF report saved');
+    } catch (e) {
+      b.done();
+      console.error(e);
+      toast('Could not build the PDF: ' + e.message, 'error');
     }
   };
   $('#backup').onclick = async () => {
