@@ -11,14 +11,80 @@ export const STATUSES = [
 
 export const statusById = Object.fromEntries(STATUSES.map((s) => [s.id, s]));
 
-export const ACTIONS = [
-  '',
+// Recommended actions — a door can have several. Edit the list in Settings.
+export const DEFAULT_ACTIONS = [
   'No action required',
   'Repair / upgrade on site',
   'Replace door leaf',
   'Replace complete door set',
+  'Replace ironmongery',
+  'Fit new intumescent / smoke seals',
+  'Adjust or replace door closer',
+  'Fire stop around frame',
+  'Fit signage',
   'Further investigation required',
+  'Refer to client – no access',
 ];
+
+// Inspection questions asked of every door (Pass / Fail / N/A).
+// Each has a fixed id so answers survive if the wording is edited.
+export const DEFAULT_QUESTIONS = [
+  { id: 'q-close', text: 'Door self-closes fully and latches from any angle' },
+  { id: 'q-gaps', text: 'Leaf-to-frame gaps within 2–4 mm (threshold within limits)' },
+  { id: 'q-seals', text: 'Intumescent strips and smoke seals present and undamaged' },
+  { id: 'q-hinges', text: 'Minimum 3 hinges, secure, CE marked, all screws fitted' },
+  { id: 'q-iron', text: 'Ironmongery fire-rated and working (lock, latch, handles)' },
+  { id: 'q-glazing', text: 'Glazing and beads fire-rated and intact' },
+  { id: 'q-leaf', text: 'Leaf and frame free of damage or unauthorised modifications' },
+  { id: 'q-sign', text: 'Fire door signage present on both faces' },
+];
+
+// Materials catalogue. Prices are left at 0 for you to enter your own
+// (ex VAT) in Settings; they then pre-fill each door.
+export const DEFAULT_MATERIALS = [
+  { id: 'm-int10', name: 'Intumescent strip 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int15s', name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-closer', name: 'Overhead door closer EN 1154', unit: 'each', cost: 0 },
+  { id: 'm-hinge', name: 'Fire-rated hinge EN 1935 (Grade 13)', unit: 'each', cost: 0 },
+  { id: 'm-hpad', name: 'Intumescent hinge pads', unit: 'pack', cost: 0 },
+  { id: 'm-drop', name: 'Automatic drop-down seal', unit: 'each', cost: 0 },
+  { id: 'm-thresh', name: 'Threshold strip / seal', unit: 'each', cost: 0 },
+  { id: 'm-mastic', name: 'Intumescent sealant 310 ml', unit: 'tube', cost: 0 },
+  { id: 'm-lip', name: 'Hardwood lipping', unit: 'length', cost: 0 },
+  { id: 'm-holdopen', name: 'Hold-open device EN 1155', unit: 'each', cost: 0 },
+  { id: 'm-sign', name: 'Fire Door Keep Shut sign', unit: 'each', cost: 0 },
+  { id: 'm-latch', name: 'Fire-rated latch / lock', unit: 'each', cost: 0 },
+];
+
+export const ANSWERS = [
+  { id: 'pass', label: 'Pass' },
+  { id: 'fail', label: 'Fail' },
+  { id: 'na', label: 'N/A' },
+];
+
+// Older records stored one action as a string; newer ones store a list.
+export function doorActions(d) {
+  if (Array.isArray(d.actions)) return d.actions;
+  return d.action ? [d.action] : [];
+}
+
+export function materialsTotal(d) {
+  return (d.materials || []).reduce((t, m) => t + (Number(m.qty) || 0) * (Number(m.cost) || 0), 0);
+}
+
+const eur = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR' });
+export const euro = (n) => eur.format(Number(n) || 0);
+
+// The questions to show for a door: the current list, plus any the door
+// answered that have since been removed from Settings.
+export function questionsFor(d, questions) {
+  questions = questions.filter((q) => q.text?.trim());
+  const ids = new Set(questions.map((q) => q.id));
+  const extra = Object.entries(d.checks || {})
+    .filter(([id, v]) => !ids.has(id) && v?.answer)
+    .map(([id, v]) => ({ id, text: v.text, removed: true }));
+  return [...questions, ...extra];
+}
 
 // FD terms are what most clients still use; EI ratings are the
 // I.S. EN 13501-2 classifications (tested to I.S. EN 1634-1).

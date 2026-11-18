@@ -13,9 +13,12 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
   To move a pin, open it and tap **Move pin**, then drag it or tap the new spot.
 - **Door record**: door ref, location, door type (FD30/EI 30 etc.), leaf configuration, status, photos (camera or gallery), defects with suggested remedial work and quantity, recommended action, notes, and inspected on/by. It saves as you type.
   Adding a defect to a door that's "Not inspected" or "Pass" sets it to "Fail" automatically.
+- **Inspection questions**: a checklist set up in Settings, answered Pass / Fail / N/A for each door. "Mark rest Pass" fills in any unanswered questions as Pass. A Fail answer sets the door to Fail.
+- **Recommended actions**: each door can have several, picked from your list or typed in. Actions you type are saved to the list for next time.
+- **Materials**: a priced materials list in Settings. Each door shows quantity × unit cost per line and a door total (€ ex VAT).
 - **Door list**: all doors on a project, with status filter chips and counts, plus search.
-- **Excel export**: Summary, Doors, Defects (pricing) with Qty × Unit rate formulas and a total, and Defect totals.
-- **Settings**: edit the defect list (each with its default remedial wording), door types and the inspector name. You can also back up and restore everything, photos included.
+- **Excel export**: Summary, Doors, Checklist, Defects (pricing), Materials and Material totals (with formulas and totals), and Defect totals.
+- **Settings**: edit the questions, actions, materials and prices, the defect list (each with its default remedial wording), door types and the inspector name. You can also back up and restore everything, photos included.
 
 ## Running it (for developers)
 

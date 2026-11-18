@@ -1,7 +1,10 @@
 // FSCF Doors — main app: screens, navigation and the door record.
 
 import * as db from './db.js';
-import { STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, ACTIONS, drawDemoPlan } from './defaults.js';
+import {
+  STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
+  ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan,
+} from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
@@ -69,7 +72,10 @@ function objUrl(blob) {
 
 async function loadLists() {
   const s = await db.get('settings', 'lists');
-  lists = s || { id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, inspector: '' };
+  lists = {
+    id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
+    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, inspector: '', ...(s || {}),
+  };
   return lists;
 }
 
@@ -209,7 +215,10 @@ async function loadDemo() {
         id: db.uid(), projectId: project.id, planId: plan.id, pinNo: n++, x: d.x, y: d.y, ref: d.ref, location: d.location,
         status: d.status, doorType: d.doorType, leaf: 'Single leaf',
         defects: (d.defects || []).map((i) => ({ ...DEFAULT_DEFECTS[i], qty: 1 })),
-        action: d.defects ? 'Repair / upgrade on site' : '', notes: '', inspectedOn: d.status === 'not_inspected' ? '' : today(), inspectedBy: 'Demo',
+        actions: d.defects ? ['Repair / upgrade on site'] : [],
+        checks: d.status === 'not_inspected' || d.status === 'no_access' ? {} : Object.fromEntries(DEFAULT_QUESTIONS.map((q, i) => [q.id, { text: q.text, answer: d.defects && i % 3 === 1 ? 'fail' : 'pass' }])),
+        materials: d.defects ? [{ id: db.uid(), name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m) — example price', unit: 'length', qty: 3, cost: 6.5 }] : [],
+        notes: '', inspectedOn: d.status === 'not_inspected' ? '' : today(), inspectedBy: 'Demo',
       });
     }
     await db.put('projects', { ...project, nextPin: n });
@@ -362,6 +371,7 @@ function doorRow(d, planName) {
       <span class="dr-side">
         <span class="status-pill" style="--c:${s.color}">${s.short}</span>
         ${nDef ? `<small>${nDef} defect${nDef > 1 ? 's' : ''}</small>` : ''}
+        ${materialsTotal(d) ? `<small class="money">${euro(materialsTotal(d))}</small>` : ''}
       </span>
     </button>`;
 }
@@ -371,8 +381,17 @@ function renderExportTab(body, project, plans, doors) {
   body.innerHTML = `
     <section class="panel">
       <h2 class="h2">${icon('sheet')} Excel for pricing</h2>
-      <p>One workbook with four sheets: <b>Summary</b>, <b>Doors</b> (one row per door), <b>Defects (pricing)</b> (one row per defect with Qty × Unit rate formulas and a total) and <b>Defect totals</b> (how many of each defect on the site).</p>
-      <p class="muted">${doors.length} doors · ${nDef} defects</p>
+      <p>One workbook with these sheets:</p>
+      <ul class="sheet-list">
+        <li><b>Summary</b>: counts and the materials total</li>
+        <li><b>Doors</b>: one row per door, with all its actions</li>
+        <li><b>Checklist</b>: Pass / Fail / N/A for every question</li>
+        <li><b>Defects (pricing)</b>: one row per defect with Qty × Unit rate formulas</li>
+        <li><b>Materials</b>: one row per material with costs and a total</li>
+        <li><b>Material totals</b>: what to order for the whole site</li>
+        <li><b>Defect totals</b>: how many of each defect</li>
+      </ul>
+      <p class="muted">${doors.length} doors · ${nDef} defects · materials ${euro(doors.reduce((t, d) => t + materialsTotal(d), 0))} ex VAT</p>
       <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
     </section>
     <section class="panel">
@@ -390,7 +409,7 @@ function renderExportTab(body, project, plans, doors) {
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
     try {
-      const r = await exportProjectXlsx(project);
+      const r = await exportProjectXlsx(project, lists.questions || []);
       b.done();
       if (r === 'saved') toast('Excel file saved');
     } catch (e) {
@@ -506,7 +525,7 @@ async function onPlanTap(x, y) {
     const pinNo = await db.nextPinNo(state.projectId);
     const door = await db.put('doors', {
       id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y,
-      ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], action: '', notes: '',
+      ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
       inspectedOn: '', inspectedBy: lists.inspector || '',
     });
     setMode(null);
@@ -595,6 +614,13 @@ async function drawSheet(door) {
       </div>
 
       <section class="block">
+        <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
+          <button class="btn sm" id="q-rest">${icon('check')} Mark rest Pass</button>
+        </div>
+        <div class="q-list" id="questions"></div>
+      </section>
+
+      <section class="block">
         <div class="block-head"><h3>Photos</h3>
           <div class="row-btns">
             <label class="btn sm">${icon('camera')} Camera<input type="file" accept="image/*" capture="environment" id="ph-cam" hidden></label>
@@ -611,9 +637,20 @@ async function drawSheet(door) {
         <div id="defects"></div>
       </section>
 
-      <label class="field"><span>Recommended action</span>
-        <select id="f-action" data-k="action">${ACTIONS.map((a) => `<option value="${esc(a)}" ${a === (door.action || '') ? 'selected' : ''}>${esc(a || 'Select…')}</option>`).join('')}</select>
-      </label>
+      <section class="block">
+        <div class="block-head"><h3>Recommended actions <span class="muted" id="act-n"></span></h3>
+          <button class="btn sm" id="add-action">${icon('plus')} Add action</button>
+        </div>
+        <div id="actions"></div>
+      </section>
+
+      <section class="block">
+        <div class="block-head"><h3>Materials</h3>
+          <button class="btn sm" id="add-material">${icon('plus')} Add material</button>
+        </div>
+        <div id="materials"></div>
+      </section>
+
       <label class="field"><span>Notes</span><textarea id="f-notes" data-k="notes" rows="3" placeholder="Anything else about this door">${esc(door.notes)}</textarea></label>
       <div class="grid2">
         <label class="field"><span>Inspected on</span><input type="date" id="f-on" data-k="inspectedOn" value="${esc(door.inspectedOn)}"></label>
@@ -643,6 +680,21 @@ async function drawSheet(door) {
       $('#f-on').value = patch.inspectedOn;
     }
     queue(patch);
+  };
+
+  // A door with defects or failed questions has failed — set that
+  // automatically if it is still "Not inspected" or marked "Pass".
+  const autoFail = (patch) => {
+    if (['not_inspected', 'pass'].includes(current.status || 'not_inspected')) {
+      patch.status = 'fail';
+      $(`input[name=status][value=fail]`, el).checked = true;
+      $('#sh-badge').style.setProperty('--pin', statusById.fail.color);
+    }
+    if (!current.inspectedOn) {
+      patch.inspectedOn = today();
+      $('#f-on').value = patch.inspectedOn;
+    }
+    return patch;
   };
 
   $('#sh-close').onclick = () => back();
@@ -693,18 +745,116 @@ async function drawSheet(door) {
     if (!picked) return;
     const defects = [...(current.defects || []), ...picked.map((d) => ({ ...d, qty: 1 }))];
     const patch = { defects };
-    // A door with defects has failed — set that automatically if not yet inspected or marked pass
-    if (picked.length && ['not_inspected', 'pass'].includes(current.status || 'not_inspected')) {
-      patch.status = 'fail';
-      $(`input[name=status][value=fail]`, el).checked = true;
-      $('#sh-badge').style.setProperty('--pin', statusById.fail.color);
-      if (!current.inspectedOn) {
-        patch.inspectedOn = today();
-        $('#f-on').value = patch.inspectedOn;
-      }
-    }
+    if (picked.length) autoFail(patch);
     queue(patch);
     drawDefects();
+  };
+
+  // inspection questions
+  const drawQuestions = () => {
+    const qs = questionsFor(current, lists.questions || []);
+    const checks = current.checks || {};
+    const answered = qs.filter((q) => checks[q.id]?.answer).length;
+    const fails = qs.filter((q) => checks[q.id]?.answer === 'fail').length;
+    $('#q-n').textContent = qs.length ? `(${answered}/${qs.length}${fails ? ` · ${fails} fail` : ''})` : '';
+    $('#q-rest').hidden = !qs.length || answered === qs.length;
+    $('#questions').innerHTML = qs.length
+      ? qs.map((q, i) => {
+        const a = checks[q.id]?.answer || '';
+        return `
+        <div class="q-row ${a ? 'is-' + a : ''}" data-id="${esc(q.id)}">
+          <span class="q-text"><span class="q-no">${i + 1}</span>${esc(q.text)}${q.removed ? ' <small class="muted">(removed from list)</small>' : ''}</span>
+          <span class="q-ans" role="group" aria-label="Answer">
+            ${ANSWERS.map((x) => `<button type="button" class="q-btn q-${x.id}" data-a="${x.id}" aria-pressed="${a === x.id}">${x.label}</button>`).join('')}
+          </span>
+        </div>`;
+      }).join('')
+      : '<p class="muted small">No questions set up. Add them in Settings.</p>';
+    $$('.q-row', el).forEach((row) => {
+      $$('.q-btn', row).forEach((b) => (b.onclick = () => {
+        const q = qs.find((x) => x.id === row.dataset.id);
+        const checks = { ...(current.checks || {}) };
+        const prev = checks[q.id]?.answer;
+        if (prev === b.dataset.a) delete checks[q.id]; // tap again to clear
+        else checks[q.id] = { text: q.text, answer: b.dataset.a };
+        const patch = { checks };
+        if (b.dataset.a === 'fail' && prev !== 'fail') autoFail(patch);
+        else if (!current.inspectedOn) { patch.inspectedOn = today(); $('#f-on').value = patch.inspectedOn; }
+        queue(patch);
+        drawQuestions();
+      }));
+    });
+  };
+  drawQuestions();
+  $('#q-rest').onclick = () => {
+    const checks = { ...(current.checks || {}) };
+    for (const q of questionsFor(current, lists.questions || [])) {
+      if (!checks[q.id]?.answer) checks[q.id] = { text: q.text, answer: 'pass' };
+    }
+    const patch = { checks };
+    if (!current.inspectedOn) { patch.inspectedOn = today(); $('#f-on').value = patch.inspectedOn; }
+    queue(patch);
+    drawQuestions();
+  };
+
+  // recommended actions (several per door)
+  const drawActions = () => {
+    const list = doorActions(current);
+    $('#act-n').textContent = list.length ? `(${list.length})` : '';
+    $('#actions').innerHTML = list.length
+      ? `<div class="tag-list">${list.map((a, i) => `<span class="tag" data-i="${i}">${esc(a)}<button type="button" class="tag-x" aria-label="Remove ${esc(a)}">${icon('close')}</button></span>`).join('')}</div>`
+      : '<p class="muted small">No actions added.</p>';
+    $$('.tag', el).forEach((t) => ($('.tag-x', t).onclick = () => {
+      const actions = doorActions(current).filter((_, j) => j !== Number(t.dataset.i));
+      queue({ actions, action: '' });
+      drawActions();
+    }));
+  };
+  drawActions();
+  $('#add-action').onclick = async () => {
+    const picked = await pickActions(doorActions(current));
+    if (!picked?.length) return;
+    queue({ actions: [...doorActions(current), ...picked], action: '' });
+    drawActions();
+  };
+
+  // materials with costs
+  const drawMaterials = () => {
+    const list = current.materials || [];
+    $('#materials').innerHTML = list.length
+      ? list.map((m, i) => `
+        <div class="mat" data-i="${i}">
+          <div class="defect-top"><b>${esc(m.name)}</b><button class="icon-btn sm mat-del" aria-label="Remove material">${icon('close')}</button></div>
+          <div class="mat-fields">
+            <label class="field"><span>Qty${m.unit ? ' (' + esc(m.unit) + ')' : ''}</span><input type="number" inputmode="decimal" min="0" step="any" class="mat-qty" id="mat-qty-${i}" value="${esc(m.qty ?? 1)}"></label>
+            <label class="field"><span>Unit cost €</span><input type="number" inputmode="decimal" min="0" step="0.01" class="mat-cost" id="mat-cost-${i}" value="${esc(m.cost ?? 0)}"></label>
+            <div class="mat-line"><span>Line</span><b class="mat-total">${euro((Number(m.qty) || 0) * (Number(m.cost) || 0))}</b></div>
+          </div>
+        </div>`).join('') + `<div class="mat-sum"><span>Materials total <small class="muted">ex VAT</small></span><b id="mat-sum">${euro(materialsTotal(current))}</b></div>`
+      : '<p class="muted small">No materials added.</p>';
+    $$('.mat', el).forEach((row) => {
+      const i = Number(row.dataset.i);
+      const upd = () => {
+        const materials = current.materials.map((m, j) => (j === i ? { ...m, qty: Number($('.mat-qty', row).value) || 0, cost: Number($('.mat-cost', row).value) || 0 } : m));
+        queue({ materials });
+        const m = materials[i];
+        $('.mat-total', row).textContent = euro(m.qty * m.cost);
+        $('#mat-sum').textContent = euro(materialsTotal(current));
+      };
+      $('.mat-qty', row).oninput = upd;
+      $('.mat-cost', row).oninput = upd;
+      $('.mat-del', row).onclick = () => {
+        queue({ materials: current.materials.filter((_, j) => j !== i) });
+        drawMaterials();
+      };
+    });
+  };
+  drawMaterials();
+  $('#add-material').onclick = async () => {
+    const picked = await pickMaterials();
+    if (!picked?.length) return;
+    queue({ materials: [...(current.materials || []), ...picked] });
+    drawMaterials();
   };
 
   // photos
@@ -790,6 +940,71 @@ async function pickDefects(existing) {
   return picked;
 }
 
+async function pickActions(existing) {
+  const have = new Set(existing);
+  const r = await dialog({
+    title: 'Add actions',
+    body: `
+      <label class="field"><span>Other action (type your own)</span><input name="custom" id="act-custom" placeholder="e.g. Replace vision panel"></label>
+      <label class="check-line"><input type="checkbox" name="keep" id="act-keep" checked> Add my own action to the list for next time</label>
+      <div class="pick-list">
+        ${(lists.actions || []).map((a, i) => `
+          <label class="pick ${have.has(a) ? 'is-had' : ''}">
+            <input type="checkbox" name="a${i}" value="${i}" ${have.has(a) ? 'disabled' : ''}>
+            <span><b>${esc(a)}</b></span>
+          </label>`).join('')}
+      </div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Add selected', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return null;
+  const picked = Object.entries(r.data).filter(([k]) => /^a\d+$/.test(k)).map(([, v]) => lists.actions[Number(v)]);
+  const custom = (r.data.custom || '').trim();
+  if (custom && !have.has(custom)) {
+    picked.push(custom);
+    if (r.data.keep && !(lists.actions || []).includes(custom)) await saveLists({ actions: [...(lists.actions || []), custom] });
+  }
+  return picked;
+}
+
+async function pickMaterials() {
+  const r = await dialog({
+    title: 'Add materials',
+    body: `
+      <div class="pick-list">
+        ${(lists.materials || []).map((m, i) => !m.name?.trim() ? "" : `
+          <label class="pick">
+            <input type="checkbox" name="m${i}" value="${i}">
+            <span><b>${esc(m.name)}</b><small>${m.cost ? euro(m.cost) + ' per ' + esc(m.unit || 'item') : 'No price set · per ' + esc(m.unit || 'item')}</small></span>
+          </label>`).join('')}
+      </div>
+      <fieldset class="custom-mat">
+        <legend>Other material</legend>
+        <label class="field"><span>Name</span><input name="cname" id="mat-cname" placeholder="e.g. Fire-rated letter plate"></label>
+        <div class="grid3">
+          <label class="field"><span>Unit</span><input name="cunit" id="mat-cunit" placeholder="each"></label>
+          <label class="field"><span>Qty</span><input name="cqty" id="mat-cqty" type="number" inputmode="decimal" min="0" step="any" value="1"></label>
+          <label class="field"><span>Unit cost €</span><input name="ccost" id="mat-ccost" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00"></label>
+        </div>
+        <label class="check-line"><input type="checkbox" name="keep" id="mat-keep" checked> Add to my materials list for next time</label>
+      </fieldset>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Add selected', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return null;
+  const picked = Object.entries(r.data).filter(([k]) => /^m\d+$/.test(k)).map(([, v]) => {
+    const m = lists.materials[Number(v)];
+    return { id: db.uid(), name: m.name, unit: m.unit || '', qty: 1, cost: Number(m.cost) || 0 };
+  });
+  const name = (r.data.cname || '').trim();
+  if (name) {
+    const m = { name, unit: (r.data.cunit || '').trim() || 'each', cost: Number(r.data.ccost) || 0 };
+    picked.push({ id: db.uid(), ...m, qty: Number(r.data.cqty) || 1 });
+    if (r.data.keep && !(lists.materials || []).some((x) => x.name === name)) {
+      await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), ...m }] });
+    }
+  }
+  return picked;
+}
+
 function openPhoto(photo, onChange) {
   const wrap = document.createElement('div');
   wrap.className = 'lightbox';
@@ -828,6 +1043,20 @@ async function renderSettings() {
         <label class="field"><span>Inspector name (fills "Inspected by")</span><input id="s-insp" value="${esc(lists.inspector || '')}" placeholder="e.g. Mark Crosby"></label>
       </section>
       <section class="panel">
+        <div class="block-head"><h2 class="h2">Inspection questions</h2><button class="btn sm" id="s-add-q">${icon('plus')} Add</button></div>
+        <p class="muted small">Asked of every door, answered Pass / Fail / N/A. Answers already given are kept if you edit or remove a question.</p>
+        <div id="s-qs"></div>
+      </section>
+      <section class="panel">
+        <h2 class="h2">Recommended actions</h2>
+        <label class="field"><span>One per line (each door can have several)</span><textarea id="s-actions" rows="8">${esc((lists.actions || []).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel">
+        <div class="block-head"><h2 class="h2">Materials &amp; prices</h2><button class="btn sm" id="s-add-m">${icon('plus')} Add</button></div>
+        <p class="muted small">Your unit prices (€ ex VAT). They pre-fill doors when you add a material; changing a price here does not change doors already recorded.</p>
+        <div id="s-mats"></div>
+      </section>
+      <section class="panel">
         <h2 class="h2">Door types</h2>
         <label class="field"><span>One per line</span><textarea id="s-types" rows="8">${esc((lists.doorTypes || []).join('\n'))}</textarea></label>
       </section>
@@ -850,6 +1079,61 @@ async function renderSettings() {
   $('#back').onclick = back;
   $('#s-insp').onchange = (e) => saveLists({ inspector: e.target.value });
   $('#s-types').onchange = (e) => saveLists({ doorTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+  $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+
+  const drawQs = () => {
+    $('#s-qs').innerHTML = (lists.questions || []).map((q, i) => `
+      <div class="q-edit" data-i="${i}">
+        <span class="q-no">${i + 1}</span>
+        <textarea class="qe-text" id="qe-text-${i}" rows="2" aria-label="Question ${i + 1}">${esc(q.text)}</textarea>
+        <span class="q-edit-btns">
+          <button class="icon-btn sm qe-up" aria-label="Move up" ${i ? '' : 'disabled'}>${icon('up')}</button>
+          <button class="icon-btn sm qe-del" aria-label="Remove">${icon('trash')}</button>
+        </span>
+      </div>`).join('') || '<p class="muted small">No questions.</p>';
+    $$('.q-edit').forEach((row) => {
+      const i = Number(row.dataset.i);
+      $('.qe-text', row).onchange = (e) => saveLists({ questions: lists.questions.map((q, j) => (j === i ? { ...q, text: e.target.value } : q)) });
+      $('.qe-del', row).onclick = async () => { await saveLists({ questions: lists.questions.filter((_, j) => j !== i) }); drawQs(); };
+      $('.qe-up', row).onclick = async () => {
+        const qs = [...lists.questions];
+        [qs[i - 1], qs[i]] = [qs[i], qs[i - 1]];
+        await saveLists({ questions: qs });
+        drawQs();
+      };
+    });
+  };
+  drawQs();
+  $('#s-add-q').onclick = async () => {
+    await saveLists({ questions: [...(lists.questions || []), { id: db.uid(), text: '' }] });
+    drawQs();
+    $$('.qe-text').at(-1)?.focus();
+  };
+
+  const drawMats = () => {
+    $('#s-mats').innerHTML = (lists.materials || []).map((m, i) => `
+      <div class="m-edit" data-i="${i}">
+        <input class="me-name" id="me-name-${i}" value="${esc(m.name)}" aria-label="Material" placeholder="Material">
+        <input class="me-unit" id="me-unit-${i}" value="${esc(m.unit)}" aria-label="Unit" placeholder="unit">
+        <label class="me-cost"><span>€</span><input id="me-cost-${i}" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(m.cost || '')}" placeholder="0.00" aria-label="Unit cost in euro"></label>
+        <button class="icon-btn sm me-del" aria-label="Remove">${icon('trash')}</button>
+      </div>`).join('') || '<p class="muted small">No materials.</p>';
+    $$('.m-edit').forEach((row) => {
+      const i = Number(row.dataset.i);
+      const upd = () => saveLists({
+        materials: lists.materials.map((m, j) => (j === i ? { ...m, name: $('.me-name', row).value, unit: $('.me-unit', row).value, cost: Number($('.me-cost input', row).value) || 0 } : m)),
+      });
+      $$('input', row).forEach((inp) => (inp.onchange = upd));
+      $('.me-del', row).onclick = async () => { await saveLists({ materials: lists.materials.filter((_, j) => j !== i) }); drawMats(); };
+    });
+  };
+  drawMats();
+  $('#s-add-m').onclick = async () => {
+    await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), name: '', unit: 'each', cost: 0 }] });
+    drawMats();
+    $$('.me-name').at(-1)?.focus();
+  };
+
   const drawDefs = () => {
     $('#s-defs').innerHTML = (lists.defects || []).map((d, i) => `
       <div class="def-edit" data-i="${i}">
