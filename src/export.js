@@ -8,6 +8,7 @@ import { loadSheetJS, saveFile, safeName } from './files.js';
 import { photoInView } from './history.js';
 import { doorViews } from './filters.js';
 import { fmtDate } from './ui.js';
+import { remedialItems } from './remedial.js';
 
 const EURO = '"€"#,##0.00';
 
@@ -58,7 +59,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
     ['Exported', new Date().toLocaleString('en-IE')],
     [],
     ['Doors recorded', doors.length],
-    ...statusesInUse(doors).map((s) => [s.label, counts[s.id] || 0]),
+    ...statusesInUse(doors).map((s) => [s.label, counts[s.id] || 0, doors.length ? `${Math.round(((counts[s.id] || 0) / doors.length) * 100)}%` : '0%']),
     [],
     ['Defects recorded', defectRows.length],
     ['Materials total (€ ex VAT)', matTotal],
@@ -231,4 +232,78 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const filename = `FSCF_${safeName(project.site || project.client)}_${(project.date || new Date().toISOString().slice(0, 10))}${opts.filterText ? '_filtered' : ''}.xlsx`;
   return saveFile(filename, blob);
+}
+
+
+// Repairs workbook: Summary · Repair items (one row per item) · By door
+export async function exportRemedialXlsx(project, opts = {}) {
+  const XLSX = await loadSheetJS();
+  useScheme(project);
+  const doors = opts.doors || [];
+  const planName = Object.fromEntries((opts.plans || []).map((p) => [p.id, p.name]));
+  const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE') : '');
+  const rows = [];
+  const byDoor = [];
+  for (const d of doors) {
+    const items = remedialItems(d);
+    let nd = 0;
+    for (const it of items) {
+      const r = d.remedials?.[it.key];
+      if (r?.done) nd++;
+      rows.push([
+        d.pinNo ?? '', d.ref || '', d.location || '', planName[d.planId] || (d.planId ? '' : 'Not on a drawing'), d.doorType || '',
+        d.zoneNo || '', d.category || '', it.text, it.sub, it.qty || 1, r?.done ? 'Yes' : 'No', r?.done ? r.by || '' : '', r?.done ? day(r.at) : '',
+        statusById[d.status || 'not_inspected']?.label || '',
+      ]);
+    }
+    byDoor.push([d.pinNo ?? '', d.ref || '', d.location || '', planName[d.planId] || '', items.length, nd, items.length - nd, items.length ? Math.round((nd / items.length) * 100) : 0, items.length && nd === items.length ? 'Complete' : nd ? 'In progress' : 'Not started']);
+  }
+  const total = rows.length;
+  const done = rows.filter((r) => r[10] === 'Yes').length;
+  const wb = XLSX.utils.book_new();
+  const summary = [
+    ['FSCF Ireland – Remedial works'],
+    [],
+    ['Client', project.client || ''],
+    ['Site', project.site || ''],
+    ['Address', project.address || ''],
+    ['Exported', new Date().toLocaleString('en-IE')],
+    ...(opts.filterText ? [['Covers', opts.filterText]] : []),
+    [],
+    ['Repair items (actions)', total],
+    ['Done', done],
+    ['Outstanding', total - done],
+    ['Actions completed (%)', total ? Math.round((done / total) * 1000) / 10 : 0],
+    ['Doors with repairs', byDoor.length],
+    ['Doors complete', byDoor.filter((r) => r[8] === 'Complete').length],
+    [],
+    ['Repairer confirmation', opts.ack ? `Confirmed by ${opts.ack.by || ''} on ${day(opts.ack.at)}` : 'Not confirmed'],
+    ['Instructions', opts.instructions || ''],
+  ];
+  const ws0 = XLSX.utils.aoa_to_sheet(summary);
+  ws0['!cols'] = [{ wch: 24 }, { wch: 100 }];
+  XLSX.utils.book_append_sheet(wb, ws0, 'Summary');
+  const head = ['Pin', 'Door ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Category', 'Work required', 'Defect / reason', 'Qty', 'Done', 'Done by', 'Date done', 'Door status'];
+  const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows]);
+  ws1['!cols'] = [6, 12, 22, 16, 16, 8, 16, 55, 40, 6, 7, 16, 12, 14].map((wch) => ({ wch }));
+  ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, rows.length), c: head.length - 1 } }) };
+  XLSX.utils.book_append_sheet(wb, ws1, 'Repair items');
+  const ws2 = XLSX.utils.aoa_to_sheet([['Pin', 'Door ref', 'Location / room', 'Plan / level', 'Items', 'Done', 'Outstanding', '% complete', 'Progress'], ...byDoor]);
+  ws2['!cols'] = [6, 12, 22, 16, 7, 7, 11, 11, 12].map((wch) => ({ wch }));
+  XLSX.utils.book_append_sheet(wb, ws2, 'By door');
+  const types = new Map();
+  for (const r of rows) {
+    const k = r[8] === 'Recommended action' ? `Action: ${r[7]}` : r[8] || r[7];
+    const x = types.get(k) || { total: 0, done: 0 };
+    x.total++;
+    if (r[10] === 'Yes') x.done++;
+    types.set(k, x);
+  }
+  const ws3 = XLSX.utils.aoa_to_sheet([['Type of repair', 'Total', 'Done', 'Outstanding', '% complete'],
+    ...[...types.entries()].sort((a, b) => b[1].total - a[1].total).map(([k, x]) => [k, x.total, x.done, x.total - x.done, Math.round((x.done / x.total) * 100)])]);
+  ws3['!cols'] = [{ wch: 55 }, { wch: 7 }, { wch: 7 }, { wch: 11 }, { wch: 11 }];
+  XLSX.utils.book_append_sheet(wb, ws3, 'By repair type');
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  return saveFile(`FSCF_Remedial_works_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
 }

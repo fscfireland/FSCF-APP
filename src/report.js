@@ -137,6 +137,44 @@ async function planCrop(bmp, plan, door) {
 // Pie (donut) of door status. White gaps between slices; every slice is
 // named with its count and % in the legend beside it, so colour is never
 // the only cue.
+// Horizontal bar chart drawn as vector shapes: thin bars from a square
+// baseline with a rounded end, recessive gridlines, value at the bar end.
+function drawBars(doc, rows, x0, y0, width, { max = 100, unit = '%', labelW = 78 } = {}) {
+  const barH = 4.2;
+  const gap = 2.6;
+  const plotX = x0 + labelW;
+  const plotW = width - labelW - 18;
+  const h = rows.length * (barH + gap);
+  doc.setDrawColor(...C.line);
+  doc.setLineWidth(0.2);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...C.muted);
+  for (let i = 0; i <= 4; i++) {
+    const gx = plotX + (plotW * i) / 4;
+    doc.line(gx, y0 - 1, gx, y0 + h);
+    doc.text(`${Math.round((max * i) / 4)}${unit}`, gx, y0 + h + 4, { align: 'center' });
+  }
+  rows.forEach((r, i) => {
+    const by = y0 + i * (barH + gap);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...C.ink);
+    const lab = doc.splitTextToSize(t(r.label), labelW - 4);
+    doc.text(lab.length > 1 ? lab[0].replace(/\s*$/, '…') : lab[0], x0, by + barH * 0.78);
+    const w = Math.max(0, (r.value / max) * plotW);
+    if (w > 0) {
+      doc.setFillColor(...(r.color || C.bar));
+      const rad = Math.min(0.9, w / 2);
+      doc.roundedRect(plotX, by, w, barH, rad, rad, 'F');
+      doc.rect(plotX, by, Math.max(0, w - rad), barH, 'F');
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.text(t(r.display), plotX + w + 1.8, by + barH * 0.78);
+  });
+  return y0 + h + 9;
+}
+
 function donutPng(parts, sizePx = 600) {
   const c = document.createElement('canvas');
   c.width = c.height = sizePx;
@@ -750,7 +788,8 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   font('bold', 10, [255, 255, 255]);
   text('FSCF IRELAND', M, 12);
   font('bold', 18, [255, 255, 255]);
-  text('Remedial works sheet', M, 23);
+  const isReport = opts.mode === 'report';
+  text(isReport ? 'Remedial works completion report' : 'Remedial works sheet', M, 23);
   y = 40;
   font('bold', 14);
   doc.text(doc.splitTextToSize(t(project.site || 'Site'), CW), M, y);
@@ -766,7 +805,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   // instructions box
   font('normal', 9.5, C.ink);
   const lines = doc.splitTextToSize(t(opts.instructions || ''), CW - 10);
-  const boxH = lines.length * 4.3 + 42;
+  const boxH = lines.length * 4.3 + 33;
   doc.setDrawColor(...C.ink);
   doc.setLineWidth(0.4);
   doc.setFillColor(...C.soft);
@@ -800,9 +839,100 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   const all = doors.map((d) => ({ d, items: remedialItems(d) }));
   const total = all.reduce((n, x) => n + x.items.length, 0);
   const done = all.reduce((n, x) => n + x.items.filter((i) => x.d.remedials?.[i.key]?.done).length, 0);
-  font('normal', 10, C.ink);
-  text(`${doors.length} door(s) · ${total} repair item(s) · ${done} already done`, M, y);
-  y += 6;
+  const doorsDone = all.filter((x) => x.items.length && x.items.every((i) => x.d.remedials?.[i.key]?.done)).length;
+  // headline figures, progress bar, then a pie and a bar chart
+  const pctDone = total ? Math.round((done / total) * 100) : 0;
+  const tiles = [
+    ['Actions completed', `${pctDone}%`],
+    ['Repair items done', `${done} of ${total}`],
+    ['Doors complete', `${doorsDone} of ${all.length}`],
+  ];
+  const tw = (CW - 8) / 3;
+  tiles.forEach(([label, val], i) => {
+    const x = M + i * (tw + 4);
+    doc.setFillColor(...C.soft);
+    doc.roundedRect(x, y, tw, 20, 2, 2, 'F');
+    font('bold', 16, C.ink);
+    text(val, x + 5, y + 10);
+    font('normal', 8.5, C.ink2);
+    text(label, x + 5, y + 16);
+  });
+  y += 25;
+  doc.setFillColor(...C.line);
+  doc.roundedRect(M, y, CW, 4, 2, 2, 'F');
+  if (pctDone) {
+    doc.setFillColor(...STATUS_RGB.pass);
+    doc.roundedRect(M, y, Math.max(4, (CW * pctDone) / 100), 4, 2, 2, 'F');
+  }
+  y += 8;
+  font('normal', 9, C.ink2);
+  text(`${pctDone}% of actions completed: ${done} of ${total} repair items, ${total - done} outstanding on ${all.length - doorsDone} door(s).`, M, y + 2);
+  y += 8;
+
+  // charts: on this page if they fit, otherwise on the next
+  const byType = new Map();
+  for (const { d, items } of all) {
+    for (const it of items) {
+      const k = it.key.startsWith('a:') ? `Action: ${it.text}` : it.sub || it.text;
+      const row = byType.get(k) || { total: 0, done: 0 };
+      row.total++;
+      if (d.remedials?.[it.key]?.done) row.done++;
+      byType.set(k, row);
+    }
+  }
+  const typeRows = [...byType.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 12);
+  const chartsH = 62 + 12 + typeRows.length * 6.8 + 10;
+  if (total && y + chartsH > A4.h - M - 8) {
+    doc.addPage('a4', 'portrait');
+    y = M;
+  }
+  if (total) {
+    font('bold', 11);
+    text('Progress of remedial actions', M, y + 3);
+    y += 6;
+    const parts = [
+      { label: 'Completed', value: done, color: STATUS_RGB.pass },
+      { label: 'Outstanding', value: total - done, color: STATUS_RGB.no_access },
+    ].filter((x) => x.value);
+    const size = 52;
+    doc.addImage(donutPng(parts), 'PNG', M, y, size, size);
+    font('bold', 15);
+    text(`${pctDone}%`, M + size / 2, y + size / 2 + 1, { align: 'center' });
+    font('normal', 7.5, C.ink2);
+    text('completed', M + size / 2, y + size / 2 + 5.5, { align: 'center' });
+    let ly = y + 12;
+    const lx = M + size + 12;
+    font('bold', 8.5, C.ink2);
+    text('Actions', lx + 7, ly);
+    text('Items', lx + 62, ly, { align: 'right' });
+    text('% of total', lx + 86, ly, { align: 'right' });
+    ly += 3;
+    doc.setDrawColor(...C.line);
+    doc.line(lx, ly, lx + 88, ly);
+    ly += 6;
+    for (const x of [{ label: 'Completed', value: done, color: STATUS_RGB.pass }, { label: 'Outstanding', value: total - done, color: STATUS_RGB.no_access }]) {
+      doc.setFillColor(...x.color);
+      doc.roundedRect(lx, ly - 3.4, 4, 4, 0.8, 0.8, 'F');
+      font('normal', 10, C.ink);
+      text(x.label, lx + 7, ly);
+      font('bold', 10, C.ink);
+      text(String(x.value), lx + 62, ly, { align: 'right' });
+      font('normal', 10, C.ink2);
+      text(`${total ? Math.round((x.value / total) * 100) : 0}%`, lx + 86, ly, { align: 'right' });
+      ly += 7.5;
+    }
+    font('bold', 10, C.ink);
+    text('Total actions', lx + 7, ly);
+    text(String(total), lx + 62, ly, { align: 'right' });
+    text('100%', lx + 86, ly, { align: 'right' });
+    y += size + 8;
+    font('bold', 11);
+    text('Completion by type of repair', M, y + 3);
+    font('normal', 8.5, C.ink2);
+    text('Share of each type of repair completed (done / total)', M, y + 8);
+    y += 13;
+    y = drawBars(doc, typeRows.map(([label, r]) => ({ label, value: Math.round((r.done / r.total) * 100), display: `${Math.round((r.done / r.total) * 100)}%  (${r.done}/${r.total})`, color: STATUS_RGB.pass })), M, y, CW, { max: 100, unit: '%' });
+  }
 
   // ---- drawings with pins so the doors can be found
   for (const plan of plans) {
@@ -835,8 +965,15 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     doc.roundedRect(M, y, CW, 11, 1.5, 1.5, 'F');
     font('bold', 10.5);
     text(`Pin ${d.pinNo} · ${d.ref || 'No ref'}${d.location ? ' · ' + d.location : ''}`, M + 3, y + 7);
+    if (isReport) {
+      const nd = items.filter((i) => d.remedials?.[i.key]?.done).length;
+      const complete = items.length && nd === items.length;
+      font('bold', 8.5, complete ? STATUS_RGB.pass : STATUS_RGB.no_access);
+      text(complete ? 'COMPLETE' : `${nd} OF ${items.length} DONE`, A4.w - M - 3, y + 3.6, { align: 'right' });
+    }
     font('normal', 8.5, C.ink2);
-    text([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planById[d.planId]?.name].filter(Boolean).join(' · '), A4.w - M - 3, y + 7, { align: 'right' });
+    font('normal', 8.5, C.ink2);
+    text([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planById[d.planId]?.name].filter(Boolean).join(' · '), A4.w - M - 3, y + (isReport ? 8.6 : 7), { align: 'right' });
     y += 13;
     // where the door is: a close-up of its drawing beside the table
     const pl = planById[d.planId];
@@ -860,7 +997,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
       head: [['Done', 'Work required', 'Defect / reason', 'Done by', 'Date']],
       body: items.map((it) => {
         const r = d.remedials?.[it.key];
-        return ['', t(it.text) + (it.qty ? ` (x${it.qty})` : ''), t(it.sub), t(r?.done ? r.by || '' : ''), r?.done && r.at ? new Date(r.at).toLocaleDateString('en-IE') : ''];
+        return ['', t(it.text) + (it.qty ? ` (x${it.qty})` : ''), t(it.sub), t(r?.done ? r.by || '' : isReport ? 'Outstanding' : ''), r?.done && r.at ? new Date(r.at).toLocaleDateString('en-IE') : ''];
       }),
       styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: C.ink, lineColor: C.line, lineWidth: 0.15, minCellHeight: 8 },
       headStyles: { fillColor: C.ink, textColor: [255, 255, 255], fontStyle: 'bold' },
@@ -876,6 +1013,27 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     });
     const sameTablePage = doc.lastAutoTable.finalY > startY;
     y = Math.max(doc.lastAutoTable.finalY, sameTablePage ? startY + mapH : 0) + 7;
+    // completion report: the door's latest photos (up to 3)
+    if (isReport && opts.photos !== false) {
+      const ph = (await db.doorPhotos(d.id)).filter((p) => photoInView(p, { ...d, _current: true })).slice(-3);
+      if (ph.length) {
+        const cellW = (CW - 8) / 3;
+        const cellH = cellW * 0.66;
+        if (y + cellH > A4.h - M - 8) {
+          doc.addPage('a4', 'portrait');
+          y = M;
+        }
+        for (const [i, p] of ph.entries()) {
+          const img = await reportImage(p.kind === 'video' ? p.thumb : p.blob, 800, 0.7);
+          const k = Math.min(cellW / img.w, cellH / img.h);
+          const x = M + i * (cellW + 4);
+          doc.setFillColor(...C.soft);
+          doc.rect(x, y, cellW, cellH, 'F');
+          doc.addImage(img.data, 'JPEG', x + (cellW - img.w * k) / 2, y + (cellH - img.h * k) / 2, img.w * k, img.h * k, undefined, 'FAST');
+        }
+        y += cellH + 7;
+      }
+    }
   }
 
   // footer
@@ -890,5 +1048,5 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   }
   onProgress('Saving PDF…');
   const blob = doc.output('blob');
-  return saveFile(`FSCF_Remedial_works_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.pdf`, blob);
+  return saveFile(`FSCF_Remedial_${isReport ? 'completion_report' : 'works_sheet'}_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.pdf`, blob);
 }

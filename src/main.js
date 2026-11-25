@@ -9,7 +9,7 @@ import {
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
-import { exportProjectXlsx } from './export.js';
+import { exportProjectXlsx, exportRemedialXlsx } from './export.js';
 import { exportProjectPdf, exportRemedialPdf } from './report.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { doorMapURL } from './minimap.js';
@@ -362,8 +362,11 @@ function renderRepairsTab(body, project, plans, doors) {
       <div class="rep-bar"><i style="--w:${prog.items ? (prog.done / prog.items) * 100 : 0}%"></i></div>
       <p><b>${prog.done} of ${prog.items}</b> repair items done · <b>${prog.doorsDone} of ${prog.doorsWith}</b> doors complete</p>
       <div class="row-btns">
-        <button class="btn primary sm" id="rep-pdf">${icon('download')} Remedial works sheet (PDF)</button>
+        <button class="btn primary sm" id="rep-pdf">${icon('download')} Repair sheet for repairer (PDF)</button>
+        <button class="btn sm" id="rep-report">${icon('report')} Completion report (PDF)</button>
+        <button class="btn sm" id="rep-xlsx">${icon('sheet')} Repairs (Excel)</button>
       </div>
+      <p class="muted small rep-out-note">These cover the doors shown below (${show === 'all' ? 'all' : show === 'done' ? 'complete' : 'outstanding'}). Choose <b>All</b> to include every door with repairs.</p>
     </section>
 
     <div class="chips" role="group" aria-label="Show">
@@ -447,23 +450,26 @@ function renderRepairsTab(body, project, plans, doors) {
     const pl = planById[d?.planId];
     if (d && pl) doorMapURL(pl, d, doors.filter((x) => x.planId === pl.id), '#cc2a1f', { w: 640, h: 300 }).then((u) => (img.src = u)).catch(() => img.remove());
   }
-  $('#rep-pdf').onclick = async () => {
-    const list = (state.repShow || 'outstanding') === 'all' ? withWork : shown;
-    if (!list.length) return toast('No doors with remedial works to print.', 'error');
-    const b = busy('Building remedial works sheet…');
+  const repOpts = () => ({
+    doors: shown.map(({ d }) => d), plans, instructions, ack: project.remedialAck,
+    filterText: [state.collText, show === 'outstanding' ? 'Outstanding repairs' : show === 'done' ? 'Completed doors' : ''].filter(Boolean).join(' · '),
+  });
+  const run = async (label, fn) => {
+    if (!shown.length) return toast('No doors with repairs in this list. Choose All to include every door.', 'error');
+    const b = busy(`Building ${label}…`);
     try {
-      const r = await exportRemedialPdf(project, lists, {
-        doors: list.map(({ d }) => d), plans, instructions, ack: project.remedialAck,
-        filterText: [state.collText, show === 'outstanding' ? 'Outstanding items' : show === 'done' ? 'Completed doors' : ''].filter(Boolean).join(' · '),
-      }, b.update);
+      const r = await fn(b.update);
       b.done();
-      if (r === 'saved') toast('Remedial works sheet saved');
+      if (r === 'saved') toast(`${label[0].toUpperCase() + label.slice(1)} saved`);
     } catch (e) {
       b.done();
       console.error(e);
-      toast('Could not build the PDF: ' + e.message, 'error');
+      toast(`Could not build the ${label}: ${e.message}`, 'error');
     }
   };
+  $('#rep-pdf').onclick = () => run('repair sheet', (up) => exportRemedialPdf(project, lists, repOpts(), up));
+  $('#rep-report').onclick = () => run('completion report', (up) => exportRemedialPdf(project, lists, { ...repOpts(), mode: 'report' }, up));
+  $('#rep-xlsx').onclick = () => run('repairs workbook', () => exportRemedialXlsx(project, repOpts()));
 }
 
 async function pickCollection(project, coll) {
