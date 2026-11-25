@@ -2729,7 +2729,7 @@ function setMode(m, doorId = null) {
   if (!banner) return;
   if (m === 'add') {
     banner.hidden = false;
-    banner.innerHTML = `<span>Tap where the ${esc(kitOf(planKind).item.toLowerCase())} is</span><button type="button" class="kind-chip kind-pick k-${planKind}" id="add-kind" aria-label="New pin type: ${esc(kitOf(planKind).name)}. Tap to change">${esc(kitOf(planKind).name)} ${icon('down')}</button><button class="btn sm" id="cancel-mode">Cancel</button>`;
+    banner.innerHTML = `<span>Tap to add</span><button type="button" class="kind-chip kind-pick k-${planKind}" id="add-kind" aria-label="New pin type: ${esc(kitOf(planKind).name)}. Tap to change">${esc(kitOf(planKind).name)} ${icon('down')}</button><button class="btn sm" id="cancel-mode">Cancel</button>`;
     add.classList.add('is-on');
     add.innerHTML = `${icon('close')} Cancel`;
   } else if (m === 'move') {
