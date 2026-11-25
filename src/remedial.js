@@ -30,7 +30,13 @@ export function remedialItems(d) {
 export function remedialProgress(d) {
   const items = remedialItems(d);
   const done = items.filter((i) => d.remedials?.[i.key]?.done).length;
-  return { items, done, total: items.length, complete: items.length > 0 && done === items.length };
+  const verified = items.filter((i) => d.remedials?.[i.key]?.done && d.remedials?.[i.key]?.verified).length;
+  return {
+    items, done, verified, total: items.length,
+    complete: items.length > 0 && done === items.length,
+    allVerified: items.length > 0 && verified === items.length,
+    awaiting: done - verified, // done but not yet checked by someone else
+  };
 }
 
 export function projectProgress(doors) {
@@ -38,13 +44,17 @@ export function projectProgress(doors) {
   let done = 0;
   let doorsWith = 0;
   let doorsDone = 0;
+  let verified = 0;
+  let doorsVerified = 0;
   for (const d of doors) {
     const p = remedialProgress(d);
     if (!p.total) continue;
     doorsWith++;
     items += p.total;
     done += p.done;
+    verified += p.verified;
     if (p.complete) doorsDone++;
+    if (p.allVerified) doorsVerified++;
   }
-  return { items, done, doorsWith, doorsDone };
+  return { items, done, doorsWith, doorsDone, verified, doorsVerified };
 }

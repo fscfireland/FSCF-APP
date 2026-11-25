@@ -666,3 +666,17 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .gps-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; }
 .gps-line .ico { width: 16px; height: 16px; color: var(--accent); }
 .gps-line a { color: var(--st-repaired); font-weight: 600; }
+
+/* verification */
+.rep-items li { display: grid; gap: 6px; }
+.ver-check { justify-self: start; margin-left: 38px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px 4px 6px; border-radius: 16px; border: 1.5px solid var(--line); font-size: 13px; font-weight: 650; color: var(--ink-2); cursor: pointer; }
+.ver-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--st-pass); }
+.ver-check .ico { width: 15px; height: 15px; }
+.ver-check.is-on { border-color: var(--st-pass); color: var(--st-pass); background: color-mix(in srgb, var(--st-pass) 10%, transparent); }
+.rep-check .rep-ver { color: var(--st-repaired); font-weight: 600; }
+.rep-vcount { display: inline-flex; align-items: center; gap: 2px; margin-left: 6px; color: var(--st-pass); font-size: 12px; }
+.rep-vcount .ico { width: 13px; height: 13px; }
+.rep-bar.verify { height: 6px; margin-top: 6px; }
+.rep-bar.verify i { background: var(--st-repaired); }
+.rep-price { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); align-items: center; }
+.rep-price .rf-label { width: 100%; }

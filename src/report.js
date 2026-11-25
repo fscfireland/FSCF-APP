@@ -840,7 +840,8 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
 
   // ---- title + instructions
   const isReport = opts.mode === 'report';
-  const bandBottom = reportBanner(doc, lists, isReport ? 'Remedial works completion report' : 'Remedial works sheet', { bandH: 30, titleSize: 18 });
+  const isPrice = opts.mode === 'price';
+  const bandBottom = reportBanner(doc, lists, isPrice ? 'Pricing schedule: remedial works' : isReport ? 'Remedial works completion report' : 'Remedial works sheet', { bandH: 30, titleSize: 18 });
   y = bandBottom + 10;
   font('bold', 14);
   doc.text(doc.splitTextToSize(t(project.site || 'Site'), CW), M, y);
@@ -856,37 +857,44 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   // instructions box
   font('normal', 9.5, C.ink);
   const lines = doc.splitTextToSize(t(opts.instructions || ''), CW - 10);
-  const boxH = lines.length * 4.3 + 33;
+  const boxH = lines.length * 4.3 + 33 + (opts.mode === 'price' ? 4.3 : 0);
   doc.setDrawColor(...C.ink);
   doc.setLineWidth(0.4);
   doc.setFillColor(...C.soft);
   doc.roundedRect(M, y, CW, boxH, 2, 2, 'FD');
   font('bold', 11);
-  text('Instructions for the repairer', M + 5, y + 7);
+  text(isPrice ? 'Standard of work required' : 'Instructions for the repairer', M + 5, y + 7);
   font('normal', 9.5, C.ink);
   doc.text(lines, M + 5, y + 13);
   let ay = y + 13 + lines.length * 4.3 + 4;
-  tickBox(M + 5, ay - 3.6, 5, !!opts.ack);
-  font('bold', 9.5);
-  text('I have read these instructions and have the competencies required to carry out these repairs', M + 13, ay);
+  if (isPrice) {
+    font('bold', 9.5);
+    const note = doc.splitTextToSize(t('Please enter a unit rate (€, ex VAT) and total for each item. Rates to include labour, materials, access and making good.'), CW - 10);
+    doc.text(note, M + 5, ay);
+    ay += (note.length - 1) * 4.3;
+  } else {
+    tickBox(M + 5, ay - 3.6, 5, !!opts.ack);
+    font('bold', 9.5);
+    text('I have read these instructions and have the competencies required to carry out these repairs', M + 13, ay);
+  }
   ay += 9;
   font('normal', 9, C.ink2);
-  const ackBy = opts.ack?.by || '';
-  const ackOn = opts.ack?.at ? new Date(opts.ack.at).toLocaleDateString('en-IE') : '';
-  text('Name:', M + 5, ay);
+  const ackBy = isPrice ? '' : opts.ack?.by || '';
+  const ackOn = isPrice ? '' : opts.ack?.at ? new Date(opts.ack.at).toLocaleDateString('en-IE') : '';
+  text(isPrice ? 'Company / name:' : 'Name:', M + 5, ay);
   text('Signature:', M + 72, ay);
   text('Date:', M + 135, ay);
   font('bold', 9.5, C.ink);
   if (ackBy) text(ackBy, M + 17, ay - 0.5);
   if (ackOn) text(ackOn, M + 146, ay - 0.5);
-  const sg = opts.ack?.sig;
+  const sg = isPrice ? null : opts.ack?.sig;
   if (sg?.data) {
     const k = Math.min(40 / sg.w, 9 / sg.h);
     doc.addImage(sg.data, 'PNG', M + 91, ay - sg.h * k + 0.5, sg.w * k, sg.h * k, undefined, 'FAST');
   }
   doc.setDrawColor(...C.muted);
   doc.setLineWidth(0.2);
-  doc.line(M + 16, ay + 1, M + 68, ay + 1);
+  doc.line(M + (isPrice ? 31 : 16), ay + 1, M + 68, ay + 1);
   doc.line(M + 90, ay + 1, M + 131, ay + 1);
   doc.line(M + 145, ay + 1, M + CW - 5, ay + 1);
   y += boxH + 8;
@@ -896,11 +904,19 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   const total = all.reduce((n, x) => n + x.items.length, 0);
   const done = all.reduce((n, x) => n + x.items.filter((i) => x.d.remedials?.[i.key]?.done).length, 0);
   const doorsDone = all.filter((x) => x.items.length && x.items.every((i) => x.d.remedials?.[i.key]?.done)).length;
+  const verified = all.reduce((n, x) => n + x.items.filter((i) => x.d.remedials?.[i.key]?.done && x.d.remedials?.[i.key]?.verified).length, 0);
+  if (isPrice) {
+    font('normal', 10, C.ink);
+    text(`${doors.length} door(s) · ${total} item(s) to price`, M, y);
+    y += 8;
+  }
   // headline figures, progress bar, then a pie and a bar chart
   const pctDone = total ? Math.round((done / total) * 100) : 0;
+  if (!isPrice) {
+  const pctVer = total ? Math.round((verified / total) * 100) : 0;
   const tiles = [
     ['Actions completed', `${pctDone}%`],
-    ['Repair items done', `${done} of ${total}`],
+    ['Verified', `${verified} of ${total} (${pctVer}%)`],
     ['Doors complete', `${doorsDone} of ${all.length}`],
   ];
   const tw = (CW - 8) / 3;
@@ -922,10 +938,11 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   }
   y += 8;
   font('normal', 9, C.ink2);
-  text(`${pctDone}% of actions completed: ${done} of ${total} repair items, ${total - done} outstanding on ${all.length - doorsDone} door(s).`, M, y + 2);
+  text(`${pctDone}% of actions completed: ${done} of ${total} repair items, ${total - done} outstanding on ${all.length - doorsDone} door(s). ${verified} item(s) verified (${pctVer}%).`, M, y + 2);
   y += 8;
+  }
 
-  // charts: on this page if they fit, otherwise on the next
+  // charts: on this page if they fit, otherwise on the next (not on the pricing sheet)
   const byType = new Map();
   for (const { d, items } of all) {
     for (const it of items) {
@@ -938,18 +955,20 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   }
   const typeRows = [...byType.entries()].sort((a, b) => b[1].total - a[1].total).slice(0, 12);
   const chartsH = 62 + 12 + typeRows.length * 6.8 + 10;
-  if (total && y + chartsH > A4.h - M - 8) {
+  if (!isPrice && total && y + chartsH > A4.h - M - 8) {
     doc.addPage('a4', 'portrait');
     y = M;
   }
-  if (total) {
+  if (!isPrice && total) {
     font('bold', 11);
     text('Progress of remedial actions', M, y + 3);
     y += 6;
-    const parts = [
-      { label: 'Completed', value: done, color: STATUS_RGB.pass },
+    const legend = [
+      { label: 'Done and verified', value: verified, color: STATUS_RGB.pass },
+      { label: 'Done, awaiting verification', value: done - verified, color: STATUS_RGB.repaired },
       { label: 'Outstanding', value: total - done, color: STATUS_RGB.no_access },
-    ].filter((x) => x.value);
+    ];
+    const parts = legend.filter((x) => x.value);
     const size = 52;
     doc.addImage(donutPng(parts), 'PNG', M, y, size, size);
     font('bold', 15);
@@ -966,7 +985,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     doc.setDrawColor(...C.line);
     doc.line(lx, ly, lx + 88, ly);
     ly += 6;
-    for (const x of [{ label: 'Completed', value: done, color: STATUS_RGB.pass }, { label: 'Outstanding', value: total - done, color: STATUS_RGB.no_access }]) {
+    for (const x of legend) {
       doc.setFillColor(...x.color);
       doc.roundedRect(lx, ly - 3.4, 4, 4, 0.8, 0.8, 'F');
       font('normal', 10, C.ink);
@@ -1006,6 +1025,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
 
   // ---- tick list per door
   const bmps = {};
+  let itemNo = 0;
   doc.addPage('a4', 'portrait');
   y = M;
   font('bold', 14);
@@ -1025,7 +1045,10 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
       const nd = items.filter((i) => d.remedials?.[i.key]?.done).length;
       const complete = items.length && nd === items.length;
       font('bold', 8.5, complete ? STATUS_RGB.pass : STATUS_RGB.no_access);
-      text(complete ? 'COMPLETE' : `${nd} OF ${items.length} DONE`, A4.w - M - 3, y + 3.6, { align: 'right' });
+      const nv = items.filter((i) => d.remedials?.[i.key]?.done && d.remedials?.[i.key]?.verified).length;
+      const allVer = items.length && nv === items.length;
+      font('bold', 8.5, allVer ? STATUS_RGB.pass : complete ? STATUS_RGB.repaired : STATUS_RGB.no_access);
+      text(allVer ? 'COMPLETE · VERIFIED' : complete ? 'COMPLETE · AWAITING VERIFICATION' : `${nd} OF ${items.length} DONE`, A4.w - M - 3, y + 3.6, { align: 'right' });
     }
     font('normal', 8.5, C.ink2);
     font('normal', 8.5, C.ink2);
@@ -1050,18 +1073,26 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     doc.autoTable({
       startY: y,
       margin: { left: pl ? M + 48 : M, right: M, top: M },
-      head: [['Done', 'Work required', 'Defect / reason', 'Done by', 'Date']],
+      head: isPrice ? [['Item', 'Work required', 'Defect / reason', 'Qty', 'Rate (€)', 'Total (€)']] : [['Done', 'Work required', 'Defect / reason', 'Done by', 'Verified by']],
       body: items.map((it) => {
         const r = d.remedials?.[it.key];
-        return ['', t(it.text) + (it.qty ? ` (x${it.qty})` : ''), t(it.sub), t(r?.done ? r.by || '' : isReport ? 'Outstanding' : ''), r?.done && r.at ? new Date(r.at).toLocaleDateString('en-IE') : ''];
+        if (isPrice) return [String(++itemNo), t(it.text), t(it.sub), String(it.qty || 1), '', ''];
+        const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE') : '');
+        return ['', t(it.text) + (it.qty ? ` (x${it.qty})` : ''), t(it.sub), r?.done ? t(`${r.by || ''}\n${day(r.at)}`) : isReport ? 'Outstanding' : '', r?.done && r.verified ? t(`${r.vby || ''}\n${day(r.vat)}`) : ''];
       }),
       styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: C.ink, lineColor: C.line, lineWidth: 0.15, minCellHeight: 8 },
       headStyles: { fillColor: C.ink, textColor: [255, 255, 255], fontStyle: 'bold' },
-      columnStyles: pl
-        ? { 0: { cellWidth: 11 }, 1: { cellWidth: 52, fontStyle: 'bold' }, 3: { cellWidth: 20 }, 4: { cellWidth: 18 } }
-        : { 0: { cellWidth: 12 }, 1: { cellWidth: 72, fontStyle: 'bold' }, 3: { cellWidth: 24 }, 4: { cellWidth: 20 } },
+      columnStyles: isPrice
+        ? { 0: { cellWidth: 10, halign: 'center' }, 1: { cellWidth: pl ? 46 : 66, fontStyle: 'bold' }, 3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 17 }, 5: { cellWidth: 19 } }
+        : pl
+          ? { 0: { cellWidth: 11 }, 1: { cellWidth: 46, fontStyle: 'bold' }, 3: { cellWidth: 21 }, 4: { cellWidth: 24, cellPadding: { left: 7, top: 1.8, right: 1.5, bottom: 1.8 } } }
+          : { 0: { cellWidth: 12 }, 1: { cellWidth: 66, fontStyle: 'bold' }, 3: { cellWidth: 24 }, 4: { cellWidth: 28, cellPadding: { left: 7, top: 1.8, right: 1.5, bottom: 1.8 } } },
       didDrawCell: (h) => {
-        if (h.section === 'body' && h.column.index === 0) {
+        if (!isPrice && h.section === 'body' && h.column.index === 4) {
+          const r = d.remedials?.[items[h.row.index].key];
+          tickBox(h.cell.x + 1.5, h.cell.y + 1.8, 4, !!(r?.done && r?.verified));
+        }
+        if (!isPrice && h.section === 'body' && h.column.index === 0) {
           const it = items[h.row.index];
           tickBox(h.cell.x + 3.2, h.cell.y + 1.8, 4.5, !!d.remedials?.[it.key]?.done);
         }
@@ -1092,6 +1123,25 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     }
   }
 
+  if (isPrice) {
+    if (y > A4.h - 50) {
+      doc.addPage('a4', 'portrait');
+      y = M;
+    }
+    doc.setDrawColor(...C.ink);
+    doc.setLineWidth(0.4);
+    doc.roundedRect(M, y, CW, 26, 2, 2);
+    font('bold', 11, C.ink);
+    text(`Total for all ${total} item(s), € ex VAT:`, M + 5, y + 10);
+    doc.setLineWidth(0.3);
+    doc.line(M + 95, y + 11, M + CW - 6, y + 11);
+    font('normal', 9, C.ink2);
+    text('Validity of quotation:', M + 5, y + 20);
+    doc.line(M + 42, y + 21, M + 90, y + 21);
+    text('Start / duration:', M + 95, y + 20);
+    doc.line(M + 123, y + 21, M + CW - 6, y + 21);
+    y += 32;
+  }
   // footer
   const total2 = doc.getNumberOfPages();
   for (let i = 1; i <= total2; i++) {
@@ -1102,10 +1152,10 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     const rl = lists.logoRound;
     if (rl && i > 1) fx += fitImage(doc, rl, M, ph - 12.5, 6, 6).w + 2;
     font('normal', 8, C.muted);
-    text(`Remedial works · ${project.site || ''}`, fx, ph - 8);
+    text(`${isPrice ? 'Pricing schedule' : 'Remedial works'} · ${project.site || ''}`, fx, ph - 8);
     text(`Page ${i} of ${total2}`, pw - M, ph - 8, { align: 'right' });
   }
   onProgress('Saving PDF…');
   const blob = doc.output('blob');
-  return saveFile(`FSCF_Remedial_${isReport ? 'completion_report' : 'works_sheet'}_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.pdf`, blob);
+  return saveFile(`FSCF_${isPrice ? 'Pricing_schedule' : isReport ? 'Remedial_completion_report' : 'Remedial_works_sheet'}_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.pdf`, blob);
 }

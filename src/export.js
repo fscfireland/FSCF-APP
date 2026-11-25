@@ -258,6 +258,7 @@ export async function exportRemedialXlsx(project, opts = {}) {
         d.pinNo ?? '', d.ref || '', d.location || '', planName[d.planId] || (d.planId ? '' : 'Not on a drawing'), d.doorType || '',
         d.zoneNo || '', d.category || '', it.text, it.sub, it.qty || 1, r?.done ? 'Yes' : 'No', r?.done ? r.by || '' : '', r?.done ? day(r.at) : '',
         statusById[d.status || 'not_inspected']?.label || '',
+        r?.done && r.verified ? 'Yes' : 'No', r?.verified ? r.vby || '' : '', r?.verified ? day(r.vat) : '',
       ]);
     }
     byDoor.push([d.pinNo ?? '', d.ref || '', d.location || '', planName[d.planId] || '', items.length, nd, items.length - nd, items.length ? Math.round((nd / items.length) * 100) : 0, items.length && nd === items.length ? 'Complete' : nd ? 'In progress' : 'Not started']);
@@ -278,6 +279,8 @@ export async function exportRemedialXlsx(project, opts = {}) {
     ['Done', done],
     ['Outstanding', total - done],
     ['Actions completed (%)', total ? Math.round((done / total) * 1000) / 10 : 0],
+    ['Verified', rows.filter((r) => r[14] === 'Yes').length],
+    ['Actions verified (%)', total ? Math.round((rows.filter((r) => r[14] === 'Yes').length / total) * 1000) / 10 : 0],
     ['Doors with repairs', byDoor.length],
     ['Doors complete', byDoor.filter((r) => r[8] === 'Complete').length],
     [],
@@ -287,9 +290,9 @@ export async function exportRemedialXlsx(project, opts = {}) {
   const ws0 = XLSX.utils.aoa_to_sheet(summary);
   ws0['!cols'] = [{ wch: 24 }, { wch: 100 }];
   XLSX.utils.book_append_sheet(wb, ws0, 'Summary');
-  const head = ['Pin', 'Door ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Category', 'Work required', 'Defect / reason', 'Qty', 'Done', 'Done by', 'Date done', 'Door status'];
+  const head = ['Pin', 'Door ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Category', 'Work required', 'Defect / reason', 'Qty', 'Done', 'Done by', 'Date done', 'Door status', 'Verified', 'Verified by', 'Date verified'];
   const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows]);
-  ws1['!cols'] = [6, 12, 22, 16, 16, 8, 16, 55, 40, 6, 7, 16, 12, 14].map((wch) => ({ wch }));
+  ws1['!cols'] = [6, 12, 22, 16, 16, 8, 16, 55, 40, 6, 7, 16, 12, 14, 9, 16, 12].map((wch) => ({ wch }));
   ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, rows.length), c: head.length - 1 } }) };
   XLSX.utils.book_append_sheet(wb, ws1, 'Repair items');
   const ws2 = XLSX.utils.aoa_to_sheet([['Pin', 'Door ref', 'Location / room', 'Plan / level', 'Items', 'Done', 'Outstanding', '% complete', 'Progress'], ...byDoor]);
@@ -310,4 +313,79 @@ export async function exportRemedialXlsx(project, opts = {}) {
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   return saveFile(`FSCF_Remedial_works_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
+}
+
+
+// Pricing sheet for a subcontractor: every repair item with an empty unit
+// rate to fill in; line totals and the grand total are formulas. None of our
+// own prices are included.
+export async function exportPricingXlsx(project, opts = {}) {
+  const XLSX = await loadSheetJS();
+  useScheme(project);
+  const doors = opts.doors || [];
+  const planName = Object.fromEntries((opts.plans || []).map((p) => [p.id, p.name]));
+  const wb = XLSX.utils.book_new();
+  const readme = [
+    ['Pricing schedule – remedial works to fire doors'],
+    [],
+    ['Issued by', 'FSCF Ireland'],
+    ['Client', project.client || ''],
+    ['Site', project.site || ''],
+    ['Address', project.address || ''],
+    ['Issued', new Date().toLocaleDateString('en-IE')],
+    ...(opts.filterText ? [['Covers', opts.filterText]] : []),
+    [],
+    ['How to price', 'Enter your unit rate (€, ex VAT) for each item in the "Unit rate (€)" column of the Price schedule sheet. Line totals and the overall total are worked out automatically. Add any notes, exclusions or alternatives in the Comments column. Rates should include labour, materials, access and making good.'],
+    ['Standard of work', opts.instructions || ''],
+    [],
+    ['Company', ''],
+    ['Name', ''],
+    ['Date', ''],
+  ];
+  const ws0 = XLSX.utils.aoa_to_sheet(readme);
+  ws0['!cols'] = [{ wch: 20 }, { wch: 110 }];
+  XLSX.utils.book_append_sheet(wb, ws0, 'Read me');
+
+  const head = ['Item', 'Pin', 'Door ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Work required', 'Defect / reason', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Comments'];
+  const rows = [];
+  let n = 0;
+  for (const d of doors) {
+    for (const it of remedialItems(d)) {
+      n++;
+      rows.push([n, d.pinNo ?? '', d.ref || '', d.location || '', planName[d.planId] || '', d.doorType || '', d.zoneNo || '', it.text, it.sub, it.qty || 1, null, null, '']);
+    }
+  }
+  const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows]);
+  const EUR = '"€"#,##0.00';
+  const last = rows.length + 1;
+  for (let r = 2; r <= last; r++) {
+    ws1[`K${r}`] = { t: 'n', v: 0, z: EUR };
+    ws1[`L${r}`] = { t: 'n', f: `J${r}*K${r}`, v: 0, z: EUR };
+  }
+  const totalRow = last + 2;
+  XLSX.utils.sheet_add_aoa(ws1, [['', '', '', '', '', '', '', '', '', '', 'TOTAL (ex VAT)']], { origin: `A${totalRow}` });
+  ws1[`L${totalRow}`] = { t: 'n', f: rows.length ? `SUM(L2:L${last})` : '0', v: 0, z: EUR };
+  ws1['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: totalRow - 1, c: head.length - 1 } });
+  ws1['!cols'] = [5, 5, 10, 22, 14, 16, 7, 55, 38, 6, 13, 14, 34].map((wch) => ({ wch }));
+  ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, rows.length), c: head.length - 1 } }) };
+  XLSX.utils.book_append_sheet(wb, ws1, 'Price schedule');
+
+  // total quantity of each type of work, for anyone pricing by type
+  const types = new Map();
+  for (const r of rows) {
+    const k = r[8] === 'Recommended action' ? r[7] : `${r[7]}`;
+    types.set(k, (types.get(k) || 0) + Number(r[9] || 1));
+  }
+  const tRows = [...types.entries()].sort((a, b) => b[1] - a[1]).map(([k, q]) => [k, q, null, null]);
+  const ws2 = XLSX.utils.aoa_to_sheet([['Type of work', 'Total qty', 'Unit rate (€)', 'Total (€)'], ...tRows]);
+  for (let r = 2; r <= tRows.length + 1; r++) {
+    ws2[`C${r}`] = { t: 'n', v: 0, z: EUR };
+    ws2[`D${r}`] = { t: 'n', f: `B${r}*C${r}`, v: 0, z: EUR };
+  }
+  ws2['!cols'] = [{ wch: 70 }, { wch: 9 }, { wch: 13 }, { wch: 13 }];
+  XLSX.utils.book_append_sheet(wb, ws2, 'Quantities by type');
+
+  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  return saveFile(`FSCF_Pricing_schedule_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
 }

@@ -9,7 +9,7 @@ import {
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
-import { exportProjectXlsx, exportRemedialXlsx } from './export.js';
+import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx } from './export.js';
 import { exportProjectPdf, exportRemedialPdf } from './report.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { doorMapURL } from './minimap.js';
@@ -344,7 +344,13 @@ function renderRepairsTab(body, project, plans, doors) {
   const planById = Object.fromEntries(plans.map((p) => [p.id, p]));
   const prog = projectProgress(doors);
   const withWork = doors.map((d) => ({ d, p: remedialProgress(d) })).filter(({ p }) => p.total);
-  const shown = withWork.filter(({ p }) => (show === 'all' ? true : show === 'done' ? p.complete : !p.complete));
+  const FILTERS = {
+    outstanding: ['Outstanding', ({ p }) => !p.complete],
+    awaiting: ['Awaiting verification', ({ p }) => p.awaiting > 0],
+    verified: ['Verified', ({ p }) => p.allVerified],
+    all: ['All', () => true],
+  };
+  const shown = withWork.filter((FILTERS[show] || FILTERS.outstanding)[1]);
   const when = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
   body.innerHTML = `
     <section class="panel rep-intro">
@@ -365,18 +371,24 @@ function renderRepairsTab(body, project, plans, doors) {
 
     <section class="panel rep-summary">
       <div class="rep-bar"><i style="--w:${prog.items ? (prog.done / prog.items) * 100 : 0}%"></i></div>
-      <p><b>${prog.done} of ${prog.items}</b> repair items done · <b>${prog.doorsDone} of ${prog.doorsWith}</b> doors complete</p>
+      <p><b>${prog.done} of ${prog.items}</b> repair items done · <b>${prog.verified}</b> verified · <b>${prog.doorsDone} of ${prog.doorsWith}</b> doors complete (${prog.doorsVerified} verified)</p>
+      <div class="rep-bar verify"><i style="--w:${prog.items ? (prog.verified / prog.items) * 100 : 0}%"></i></div>
       <div class="row-btns">
         <button class="btn primary sm" id="rep-pdf">${icon('download')} Repair sheet for repairer (PDF)</button>
         <button class="btn sm" id="rep-report">${icon('report')} Completion report (PDF)</button>
         <button class="btn sm" id="rep-xlsx">${icon('sheet')} Repairs (Excel)</button>
       </div>
-      <p class="muted small rep-out-note">These cover the doors shown below (${show === 'all' ? 'all' : show === 'done' ? 'complete' : 'outstanding'}). Choose <b>All</b> to include every door with repairs.</p>
+      <div class="row-btns rep-price">
+        <span class="rf-label">For a subcontractor to price</span>
+        <button class="btn sm" id="price-xlsx">${icon('sheet')} Pricing sheet (Excel)</button>
+        <button class="btn ghost sm" id="price-pdf">${icon('download')} Pricing sheet (PDF)</button>
+      </div>
+      <p class="muted small rep-out-note">These cover the doors shown below (${esc((FILTERS[show] || FILTERS.outstanding)[0].toLowerCase())}). Choose <b>All</b> to include every door with repairs.</p>
     </section>
 
     <div class="chips" role="group" aria-label="Show">
-      ${[['outstanding', 'Outstanding', withWork.filter(({ p }) => !p.complete).length], ['done', 'Complete', withWork.filter(({ p }) => p.complete).length], ['all', 'All', withWork.length]].map(([id, label, n]) =>
-        `<button class="chip rep-show ${show === id ? 'is-on' : ''}" data-s="${id}">${label} <b>${n}</b></button>`).join('')}
+      ${Object.entries(FILTERS).map(([id, [label, fn]]) =>
+        `<button class="chip rep-show ${show === id ? 'is-on' : ''}" data-s="${id}">${label} <b>${withWork.filter(fn).length}</b></button>`).join('')}
     </div>
     ${withWork.length ? '' : '<p class="muted pad">No remedial works yet. Defects and recommended actions recorded on doors appear here as a tick list.</p>'}
     ${shown.map(({ d, p }) => {
@@ -387,18 +399,20 @@ function renderRepairsTab(body, project, plans, doors) {
           <span class="pin-badge ${st.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${st.color}">${d.pinNo ?? ''}</span>
           <span class="rep-title"><b>${esc(d.ref || 'Door ' + d.pinNo)}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
             <small>${esc([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planName[d.planId] || (d.planId ? '' : 'Not on a drawing')].filter(Boolean).join(' · '))}</small></span>
-          <span class="rep-count">${p.done}/${p.total}</span>
+          <span class="rep-count">${p.done}/${p.total}${p.verified ? `<small class="rep-vcount">${icon('shield')} ${p.verified}</small>` : ''}</span>
         </div>
         ${d.planId && planById[d.planId] ? `<img class="rep-map" alt="Location of pin ${d.pinNo} on ${esc(planName[d.planId] || 'the drawing')}" data-door="${d.id}">` : ''}
         <ul class="rep-items">
           ${p.items.map((it) => {
             const r = d.remedials?.[it.key];
             return `<li><label class="rep-check ${r?.done ? 'is-done' : ''}"><input type="checkbox" class="rep-tick" data-key="${esc(it.key)}" ${r?.done ? 'checked' : ''}>
-              <span><b>${esc(it.text)}${it.qty ? ` (×${it.qty})` : ''}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}${r?.done ? `<small class="rep-by">Done by ${esc(r.by || 'unknown')} · ${esc(when(r.at))}</small>` : ''}</span></label></li>`;
+              <span><b>${esc(it.text)}${it.qty ? ` (×${it.qty})` : ''}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}${r?.done ? `<small class="rep-by">Done by ${esc(r.by || 'unknown')} · ${esc(when(r.at))}</small>` : ''}${r?.verified ? `<small class="rep-ver">Verified by ${esc(r.vby || 'unknown')} · ${esc(when(r.vat))}</small>` : ''}</span></label>
+              ${r?.done ? `<label class="ver-check ${r.verified ? 'is-on' : ''}"><input type="checkbox" class="ver-tick" data-key="${esc(it.key)}" ${r.verified ? 'checked' : ''}>${icon('shield')} Verified</label>` : ''}</li>`;
           }).join('')}
         </ul>
         <div class="row-btns">
           <button class="btn ghost sm rep-open">Open door</button>
+          ${p.awaiting ? `<button class="btn sm rep-verify-all">${icon('shield')} Verify all (${p.awaiting})</button>` : ''}
           ${p.complete && d.status !== 'repaired' && STATUSES.some((s) => s.id === 'repaired') ? `<button class="btn sm rep-repaired">${icon('check')} Set status to ${esc(statusById.repaired.label)}</button>` : ''}
         </div>
       </section>`;
@@ -441,11 +455,32 @@ function renderRepairsTab(body, project, plans, doors) {
     $$('.rep-tick', sec).forEach((cb) => (cb.onchange = async () => {
       const d = await db.get('doors', id);
       const remedials = { ...(d.remedials || {}) };
-      remedials[cb.dataset.key] = cb.checked ? { done: true, by: lists.inspector || project.remedialAck?.by || '', at: new Date().toISOString() } : { done: false };
+      remedials[cb.dataset.key] = cb.checked ? { done: true, by: lists.inspector || project.remedialAck?.by || '', at: new Date().toISOString() } : { done: false, verified: false };
       const saved = await saveDoor({ ...d, remedials });
       Object.assign(doors.find((x) => x.id === id), saved);
       renderRepairsTab(body, project, plans, doors);
     }));
+    const verify = async (keys, on) => {
+      const d = await db.get('doors', id);
+      const remedials = { ...(d.remedials || {}) };
+      let who = '';
+      if (on) {
+        who = await askVerifier(keys.map((k) => remedials[k]?.by).filter(Boolean));
+        if (!who) return renderRepairsTab(body, project, plans, doors);
+      }
+      for (const k of keys) {
+        if (!remedials[k]?.done) continue;
+        remedials[k] = on ? { ...remedials[k], verified: true, vby: who, vat: new Date().toISOString() } : { ...remedials[k], verified: false, vby: '', vat: '' };
+      }
+      const saved = await saveDoor({ ...d, remedials });
+      Object.assign(doors.find((x) => x.id === id), saved);
+      renderRepairsTab(body, project, plans, doors);
+    };
+    $$('.ver-tick', sec).forEach((cb) => (cb.onchange = () => verify([cb.dataset.key], cb.checked)));
+    $('.rep-verify-all', sec)?.addEventListener('click', () => {
+      const d = doors.find((x) => x.id === id);
+      verify(remedialItems(d).map((i) => i.key).filter((k) => d.remedials?.[k]?.done && !d.remedials?.[k]?.verified), true);
+    });
     $('.rep-open', sec).onclick = () => go({ ...state, doorId: id });
     $('.rep-repaired', sec)?.addEventListener('click', async () => {
       const d = await db.get('doors', id);
@@ -481,6 +516,28 @@ function renderRepairsTab(body, project, plans, doors) {
   $('#rep-pdf').onclick = () => run('repair sheet', (up) => exportRemedialPdf(project, lists, repOpts(), up));
   $('#rep-report').onclick = () => run('completion report', (up) => exportRemedialPdf(project, lists, { ...repOpts(), mode: 'report' }, up));
   $('#rep-xlsx').onclick = () => run('repairs workbook', () => exportRemedialXlsx(project, repOpts()));
+  $('#price-xlsx').onclick = () => run('pricing sheet', () => exportPricingXlsx(project, repOpts()));
+  $('#price-pdf').onclick = () => run('pricing sheet', (up) => exportRemedialPdf(project, lists, { ...repOpts(), mode: 'price' }, up));
+}
+
+// Who is verifying? Asked once per session; must not be the person who did the work
+let verifierName = '';
+async function askVerifier(doneBy) {
+  const r = await dialog({
+    title: 'Verify repairs',
+    body: `<p>Verification is a second check by someone other than the person who did the work${doneBy.length ? ` (<b>${esc([...new Set(doneBy)].join(', '))}</b>)` : ''}.</p>
+      <label class="field"><span>Verified by</span><input name="who" id="ver-who" required value="${esc(verifierName || lists.inspector || '')}" placeholder="Name of the person checking"></label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Verify', value: true, kind: 'primary' }],
+  });
+  const who = (r.data?.who || '').trim();
+  if (r.value !== true || !who) return '';
+  const same = doneBy.some((b) => b && b.trim().toLowerCase() === who.toLowerCase());
+  if (same) {
+    toast(`Verification must be by someone other than ${who}, who did the work.`, 'error');
+    return '';
+  }
+  verifierName = who;
+  return who;
 }
 
 async function pickCollection(project, coll) {

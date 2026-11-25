@@ -83,6 +83,7 @@ export function diffDoor(prev, next) {
   const nr = next.remedials || {};
   for (const k of new Set([...Object.keys(pr), ...Object.keys(nr)])) {
     if (!!pr[k]?.done !== !!nr[k]?.done) add('', `Remedial ${nr[k]?.done ? 'done' : 'not done'}: ${short(k.slice(2), 60)}`);
+    else if (!!pr[k]?.verified !== !!nr[k]?.verified) add('', nr[k]?.verified ? `Remedial verified by ${nr[k].vby || 'unknown'}: ${short(k.slice(2), 60)}` : `Verification removed: ${short(k.slice(2), 60)}`);
   }
 
   const pa = doorActions(prev);
