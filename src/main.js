@@ -1146,8 +1146,9 @@ async function drawSheet(door) {
   drawHistory();
   afterSave = (id) => id === door.id && $('#history') && drawHistory();
   $('#new-insp').onclick = async () => {
-    if (!(await confirmBox('Start a new inspection?', `The current inspection${current.inspectedOn ? ' (' + fmtDate(current.inspectedOn) + ')' : ''} is kept in this door's history with its photos. The new one starts today as "Not inspected" with a blank checklist; defects, actions and materials are carried over for you to update.`, 'Start new inspection', false))) return;
-    await archive({ inspectedOn: today(), status: 'not_inspected', checks: {}, inspectedBy: lists.inspector || current.inspectedBy || '' }, 'Previous inspection saved to history');
+    if (!(await confirmBox('Start a new inspection?', `A copy of the current inspection${current.inspectedOn ? ' (' + fmtDate(current.inspectedOn) + ')' : ''} is kept in this door's history with its photos. Everything carries forward to a new inspection dated today: status, checklist answers, defects, actions, materials and notes. Then change only what's different.`, 'Start new inspection', false))) return;
+    // carry everything forward; only the date (and who is inspecting) changes
+    await archive({ inspectedOn: today(), inspectedBy: lists.inspector || current.inspectedBy || '' }, `New inspection started ${fmtDate(today())}; previous details carried forward`);
   };
 
   // actions

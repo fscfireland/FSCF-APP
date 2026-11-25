@@ -20,7 +20,7 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 - **Inspection questions**: a checklist set up in Settings, answered Pass / Fail / N/A for each door. "Mark rest Pass" fills in any unanswered questions as Pass. A Fail answer sets the door to Fail.
 - **Recommended actions**: each door can have several, picked from your list or typed in. Actions you type are saved to the list for next time.
 - **Materials**: a priced materials list in Settings. Each door shows quantity × unit cost per line and a door total (€ ex VAT).
-- **History**: every change to a door is logged with date, time and who made it. Changing the inspection date (choose "Keep in history"), or tapping **New inspection**, saves the earlier inspection with its photos. Past inspections can be opened from the door's History section.
+- **History**: every change to a door is logged with date, time and who made it. Changing the inspection date (choose "Keep in history"), or tapping **New inspection**, saves the earlier inspection with its photos and carries all its details forward to the new date, ready to update. Past inspections can be opened from the door's History section.
 - **Report filters**: Excel and PDF can be limited to an inspection date or date range (each door as it was at that inspection), status, door type, plan, a specific defect or a failed check. A live count shows how many doors match.
 - **Door list**: all doors on a project, with status filter chips and counts, plus search.
 - **Excel export**: Summary, Doors, Checklist, Defects (pricing), Materials and Material totals (with formulas and totals), and Defect totals.

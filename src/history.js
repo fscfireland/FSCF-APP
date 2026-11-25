@@ -51,10 +51,7 @@ export function diffDoor(prev, next) {
   if ((prev.history || []).length < (next.history || []).length) {
     const snap = next.history[0];
     const d = snap?.inspectedOn ? fmtDate(snap.inspectedOn) : '(no date)';
-    const restarted = (next.status || 'not_inspected') === 'not_inspected' && (prev.status || 'not_inspected') !== 'not_inspected';
-    add('', restarted
-      ? `New inspection started (${next.inspectedOn ? fmtDate(next.inspectedOn) : 'no date'}); inspection of ${d} saved to history`
-      : `Inspection date changed to ${next.inspectedOn ? fmtDate(next.inspectedOn) : '(blank)'}; inspection of ${d} saved to history`);
+    add('', `New inspection ${next.inspectedOn ? fmtDate(next.inspectedOn) : '(no date)'}: details carried forward from ${d}, which is saved to history`);
     return out;
   }
 
