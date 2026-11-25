@@ -1,0 +1,19 @@
+# Cloudflare Pages headers
+# The app shell must always be checked for updates; the service worker
+# handles offline caching itself.
+/
+  Cache-Control: no-cache
+/index.html
+  Cache-Control: no-cache
+/sw.js
+  Cache-Control: no-cache
+/app.js
+  Cache-Control: no-cache
+/styles.css
+  Cache-Control: no-cache
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  X-Frame-Options: DENY
+  Permissions-Policy: camera=(self), geolocation=(self), microphone=()
