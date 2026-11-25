@@ -982,3 +982,18 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .fw-line .link-btn { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
 
 .dup-top { width: 100%; justify-content: center; margin: 8px 0 4px; }
+
+/* plan toolbar: fit a phone, scroll sideways if it still doesn't */
+.plan-toolbar { left: 0; right: 0; padding: 0 10px; gap: 8px; overflow-x: auto; justify-content: safe center; scrollbar-width: none; touch-action: pan-x; overscroll-behavior: contain; }
+.plan-toolbar::-webkit-scrollbar { display: none; }
+.plan-toolbar .btn { flex-shrink: 0; }
+@media (max-width: 520px) {
+  .plan-toolbar .btn.big { min-height: 46px; padding: 0 13px; font-size: 15px; gap: 6px; }
+  .plan-toolbar .btn.big .ico { width: 18px; height: 18px; }
+}
+.mode-banner small { opacity: .75; font-weight: 500; }
+.place-pick .pick-group { margin: 10px 2px 2px; font-weight: 700; font-size: 13px; }
+.mode-banner span { white-space: normal; line-height: 1.25; font-size: 14.5px; }
+.mode-banner { border-radius: 20px; width: max-content; }
+.mode-banner .btn { flex-shrink: 0; }
+@media (max-width: 520px) { .plan-toolbar:has(#place-list:not([hidden])) .tb-txt { display: none; } }

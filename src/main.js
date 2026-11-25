@@ -453,7 +453,7 @@ async function importFieldwire(file) {
       await saveDoor({
         id: db.uid(), projectId: project.id, planId: null, collection: '', pinNo: d.no, x: null, y: null, kind,
         ref: d.ref, location: d.location, doorType: d.doorType, leaf: '', zoneNo: d.zoneNo, zoneName: d.zoneName, risk: '', category: '',
-        status: d.recommendations.length ? 'fail' : 'pass', defects: [], actions: d.recommendations, checks: {}, materials: [],
+        sourcePlan: d.plan, status: d.recommendations.length ? 'fail' : 'pass', defects: [], actions: d.recommendations, checks: {}, materials: [],
         notes, inspectedOn: r.data.date || fw.date || '', inspectedBy: lists.inspector || '',
       }, [`Imported from Fieldwire report "${fw.title}"`]);
     }
@@ -2159,6 +2159,7 @@ const restMemo = new Map(); // door id → the questions a "Rest" toggle filled,
 let planColl = ''; // collection of the plan on screen
 let placingId = null; // an imported door waiting to be placed as a pin
 let placingLabel = '';
+let placingQueue = []; // the doors still to place after this one, in order
 let selectedPin = null;
 
 async function renderPlan() {
@@ -2192,8 +2193,8 @@ async function renderPlan() {
         <button class="icon-btn" id="zfit" aria-label="Fit to screen">${icon('fit')}</button>
       </div>
       <div class="plan-toolbar">
-        <button class="btn big" id="sel-toggle">${icon('cursor')} Select</button>
-        <button class="btn big" id="mk-toggle">${icon('pencil')} Markup</button>
+        <button class="btn big" id="sel-toggle" aria-label="Select">${icon('cursor')}<span class="tb-txt"> Select</span></button>
+        <button class="btn big" id="mk-toggle" aria-label="Markup">${icon('pencil')}<span class="tb-txt"> Markup</span></button>
         <button class="btn primary big" id="add-door">${icon('pin')} Add ${esc(kitOf(planKind).item.toLowerCase())}</button>
         <button class="btn big" id="place-list" hidden>${icon('list')} Place <span id="place-n"></span></button>
       </div>
@@ -2287,25 +2288,57 @@ async function updatePlaceButton() {
   $('#place-n').textContent = n ? `(${n})` : '';
 }
 
-function startPlacing(d) {
+// The drawing a door came from in its source report (Fieldwire), if known
+const sourcePlanOf = (d) => d.sourcePlan || /Fieldwire plan:\s*(.+)/.exec(d.notes || '')?.[1]?.trim() || '';
+
+function startPlacing(d, queue = []) {
   placingId = d.id;
-  placingLabel = `pin ${d.pinNo}${d.ref ? ' (' + d.ref + ')' : ''}`;
+  placingQueue = queue;
+  placingLabel = `pin ${d.pinNo}${d.ref ? ' · ' + d.ref : ''}${d.location ? ' · ' + d.location : ''}`;
   setMode('place');
+}
+
+async function placeNextInQueue() {
+  while (placingQueue.length) {
+    const d = await db.get('doors', placingQueue.shift());
+    if (d && !d.planId) return startPlacing(d, placingQueue);
+  }
+  placingId = null;
+  setMode(null);
 }
 
 async function pickDoorToPlace() {
   const list = await unplacedDoors();
   if (!list.length) return;
+  // group by the drawing each came from; the group most like this drawing's name first
+  const plan = await db.get('plans', state.planId);
+  const words = (t) => new Set(String(t).toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1));
+  const here = words(plan?.name || '');
+  const score = (name) => [...words(name)].filter((w) => here.has(w)).length;
+  const groups = new Map();
+  for (const d of list) {
+    const g = sourcePlanOf(d) || 'Not linked to a drawing';
+    (groups.get(g) || groups.set(g, []).get(g)).push(d);
+  }
+  const ordered = [...groups.entries()].sort((a, b) => score(b[0]) - score(a[0]) || a[0].localeCompare(b[0]));
+  const many = ordered.length > 1;
   const r = await dialog({
-    title: 'Place a door on this drawing',
-    body: `<p>Doors imported from Excel that aren't on a drawing yet. Pick one, then tap where it is.</p>
-      <div class="pick-list">${list.map((d) => `
-        <label class="pick"><input type="radio" name="door" value="${d.id}">
-          <span><b>${esc(d.pinNo + ' · ' + (d.ref || 'No ref'))}</b><small>${esc([d.location, d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : ''].filter(Boolean).join(' · '))}</small></span></label>`).join('')}</div>`,
-    buttons: [{ label: 'Cancel', value: false }, { label: 'Place', value: true, kind: 'primary' }],
+    title: `Place on this drawing (${list.length} waiting)`,
+    body: `<p class="small">Pick the first one. After you tap where it is, the next one from the same group comes up, so you can place them one after another. <b>Skip</b> or <b>Stop</b> at any time.</p>
+      <div class="pick-list place-pick">${ordered.map(([g, ds]) => `
+        ${many ? `<p class="pick-group">${esc(g)} <span class="muted">(${ds.length})</span></p>` : ''}
+        ${ds.map((d) => `<label class="pick"><input type="radio" name="door" value="${d.id}">
+          <span><b>${esc(d.pinNo + (d.ref ? ' · ' + d.ref : ''))}</b><small>${esc([d.location, d.doorType].filter(Boolean).join(' · '))}</small></span></label>`).join('')}`).join('')}</div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Start placing', value: true, kind: 'primary' }],
   });
+  if (r.value !== true) return;
   const d = list.find((x) => x.id === r.data?.door);
-  if (r.value === true && d) startPlacing(d);
+  if (!d) return toast('Pick a door to start with', 'error');
+  const group = groups.get(sourcePlanOf(d) || 'Not linked to a drawing');
+  // the rest of its group first, then everything else still waiting
+  const inGroup = [...group.slice(group.indexOf(d) + 1), ...group.slice(0, group.indexOf(d))];
+  const rest = [...inGroup, ...ordered.flatMap(([, ds]) => ds).filter((x) => x !== d && !inGroup.includes(x))].map((x) => x.id);
+  startPlacing(d, rest);
 }
 
 // From a door record: choose the drawing (if more than one) and place it
@@ -2875,7 +2908,7 @@ function setMode(m, doorId = null) {
     banner.innerHTML = `<span>Drag the pin, or tap its new position</span><button class="btn sm" id="cancel-mode">Done</button>`;
   } else if (m === 'place') {
     banner.hidden = false;
-    banner.innerHTML = `<span>Tap where ${esc(placingLabel)} is</span><button class="btn sm" id="cancel-mode">Cancel</button>`;
+    banner.innerHTML = `<span>Tap where <b>${esc(placingLabel)}</b> is${placingQueue.length ? ` <small>(${placingQueue.length} more after)</small>` : ''}</span>${placingQueue.length ? '<button class="btn sm" id="place-skip">Skip</button>' : ''}<button class="btn sm" id="cancel-mode">${placingQueue.length ? 'Stop' : 'Cancel'}</button>`;
   } else if (m === 'hint') {
     banner.hidden = false;
     banner.innerHTML = `<span>Tip: press and hold a pin to drag it</span><button class="btn sm" id="cancel-mode">OK</button>`;
@@ -2884,7 +2917,8 @@ function setMode(m, doorId = null) {
     add.classList.remove('is-on');
     add.innerHTML = `${icon('pin')} Add ${esc(kitOf(planKind).item.toLowerCase())}`;
   }
-  $('#cancel-mode')?.addEventListener('click', () => setMode(null));
+  $('#cancel-mode')?.addEventListener('click', () => { placingQueue = []; placingId = null; setMode(null); });
+  $('#place-skip')?.addEventListener('click', () => placeNextInQueue());
   // change the type for new pins right here; pins already placed are not touched
   $('#add-kind')?.addEventListener('click', async (e) => {
     e.stopPropagation();
@@ -2916,6 +2950,7 @@ async function onPlanTap(x, y) {
       await refreshPins();
       updatePlaceButton();
     }
+    if (placingQueue.length) await placeNextInQueue();
     return;
   }
   if (mode === 'add') {
