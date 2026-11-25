@@ -57,6 +57,24 @@ create table if not exists photos (
   deleted boolean not null default false
 );
 
+-- Project documents: certificates, O&M manuals, quotes, reports
+create table if not exists files (
+  id uuid primary key,
+  owner uuid not null default auth.uid() references auth.users(id),
+  project_id uuid not null references projects(id),
+  name text not null,
+  folder text,
+  mime_type text,
+  size_bytes bigint,
+  pages int,
+  notes text,
+  file_path text,           -- file in the private 'files' storage bucket
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  deleted boolean not null default false
+);
+
+create index if not exists files_project on files(project_id);
 create index if not exists doors_project on doors(project_id);
 create index if not exists plans_project on plans(project_id);
 create index if not exists photos_door on photos(door_id);
@@ -74,7 +92,7 @@ where not d.deleted and not p.deleted;
 do $$
 declare t text;
 begin
-  foreach t in array array['projects','plans','doors','photos'] loop
+  foreach t in array array['projects','plans','doors','photos','files'] loop
     execute format('alter table %I enable row level security', t);
     execute format('drop policy if exists owner_all on %I', t);
     execute format('create policy owner_all on %I for all using (owner = auth.uid()) with check (owner = auth.uid())', t);
@@ -84,8 +102,9 @@ end $$;
 -- Private storage buckets for drawings and photos
 insert into storage.buckets (id, name, public) values ('plans', 'plans', false) on conflict do nothing;
 insert into storage.buckets (id, name, public) values ('photos', 'photos', false) on conflict do nothing;
+insert into storage.buckets (id, name, public) values ('files', 'files', false) on conflict do nothing;
 
 drop policy if exists "own files" on storage.objects;
 create policy "own files" on storage.objects for all
-  using (bucket_id in ('plans','photos') and owner = auth.uid())
-  with check (bucket_id in ('plans','photos') and owner = auth.uid());
+  using (bucket_id in ('plans','photos','files') and owner = auth.uid())
+  with check (bucket_id in ('plans','photos','files') and owner = auth.uid());

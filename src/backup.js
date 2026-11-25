@@ -18,20 +18,20 @@ async function serialise(rec) {
 function deserialise(rec) {
   const out = { ...rec };
   for (const k of ['blob', 'thumb', 'marked']) {
-    if (rec[k]?.$blob) out[k] = base64ToBlob(rec[k].$blob, rec[k].type);
+    if (rec[k]?.$blob) out[k] = base64ToBlob(rec[k].$blob, rec[k].type ?? '');
   }
   return out;
 }
 
 export async function backupProjects(projects) {
-  const data = { format: FORMAT, version: 1, exportedAt: new Date().toISOString(), projects: [], plans: [], doors: [], photos: [] };
+  const data = { format: FORMAT, version: 1, exportedAt: new Date().toISOString(), projects: [], plans: [], doors: [], photos: [], files: [] };
   let videosLeftOut = 0;
   for (const p of projects) {
     data.projects.push(p);
-    for (const store of ['plans', 'doors', 'photos']) {
+    for (const store of ['plans', 'doors', 'photos', 'files']) {
       for (const r of await db.byIndex(store, 'projectId', p.id)) {
         // Videos can be hundreds of MB: too big for a backup file built on a phone
-        if (store === 'photos' && r.kind === 'video') {
+        if ((store === 'photos' && r.kind === 'video') || (store === 'files' && r.size > 50 * 1048576)) {
           videosLeftOut++;
           continue;
         }
@@ -50,7 +50,7 @@ export async function restoreBackup(file) {
   const data = JSON.parse(await file.text());
   if (data.format !== FORMAT) throw new Error('This file is not an FSCF Doors backup.');
   let n = 0;
-  for (const store of ['projects', 'plans', 'doors', 'photos']) {
+  for (const store of ['projects', 'plans', 'doors', 'photos', 'files']) {
     for (const r of data[store] || []) {
       await db.putRaw(store, deserialise(r));
       if (store === 'projects') n++;

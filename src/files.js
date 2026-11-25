@@ -110,6 +110,27 @@ export async function compressImage(file, maxSide, quality) {
   return { blob, thumb, width: w, height: h };
 }
 
+// Small picture of a PDF's first page, for the Files list.
+export async function pdfThumb(file) {
+  const pdfjs = await loadPdfJs();
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  try {
+    const page = await pdf.getPage(1);
+    const vp1 = page.getViewport({ scale: 1 });
+    const vp = page.getViewport({ scale: 320 / Math.max(vp1.width, vp1.height) });
+    const c = document.createElement('canvas');
+    c.width = Math.floor(vp.width);
+    c.height = Math.floor(vp.height);
+    const g = c.getContext('2d');
+    g.fillStyle = '#fff';
+    g.fillRect(0, 0, c.width, c.height);
+    await page.render({ canvasContext: g, viewport: vp }).promise;
+    return { thumb: await canvasToBlob(c, 'image/jpeg', 0.75), pages: pdf.numPages };
+  } finally {
+    await pdf.destroy();
+  }
+}
+
 // Turn an uploaded drawing (PDF or image) into one or more plan images.
 // Returns [{ name, blob, thumb, width, height }]
 export async function importDrawing(file, onProgress = () => {}) {

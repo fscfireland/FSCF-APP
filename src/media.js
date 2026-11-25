@@ -14,6 +14,7 @@ export function fmtDuration(sec) {
 
 export function fmtSize(bytes) {
   if (!bytes) return '';
+  if (bytes < 1024) return 'under 1 KB';
   return bytes > 1048576 ? `${(bytes / 1048576).toFixed(1)} MB` : `${Math.round(bytes / 1024)} KB`;
 }
 

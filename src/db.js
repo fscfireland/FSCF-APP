@@ -6,8 +6,8 @@
 // database (Supabase) and pull other people's changes down.
 
 const DB_NAME = 'fscf-doors';
-const DB_VERSION = 1;
-const STORES = ['projects', 'plans', 'doors', 'photos', 'settings'];
+const DB_VERSION = 2; // v2 adds the 'files' store (project documents)
+const STORES = ['projects', 'plans', 'doors', 'photos', 'settings', 'files'];
 
 let dbPromise = null;
 
@@ -20,7 +20,7 @@ function open() {
       for (const name of STORES) {
         if (db.objectStoreNames.contains(name)) continue;
         const store = db.createObjectStore(name, { keyPath: 'id' });
-        if (name === 'plans' || name === 'doors' || name === 'photos') {
+        if (name === 'plans' || name === 'doors' || name === 'photos' || name === 'files') {
           store.createIndex('projectId', 'projectId');
         }
         if (name === 'doors') store.createIndex('planId', 'planId');
@@ -139,7 +139,7 @@ export async function doorPhotos(doorId) {
 }
 
 export async function deleteProject(projectId) {
-  for (const store of ['plans', 'doors', 'photos']) {
+  for (const store of ['plans', 'doors', 'photos', 'files']) {
     const rows = await byIndex(store, 'projectId', projectId);
     for (const r of rows) await remove(store, r.id);
   }

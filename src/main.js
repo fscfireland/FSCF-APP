@@ -26,6 +26,8 @@ import {
   splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
+import { fileFolders, fileKind, KIND_LABEL, projectFiles, addFiles, openFile, downloadFile } from './projectfiles.js';
+import { fmtSize as fmtBytes } from './media.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
 
 const app = document.getElementById('app');
@@ -368,6 +370,7 @@ async function renderProject() {
   useScheme(project);
   const allPlans = await db.projectPlans(project.id);
   const allDoors = await db.projectDoors(project.id);
+  const files = await projectFiles(project.id);
   const tab = state.tab || 'plans';
   const colls = listCollections(allPlans);
   const coll = activeCollection(project, allPlans, state.coll);
@@ -383,7 +386,7 @@ async function renderProject() {
       <button class="icon-btn" id="proj-edit" aria-label="Project details">${icon('more')}</button>
     </header>
     <nav class="tabs" role="tablist">
-      ${[['plans', 'Plans', allPlans.length], ['doors', 'Doors', doors.length], ['repairs', 'Repairs', ''], ['export', 'Export', '']].map(([id, label, n]) =>
+      ${[['plans', 'Plans', allPlans.length], ['doors', 'Doors', doors.length], ['repairs', 'Repairs', ''], ['files', 'Files', files.length || ''], ['export', 'Export', '']].map(([id, label, n]) =>
         `<button role="tab" class="tab ${tab === id ? 'is-on' : ''}" data-tab="${id}" aria-selected="${tab === id}">${label}${n !== '' ? ` <span class="tab-n">${n}</span>` : ''}</button>`).join('')}
     </nav>
     <main class="page" id="tab-body"></main>
@@ -393,6 +396,7 @@ async function renderProject() {
   $$('.tab').forEach((t) => (t.onclick = () => go({ ...state, tab: t.dataset.tab }, { replace: true })));
   const body = $('#tab-body');
   if (tab === 'plans') return renderPlansTab(body, project, allPlans, allDoors, coll);
+  if (tab === 'files') return renderFilesTab(body, project, files);
   // Doors and Export work on one collection at a time (or all)
   body.innerHTML = '<div id="coll-bar"></div><div id="tab-inner"></div>';
   if (colls.length > 1) {
@@ -408,6 +412,136 @@ async function renderProject() {
   if (tab === 'doors') renderDoorsTab($('#tab-inner'), project, plans, doors);
   else if (tab === 'repairs') renderRepairsTab($('#tab-inner'), project, plans, doors);
   else renderExportTab($('#tab-inner'), project, plans, doors);
+}
+
+// ---------- Files: certificates, manuals, quotes and other documents ----------
+const KIND_ICON = { pdf: 'report', image: 'image', video: 'video', sheet: 'sheet', doc: 'file', cad: 'plan', other: 'file' };
+
+function renderFilesTab(body, project, files) {
+  const folders = fileFolders(project, files);
+  const f = state.fileF || '';
+  const q = (state.fq || '').toLowerCase();
+  const shown = files.filter((x) => (!f || x.folder === f) && (!q || [x.name, x.folder, x.notes].join(' ').toLowerCase().includes(q)));
+  const count = (name) => files.filter((x) => x.folder === name).length;
+  body.innerHTML = `
+    <div class="row-btns import-row">
+      <label class="btn primary sm">${icon('upload')} Add files<input type="file" id="file-add" multiple hidden></label>
+      <button class="btn ghost sm" id="file-folders">${icon('folder')} Folders</button>
+    </div>
+    <div class="chips" role="group" aria-label="Folders">
+      <button class="chip ${!f ? 'is-on' : ''}" data-ff="">All <b>${files.length}</b></button>
+      ${folders.map((n) => `<button class="chip ${f === n ? 'is-on' : ''}" data-ff="${esc(n)}">${esc(n)} <b>${count(n)}</b></button>`).join('')}
+    </div>
+    ${files.length > 4 ? `<label class="search">${icon('search')}<input id="file-q" type="search" placeholder="Search file names and notes…" value="${esc(state.fq || '')}"></label>` : ''}
+    ${files.length ? '' : `<div class="empty-files">${icon('folder')}<p><b>Keep the project's documents here</b><br>Fire door certificates, O&amp;M manuals, fire cert drawings, quotes, previous reports. They're saved on this phone and open with no signal.</p></div>`}
+    <div class="file-list">
+      ${shown.map((x) => {
+        const k = fileKind(x);
+        return `<button class="file-row" data-id="${x.id}">
+          <span class="file-thumb">${x.thumb ? `<img data-thumb="${x.id}" alt="">` : `<span class="file-ico k-${k}">${icon(KIND_ICON[k])}<small>${esc((x.name.split('.').pop() || '').slice(0, 4).toUpperCase())}</small></span>`}</span>
+          <span class="dr-main"><b>${esc(x.name)}</b>
+            <small>${esc([f ? '' : x.folder, KIND_LABEL[k] + (x.pages > 1 ? ` · ${x.pages} pages` : ''), fmtBytes(x.size), fmtDate(x.createdAt.slice(0, 10))].filter(Boolean).join(' · '))}</small>
+            ${x.notes ? `<small class="file-note">${esc(x.notes)}</small>` : ''}
+          </span>
+          <span class="file-more" aria-hidden="true">${icon('more')}</span>
+        </button>`;
+      }).join('')}
+    </div>
+    ${files.length && !shown.length ? '<p class="muted pad">No files match.</p>' : ''}
+  `;
+  for (const x of shown) {
+    const img = $(`img[data-thumb="${x.id}"]`, body);
+    if (img && x.thumb) { const u = URL.createObjectURL(x.thumb); urls.add(u); img.src = u; }
+  }
+  const rerender = () => renderProject();
+  $$('.chip', body).forEach((c) => (c.onclick = () => { state.fileF = c.dataset.ff; renderFilesTab(body, project, files); }));
+  const qi = $('#file-q');
+  if (qi) qi.oninput = () => {
+    state.fq = qi.value;
+    const pos = qi.selectionStart;
+    renderFilesTab(body, project, files);
+    const n = $('#file-q');
+    n.focus();
+    n.setSelectionRange(pos, pos);
+  };
+  $('#file-add').onchange = async (e) => {
+    const list = [...e.target.files];
+    e.target.value = '';
+    if (!list.length) return;
+    const b = busy('Saving files…');
+    try {
+      const added = await addFiles(project, list, f || null, (m) => b.update(m));
+      b.done();
+      const where = [...new Set(added.map((a) => a.folder))];
+      toast(`${added.length} file${added.length > 1 ? 's' : ''} added to ${where.join(', ')}`);
+    } catch (err) {
+      b.done();
+      toast('Could not save: ' + err.message, 'error');
+    }
+    rerender();
+  };
+  $('#file-folders').onclick = async () => {
+    const r = await dialog({
+      title: 'File folders',
+      body: `<label class="field"><span>One folder per line</span>
+        <textarea name="folders" rows="9">${esc(fileFolders(project).join('\n'))}</textarea>
+        <small class="muted">Rename a folder here and its files move with it (keep it on the same line).</small></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Save', value: true, kind: 'primary' }],
+    });
+    if (r.value !== true) return;
+    const old = fileFolders(project);
+    const next = [...new Set(r.data.folders.split('\n').map((x) => x.trim()).filter(Boolean))];
+    if (!next.length) return;
+    // A line that changed in place is a rename: move its files too
+    if (next.length === old.length) {
+      for (let i = 0; i < old.length; i++) {
+        if (old[i] === next[i] || old.includes(next[i])) continue;
+        for (const x of files.filter((y) => y.folder === old[i])) await db.put('files', { ...x, folder: next[i] });
+        if (state.fileF === old[i]) state.fileF = next[i];
+      }
+    }
+    await db.put('projects', { ...project, fileFolders: next });
+    rerender();
+  };
+  $$('.file-row', body).forEach((row) => (row.onclick = () => fileDetails(project, files.find((x) => x.id === row.dataset.id), rerender)));
+}
+
+async function fileDetails(project, rec, rerender) {
+  const folders = fileFolders(project, [rec]);
+  const k = fileKind(rec);
+  let thumbUrl = '';
+  if (rec.thumb) thumbUrl = URL.createObjectURL(rec.thumb);
+  const r = await dialog({
+    title: 'File',
+    body: `
+      ${thumbUrl ? `<img class="file-preview" src="${thumbUrl}" alt="">` : ''}
+      <button type="button" class="btn wide" id="fd-open">${icon('eye')} Open ${esc(KIND_LABEL[k].toLowerCase())}</button>
+      <label class="field"><span>Name</span><input name="name" value="${esc(rec.name)}" required></label>
+      <label class="field"><span>Folder</span><select name="folder">${folders.map((n) => `<option ${n === rec.folder ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      <label class="field"><span>Notes</span><textarea name="notes" rows="2" placeholder="e.g. Valid until Nov 2027 · Door set 3 to 9">${esc(rec.notes || '')}</textarea></label>
+      <p class="muted small">${esc([KIND_LABEL[k], rec.pages > 1 ? rec.pages + ' pages' : '', fmtBytes(rec.size), 'added ' + fmtDate(rec.createdAt.slice(0, 10))].filter(Boolean).join(' · '))}</p>
+      <div class="row-btns"><button type="button" class="btn ghost sm" id="fd-dl">${icon('download')} Save a copy</button>
+      <button type="button" class="btn ghost sm danger-text" id="fd-del">${icon('trash')} Delete</button></div>`,
+    buttons: [{ label: 'Close', value: false }, { label: 'Save', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      $('#fd-open', form).onclick = () => openFile(rec).catch((e) => toast(e.message, 'error'));
+      $('#fd-dl', form).onclick = () => downloadFile(rec).catch((e) => toast(e.message, 'error'));
+      $('#fd-del', form).onclick = async () => {
+        if (!(await confirmBox('Delete file?', `${rec.name} will be removed from this project.`))) return;
+        await db.remove('files', rec.id);
+        form.parentElement.remove();
+        if (thumbUrl) URL.revokeObjectURL(thumbUrl);
+        toast('File deleted');
+        rerender();
+      };
+    },
+  });
+  if (thumbUrl) URL.revokeObjectURL(thumbUrl);
+  if (r.value !== true) return;
+  const name = r.data.name.trim() || rec.name;
+  await db.put('files', { ...rec, name, folder: r.data.folder, notes: r.data.notes.trim() });
+  toast('Saved');
+  rerender();
 }
 
 // ---------- Repairs: remedial works list for the repairer ----------
@@ -1119,7 +1253,7 @@ function renderExportTab(body, project, plans, allDoors) {
     try {
       const { result, videosLeftOut } = await backupProjects([project]);
       b.done();
-      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s) not included – too large)` : 'Backup saved');
+      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
@@ -3266,7 +3400,7 @@ async function renderSettings() {
     try {
       const { result, videosLeftOut } = await backupProjects(projects);
       b.done();
-      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s) not included – too large)` : 'Backup saved');
+      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
