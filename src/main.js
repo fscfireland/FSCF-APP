@@ -29,7 +29,7 @@ import {
 import { backupProjects, restoreBackup } from './backup.js';
 import { BRAND_BANNER, BRAND_ROUND } from './brandlogo.js';
 import { LIB, DEFAULT_LIB_FOLDERS, fileFolders, guessFolder, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
-import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
+import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, sessionsOf, isRunning, elapsedMs, fmtDuration as fmtJobTime, pauseService, resumeService, saveSessions, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
 import { fmtSize as fmtBytes } from './media.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
 
@@ -102,7 +102,9 @@ async function loadLists() {
   setCustomSchemes(lists.customSchemes);
   if (s?.materials && (s.matVersion || 1) < MATERIALS_VERSION) {
     const have = new Set(s.materials.map((m) => m.id));
-    const merged = [...s.materials, ...DEFAULT_MATERIALS.filter((m) => !have.has(m.id))].map((m) => ({ ...m, cat: matCat(m) }));
+    const sample = Object.fromEntries(DEFAULT_MATERIALS.map((m) => [m.id, m.cost]));
+    const merged = [...s.materials, ...DEFAULT_MATERIALS.filter((m) => !have.has(m.id))]
+      .map((m) => ({ ...m, cat: matCat(m), cost: Number(m.cost) ? m.cost : sample[m.id] ?? m.cost }));
     await saveLists({ materials: merged, matVersion: MATERIALS_VERSION });
   }
   return lists;
@@ -173,7 +175,7 @@ async function renderProjects() {
         <span class="lc-main"><b>${esc(p.site || 'Untitled site')}</b>
           <small class="lc-plan">${icon('plan')} ${esc(planSvcName(plan))}</small>
           <small>${esc([p.workType, p.client].filter(Boolean).join(' · '))}</small>
-          <small>Started ${esc(fmtWhen(sv.startedAt))}${sv.startedBy ? ' by ' + esc(sv.startedBy) : ''}</small></span>
+          <small>${isRunning(sv) ? '<span class="live-dot" aria-hidden="true"></span> Live' : '⏸ Paused'} · started ${esc(fmtWhen(sv.startedAt))} · ${timerChip(p, planKey(plan.id)).replace('<button type="button" class="svc-timer svc-act" data-act="time"', '<span class="svc-timer"').replace('</button>', '</span>')}</small></span>
         <span class="lc-prog"><b>${total ? Math.round((done / total) * 100) : 0}%</b><small>${done}/${total} doors</small>
           <i style="--p:${total ? (done / total) * 100 : 0}%"></i></span>
       </button>`).join('')}
@@ -478,6 +480,69 @@ const fmtWhen = (iso) => new Date(iso).toLocaleString('en-IE', { day: 'numeric',
 const planSvcName = (plan) => [plan.collection ? collLabel(plan.collection) : '', plan.name].filter(Boolean).join(' › ');
 
 // Status and button for one drawing's service. `full` adds Reopen (Export tab).
+// Time on the job, shown only in the app (never in reports or exports).
+// Tap it for the dated log of every work session.
+function timerChip(project, key) {
+  const sv = project.services?.[key];
+  if (!sv) return '';
+  const closed = sessionsOf(sv).filter((x) => x.end).reduce((t, x) => t + (Date.parse(x.end) - Date.parse(x.start)), 0);
+  const open = sessionsOf(sv).find((x) => !x.end)?.start || '';
+  return `<button type="button" class="svc-timer svc-act" data-act="time" data-plan="${esc(key.slice(5))}" data-base="${closed}" data-open="${esc(open)}" title="Time on this job (only you see this)">⏱ <b>${fmtJobTime(elapsedMs(sv))}</b></button>`;
+}
+setInterval(() => {
+  for (const el of document.querySelectorAll('.svc-timer[data-base]')) {
+    const open = el.dataset.open ? Date.now() - Date.parse(el.dataset.open) : 0;
+    const b = el.querySelector('b');
+    if (b) b.textContent = fmtJobTime(Number(el.dataset.base) + open);
+  }
+}, 20000);
+
+// The dated time log for a service; times can be corrected (e.g. forgot to pause)
+async function timeLog(project, plan, after) {
+  const key = planKey(plan.id);
+  const p = await db.get('projects', project.id);
+  const sv = p.services?.[key];
+  if (!sv) return;
+  const ss = sessionsOf(sv);
+  const local = (iso) => { if (!iso) return ''; const d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+  const byDay = {};
+  for (const x of ss) {
+    const day = x.start.slice(0, 10);
+    byDay[day] = (byDay[day] || 0) + Math.max(0, (x.end ? Date.parse(x.end) : Date.now()) - Date.parse(x.start));
+  }
+  const r = await dialog({
+    title: 'Time on this job',
+    body: `
+      <p class="lib-note">${icon('shield')}<span>Only you see this. It is never put in reports, exports or the client copy.</span></p>
+      <p><b>${esc(planSvcName(plan))}</b> · total <b>${fmtJobTime(elapsedMs(sv))}</b> over ${Object.keys(byDay).length} day${Object.keys(byDay).length === 1 ? '' : 's'}</p>
+      <div class="tl-days">${Object.entries(byDay).map(([d, ms]) => `<span>${esc(new Date(d + 'T12:00').toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' }))} <b>${fmtJobTime(ms)}</b></span>`).join('')}</div>
+      <div class="tl-list">${ss.map((x, i) => `
+        <div class="tl-row" data-i="${i}">
+          <label class="field"><span>Started</span><input type="datetime-local" name="s${i}" value="${local(x.start)}"></label>
+          <label class="field"><span>${x.end ? 'Stopped' : 'Running now'}</span><input type="datetime-local" name="e${i}" value="${local(x.end)}" ${x.end ? '' : 'placeholder="still running"'}></label>
+          <b class="tl-dur">${fmtJobTime(Math.max(0, (x.end ? Date.parse(x.end) : Date.now()) - Date.parse(x.start)))}</b>
+          <button type="button" class="icon-btn sm tl-del" aria-label="Remove this session">${icon('trash')}</button>
+        </div>`).join('')}</div>
+      <p class="muted small">Correct any time here, e.g. if you forgot to pause at the end of a day.</p>`,
+    buttons: [{ label: 'Close', value: false }, { label: 'Save changes', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      $$('.tl-del', form).forEach((b) => (b.onclick = () => { b.closest('.tl-row').remove(); }));
+    },
+  });
+  if (r.value !== true) return;
+  const rows = [...new Set(Object.keys(r.data).map((k) => k.slice(1)))];
+  const next = rows.map((i) => {
+    const st = r.data['s' + i];
+    const en = r.data['e' + i];
+    return st ? { start: new Date(st).toISOString(), end: en ? new Date(en).toISOString() : null } : null;
+  }).filter(Boolean).sort((a, b) => a.start.localeCompare(b.start));
+  // only the newest session can still be running
+  next.forEach((x, i) => { if (!x.end && i < next.length - 1) x.end = next[i + 1].start; });
+  await saveSessions(project.id, key, next);
+  toast('Time log saved');
+  after?.();
+}
+
 function svcControls(project, plan, full = false) {
   const key = planKey(plan.id);
   const co = project.closeouts?.[key];
@@ -488,7 +553,10 @@ function svcControls(project, plan, full = false) {
       ${full ? `<button class="btn ghost sm svc-act" data-act="reopen" data-plan="${plan.id}">Reopen</button>` : ''}`;
   }
   if (sv) {
-    return `<span class="svc-chip is-live"><span class="live-dot" aria-hidden="true"></span> Live since ${esc(fmtWhen(sv.startedAt))}</span>
+    const run = isRunning(sv);
+    return `<span class="svc-chip ${run ? 'is-live' : 'is-paused'}">${run ? '<span class="live-dot" aria-hidden="true"></span> Live' : '⏸ Paused'}</span>
+      ${timerChip(project, key)}
+      <button class="btn sm svc-act" data-act="${run ? 'pause' : 'resume'}" data-plan="${plan.id}">${run ? '⏸ Pause' : icon('play') + ' Resume'}</button>
       <button class="btn primary sm svc-act" data-act="end" data-plan="${plan.id}">${icon('check')} End service</button>`;
   }
   return `<button class="btn sm svc-act" data-act="start" data-plan="${plan.id}">${icon('play')} Start service</button>`;
@@ -513,6 +581,17 @@ function bindSvc(root, project, plans, after = refresh) {
       } catch (err) {
         toast('Weather not recorded yet: ' + (/fetch|network|load failed/i.test(err.message) ? 'no internet' : err.message));
       }
+    } else if (b.dataset.act === 'pause') {
+      await pauseService(project.id, key);
+      toast(`Paused. ${fmtJobTime(elapsedMs((await db.get('projects', project.id)).services[key]))} so far; Resume when you're back`);
+      after();
+    } else if (b.dataset.act === 'resume') {
+      await resumeService(project.id, key);
+      toast('Resumed: the timer carries on from where you left off');
+      after();
+      noteWeather(project.id);
+    } else if (b.dataset.act === 'time') {
+      await timeLog(fresh, plan, after);
     } else if (b.dataset.act === 'end') {
       const doors = (await db.byIndex('doors', 'planId', plan.id)).sort((a, c) => (a.pinNo || 0) - (c.pinNo || 0));
       await closeService(fresh, plan, doors);
@@ -547,7 +626,7 @@ async function closeService(project, plan, doors) {
   const p0 = await db.get('projects', project.id);
   const draft = { answers: {}, declIds: [], reason: '', weather: null, closedBy: lists.inspector || '', ...(p0.closeDrafts?.[key] || {}) };
   const svc = serviceOf(p0, key);
-  const dates = [...new Set([...(svc ? [svc.startedAt.slice(0, 10)] : []), ...doors.map((d) => d.inspectedOn).filter(Boolean)])].sort();
+  const dates = [...new Set([...sessionsOf(svc).map((x) => x.start.slice(0, 10)), ...doors.map((d) => d.inspectedOn).filter(Boolean)])].sort();
   if (!dates.length) dates.push(todayDublin());
   const declFiles = (await Promise.all((draft.declIds || []).map((id) => db.get('files', id)))).filter(Boolean);
   let weather = draft.weather;
@@ -705,6 +784,7 @@ async function closeService(project, plan, doors) {
     const p2 = await db.get('projects', project.id);
     const drafts = { ...(p2.closeDrafts || {}) };
     delete drafts[key];
+    if (p2.services?.[key]) p2.services = { ...p2.services, [key]: { ...p2.services[key], sessions: sessionsOf(p2.services[key]).map((x) => (x.end ? x : { ...x, end: closedAt })) } };
     await db.put('projects', { ...p2, closeDrafts: drafts, closeouts: { ...(p2.closeouts || {}), [key]: { ...rec, reportFileId: pdfRec.id, excelFileId: xlsRec?.id || null } } });
     b.done();
     toast('Service closed. Report saved in Files › Reports');

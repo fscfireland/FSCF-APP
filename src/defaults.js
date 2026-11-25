@@ -151,35 +151,35 @@ export const MAT_CATEGORIES = ['Seals', 'Closers', 'Hinges', 'Ironmongery', 'Hol
 // One price list for everything: each product has a category, so a defect
 // can offer only the products that fix it (e.g. Closers → Arrone or Dorma).
 export const DEFAULT_MATERIALS = [
-  { id: 'm-int10', cat: 'Seals', name: 'Intumescent strip 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int15', cat: 'Seals', name: 'Intumescent strip 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int20', cat: 'Seals', name: 'Intumescent strip 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int25', cat: 'Seals', name: 'Intumescent strip 25 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int10s', cat: 'Seals', name: 'Intumescent + smoke seal 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int15s', cat: 'Seals', name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int20s', cat: 'Seals', name: 'Intumescent + smoke seal 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-smoke', cat: 'Seals', name: 'Smoke seal only, brush or fin (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-drop', cat: 'Seals', name: 'Automatic drop-down seal', unit: 'each', cost: 0 },
-  { id: 'm-thresh', cat: 'Seals', name: 'Threshold strip / seal', unit: 'each', cost: 0 },
-  { id: 'm-closer', cat: 'Closers', name: 'Overhead door closer EN 1154 (standard)', unit: 'each', cost: 0 },
-  { id: 'm-cl-arrone', cat: 'Closers', name: 'Arrone overhead closer EN 1154', unit: 'each', cost: 0 },
-  { id: 'm-cl-dorma', cat: 'Closers', name: 'Dorma TS83 overhead closer EN 1154', unit: 'each', cost: 0 },
-  { id: 'm-cl-conc', cat: 'Closers', name: 'Concealed jamb closer (Perko type)', unit: 'each', cost: 0 },
-  { id: 'm-cl-free', cat: 'Closers', name: 'Free-swing closer linked to fire alarm', unit: 'each', cost: 0 },
-  { id: 'm-hinge', cat: 'Hinges', name: 'Fire-rated hinge EN 1935 (Grade 13)', unit: 'each', cost: 0 },
-  { id: 'm-hpad', cat: 'Hinges', name: 'Intumescent hinge pads', unit: 'pack', cost: 0 },
-  { id: 'm-latch', cat: 'Ironmongery', name: 'Fire-rated latch / lock', unit: 'each', cost: 0 },
-  { id: 'm-holdopen', cat: 'Hold-open', name: 'Hold-open device EN 1155', unit: 'each', cost: 0 },
-  { id: 'm-glaze', cat: 'Glazing', name: 'Intumescent glazing tape / seal', unit: 'roll', cost: 0 },
-  { id: 'm-mastic', cat: 'Fire stopping', name: 'Intumescent sealant 310 ml', unit: 'tube', cost: 0 },
-  { id: 'm-lip', cat: 'Timber & repairs', name: 'Hardwood lipping', unit: 'length', cost: 0 },
-  { id: 'm-sign', cat: 'Signs', name: 'Fire door keep shut', unit: 'each', cost: 0 },
-  { id: 'm-sg-auto', cat: 'Signs', name: 'Automatic fire door keep shut', unit: 'each', cost: 0 },
-  { id: 'm-sg-lock', cat: 'Signs', name: 'Fire door keep locked', unit: 'each', cost: 0 },
-  { id: 'm-sg-exit', cat: 'Signs', name: 'Fire exit keep clear', unit: 'each', cost: 0 },
-  { id: 'm-sg-push', cat: 'Signs', name: 'Push bar to open', unit: 'each', cost: 0 },
-  { id: 'm-sg-right', cat: 'Signs', name: 'Turn to the right', unit: 'each', cost: 0 },
-  { id: 'm-sg-left', cat: 'Signs', name: 'Turn to the left', unit: 'each', cost: 0 },
+  { id: 'm-int10', cat: 'Seals', name: 'Intumescent strip 10 × 4 mm (2.1 m)', unit: 'length', cost: 4.5 },
+  { id: 'm-int15', cat: 'Seals', name: 'Intumescent strip 15 × 4 mm (2.1 m)', unit: 'length', cost: 5.5 },
+  { id: 'm-int20', cat: 'Seals', name: 'Intumescent strip 20 × 4 mm (2.1 m)', unit: 'length', cost: 6.5 },
+  { id: 'm-int25', cat: 'Seals', name: 'Intumescent strip 25 × 4 mm (2.1 m)', unit: 'length', cost: 7.5 },
+  { id: 'm-int10s', cat: 'Seals', name: 'Intumescent + smoke seal 10 × 4 mm (2.1 m)', unit: 'length', cost: 6.0 },
+  { id: 'm-int15s', cat: 'Seals', name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m)', unit: 'length', cost: 7.0 },
+  { id: 'm-int20s', cat: 'Seals', name: 'Intumescent + smoke seal 20 × 4 mm (2.1 m)', unit: 'length', cost: 8.5 },
+  { id: 'm-smoke', cat: 'Seals', name: 'Smoke seal only, brush or fin (2.1 m)', unit: 'length', cost: 5.0 },
+  { id: 'm-drop', cat: 'Seals', name: 'Automatic drop-down seal', unit: 'each', cost: 65.0 },
+  { id: 'm-thresh', cat: 'Seals', name: 'Threshold strip / seal', unit: 'each', cost: 18.0 },
+  { id: 'm-closer', cat: 'Closers', name: 'Overhead door closer EN 1154 (standard)', unit: 'each', cost: 75.0 },
+  { id: 'm-cl-arrone', cat: 'Closers', name: 'Arrone overhead closer EN 1154', unit: 'each', cost: 85.0 },
+  { id: 'm-cl-dorma', cat: 'Closers', name: 'Dorma TS83 overhead closer EN 1154', unit: 'each', cost: 140.0 },
+  { id: 'm-cl-conc', cat: 'Closers', name: 'Concealed jamb closer (Perko type)', unit: 'each', cost: 95.0 },
+  { id: 'm-cl-free', cat: 'Closers', name: 'Free-swing closer linked to fire alarm', unit: 'each', cost: 320.0 },
+  { id: 'm-hinge', cat: 'Hinges', name: 'Fire-rated hinge EN 1935 (Grade 13)', unit: 'each', cost: 12.0 },
+  { id: 'm-hpad', cat: 'Hinges', name: 'Intumescent hinge pads', unit: 'pack', cost: 6.0 },
+  { id: 'm-latch', cat: 'Ironmongery', name: 'Fire-rated latch / lock', unit: 'each', cost: 35.0 },
+  { id: 'm-holdopen', cat: 'Hold-open', name: 'Hold-open device EN 1155', unit: 'each', cost: 180.0 },
+  { id: 'm-glaze', cat: 'Glazing', name: 'Intumescent glazing tape / seal', unit: 'roll', cost: 15.0 },
+  { id: 'm-mastic', cat: 'Fire stopping', name: 'Intumescent sealant 310 ml', unit: 'tube', cost: 14.0 },
+  { id: 'm-lip', cat: 'Timber & repairs', name: 'Hardwood lipping', unit: 'length', cost: 22.0 },
+  { id: 'm-sign', cat: 'Signs', name: 'Fire door keep shut', unit: 'each', cost: 3.5 },
+  { id: 'm-sg-auto', cat: 'Signs', name: 'Automatic fire door keep shut', unit: 'each', cost: 3.5 },
+  { id: 'm-sg-lock', cat: 'Signs', name: 'Fire door keep locked', unit: 'each', cost: 3.5 },
+  { id: 'm-sg-exit', cat: 'Signs', name: 'Fire exit keep clear', unit: 'each', cost: 4.0 },
+  { id: 'm-sg-push', cat: 'Signs', name: 'Push bar to open', unit: 'each', cost: 4.0 },
+  { id: 'm-sg-right', cat: 'Signs', name: 'Turn to the right', unit: 'each', cost: 3.5 },
+  { id: 'm-sg-left', cat: 'Signs', name: 'Turn to the left', unit: 'each', cost: 3.5 },
 ];
 
 // Category of a price-list item (older lists had none: work it out from the name)
@@ -255,7 +255,7 @@ export const zonesToText = (zones) => (zones || []).map((z) => (z.name ? `${z.no
 
 // A material as it appears in lists and reports, with its size / type
 export const matLabel = (m) => (m.spec ? `${m.name} – ${m.spec}` : m.name || '');
-export const MATERIALS_VERSION = 3;
+export const MATERIALS_VERSION = 4;
 
 // A door's fire alarm zone as one line, e.g. "Zone 4 – East wing"
 export const zoneText = (d) => [d.zoneNo ? `Zone ${d.zoneNo}` : '', d.zoneName || ''].filter(Boolean).join(' – ');

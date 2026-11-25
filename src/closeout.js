@@ -37,9 +37,35 @@ export const liveKeys = (project) => Object.keys(project.services || {}).filter(
 
 export async function startService(projectId, key, by) {
   const p = await db.get('projects', projectId);
-  const services = { ...(p.services || {}), [key]: { startedAt: new Date().toISOString(), startedBy: by || '' } };
+  const now = new Date().toISOString();
+  const services = { ...(p.services || {}), [key]: { startedAt: now, startedBy: by || '', sessions: [{ start: now, end: null }] } };
   return db.put('projects', { ...p, services });
 }
+
+// ---------- Time on the job (private: never printed or exported) ----------
+// Each service keeps work sessions [{ start, end }]. Pause closes the open
+// session, Resume opens a new one, End service closes it. Older services
+// without sessions count from when they were started.
+export const sessionsOf = (sv) => (sv?.sessions?.length ? sv.sessions : sv?.startedAt ? [{ start: sv.startedAt, end: null }] : []);
+export const isRunning = (sv) => sessionsOf(sv).some((x) => !x.end);
+export function elapsedMs(sv, now = Date.now()) {
+  return sessionsOf(sv).reduce((t, x) => t + Math.max(0, (x.end ? Date.parse(x.end) : now) - Date.parse(x.start)), 0);
+}
+export function fmtDuration(ms) {
+  const m = Math.round(ms / 60000);
+  const h = Math.floor(m / 60);
+  return h ? `${h}h ${String(m % 60).padStart(2, '0')}m` : `${m}m`;
+}
+async function setSessions(projectId, key, fn) {
+  const p = await db.get('projects', projectId);
+  const sv = p.services?.[key];
+  if (!sv) return p;
+  const sessions = fn(sessionsOf(sv).map((x) => ({ ...x })));
+  return db.put('projects', { ...p, services: { ...p.services, [key]: { ...sv, sessions } } });
+}
+export const pauseService = (projectId, key, at = new Date().toISOString()) => setSessions(projectId, key, (ss) => ss.map((x) => (x.end ? x : { ...x, end: at })));
+export const resumeService = (projectId, key) => setSessions(projectId, key, (ss) => (ss.some((x) => !x.end) ? ss : [...ss, { start: new Date().toISOString(), end: null }]));
+export const saveSessions = (projectId, key, sessions) => setSessions(projectId, key, () => sessions);
 
 export async function reopenService(projectId, key) {
   const p = await db.get('projects', projectId);
