@@ -160,6 +160,8 @@ async function renderProjects() {
     }
   }
   live.sort((a, b) => b.sv.startedAt.localeCompare(a.sv.startedAt));
+  const liveN = {};
+  for (const l of live) liveN[l.p.id] = (liveN[l.p.id] || 0) + 1;
   const liveHtml = live.length ? `<section class="live-list">
       <h2 class="h2"><span class="live-dot" aria-hidden="true"></span> Live services <span class="muted">${live.length}</span></h2>
       ${live.map(({ p, plan, sv, total, done }) => `<button class="live-card" data-pid="${p.id}" data-plan="${plan.id}">
@@ -194,10 +196,10 @@ async function renderProjects() {
   const ordered = [...sections.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || a[0].localeCompare(b[0]));
   const closed = new Set(state.closedGroups || []);
   const groupedHtml = !projects.length ? '' : !shown.length ? '<p class="muted pad">No projects match.</p>' : ordered.map(([k, list]) => groupBy === 'none'
-    ? `<div class="project-list">${list.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id])).join('')}</div>`
+    ? `<div class="project-list">${list.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id], liveN[p.id] || 0)).join('')}</div>`
     : `<section class="pgroup ${closed.has(groupBy + ':' + k) ? 'is-closed' : ''}" data-k="${esc(groupBy + ':' + k)}">
         <button class="pgroup-head" aria-expanded="${!closed.has(groupBy + ':' + k)}">${icon('down')}<b>${esc(k || emptyName)}</b><span class="muted">${list.length}</span></button>
-        <div class="project-list">${list.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id])).join('')}</div>
+        <div class="project-list">${list.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id], liveN[p.id] || 0)).join('')}</div>
       </section>`).join('');
 
   app.innerHTML = `
@@ -280,16 +282,17 @@ function countStatuses(doors) {
   return c;
 }
 
-function projectCard(p, doors, coll = '') {
+function projectCard(p, doors, coll = '', nLive = 0) {
   const scheme = useScheme(p);
   const c = countStatuses(doors);
   const lc = (id) => statusById[id].short.toLowerCase();
   return `
-    <button class="project-card" data-id="${p.id}">
+    <button class="project-card ${nLive ? 'is-live' : ''}" data-id="${p.id}">
       <div class="pc-top">
         <div class="pc-title">${esc(p.site || 'Untitled site')}</div>
         <div class="pc-date">${esc(fmtDate(p.date))}</div>
       </div>
+      ${nLive ? `<div class="pc-live"><span class="live-dot" aria-hidden="true"></span>${nLive} live drawing${nLive === 1 ? '' : 's'}</div>` : ''}
       <div class="pc-sub">${esc([p.client, p.address].filter(Boolean).join(' · '))}</div>
       ${p.group || p.workType ? `<div class="pc-tags">${p.workType ? `<span class="pc-type">${esc(p.workType)}</span>` : ''}${p.group ? `<span class="pc-group">${icon('list')} ${esc(p.group)}</span>` : ''}</div>` : ''}
       <div class="pc-scheme">${esc([coll, scheme.name].filter(Boolean).join(' · '))}</div>

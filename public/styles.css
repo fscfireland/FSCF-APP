@@ -843,3 +843,5 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .svc-ctl { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .lc-plan { display: flex; align-items: center; gap: 4px; color: var(--ink) !important; font-weight: 600; }
 .lc-plan .ico { width: 15px; height: 15px; flex: none; }
+.project-card.is-live { border-left: 4px solid var(--st-pass); }
+.pc-live { display: inline-flex; align-items: center; gap: 7px; justify-self: start; width: fit-content; font-size: 13px; font-weight: 650; padding: 3px 10px 3px 8px; border-radius: 12px; background: color-mix(in srgb, var(--st-pass) 14%, var(--surface)); }
