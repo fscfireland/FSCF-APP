@@ -13,6 +13,9 @@ import { exportProjectPdf } from './report.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
 import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView } from './history.js';
 import { emptyFilter, isFiltered, applyFilter, filterOptions, describeFilter } from './filters.js';
+import {
+  collLabel, listCollections, activeCollection, plansIn, suggestName, copyCollection, renameCollection, deleteCollection,
+} from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today } from './ui.js';
 
@@ -116,8 +119,19 @@ async function render() {
 async function renderProjects() {
   const projects = (await db.all('projects')).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.updatedAt.localeCompare(a.updatedAt));
   const allDoors = await db.all('doors');
+  const allPlans = await db.all('plans');
+  const plansBy = {};
+  for (const pl of allPlans) (plansBy[pl.projectId] ||= []).push(pl);
+  // each card shows the project's current collection
   const byProject = {};
-  for (const d of allDoors) (byProject[d.projectId] ||= []).push(d);
+  const collOf = {};
+  for (const p of projects) {
+    const pls = plansBy[p.id] || [];
+    const coll = activeCollection(p, pls);
+    const ids = new Set(plansIn(pls, coll).map((x) => x.id));
+    byProject[p.id] = allDoors.filter((d) => d.projectId === p.id && ids.has(d.planId));
+    collOf[p.id] = listCollections(pls).length > 1 || coll ? collLabel(coll) : '';
+  }
 
   app.innerHTML = `
     <header class="bar">
@@ -128,7 +142,7 @@ async function renderProjects() {
       <div class="offline-note">${icon('check')} Saved on this phone — works with no signal</div>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>` : ''}
       <div class="project-list">
-        ${projects.map((p) => projectCard(p, byProject[p.id] || [])).join('')}
+        ${projects.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id])).join('')}
       </div>
       ${projects.length ? '' : `
         <section class="empty">
@@ -165,7 +179,7 @@ function countStatuses(doors) {
   return c;
 }
 
-function projectCard(p, doors) {
+function projectCard(p, doors, coll = '') {
   const scheme = useScheme(p);
   const c = countStatuses(doors);
   const lc = (id) => statusById[id].short.toLowerCase();
@@ -176,7 +190,7 @@ function projectCard(p, doors) {
         <div class="pc-date">${esc(fmtDate(p.date))}</div>
       </div>
       <div class="pc-sub">${esc([p.client, p.address].filter(Boolean).join(' · '))}</div>
-      <div class="pc-scheme">${esc(scheme.name)}</div>
+      <div class="pc-scheme">${esc([coll, scheme.name].filter(Boolean).join(' · '))}</div>
       ${doors.length ? statusBar(doors) : ''}
       <div class="pc-counts">
         <span><b>${doors.length}</b> doors</span>
@@ -262,9 +276,15 @@ async function renderProject() {
   const project = await db.get('projects', state.projectId);
   if (!project) return go({ view: 'projects' }, { replace: true });
   useScheme(project);
-  const plans = await db.projectPlans(project.id);
-  const doors = await db.projectDoors(project.id);
+  const allPlans = await db.projectPlans(project.id);
+  const allDoors = await db.projectDoors(project.id);
   const tab = state.tab || 'plans';
+  const colls = listCollections(allPlans);
+  const coll = activeCollection(project, allPlans, state.coll);
+  const plans = plansIn(allPlans, coll);
+  const planIds = new Set(plans.map((p) => p.id));
+  const doors = allDoors.filter((d) => planIds.has(d.planId));
+  state.collText = colls.length > 1 ? (coll === '*' ? 'All collections' : collLabel(coll)) : '';
 
   app.innerHTML = `
     <header class="bar">
@@ -273,7 +293,7 @@ async function renderProject() {
       <button class="icon-btn" id="proj-edit" aria-label="Project details">${icon('more')}</button>
     </header>
     <nav class="tabs" role="tablist">
-      ${[['plans', 'Plans', plans.length], ['doors', 'Doors', doors.length], ['export', 'Export', '']].map(([id, label, n]) =>
+      ${[['plans', 'Plans', allPlans.length], ['doors', 'Doors', doors.length], ['export', 'Export', '']].map(([id, label, n]) =>
         `<button role="tab" class="tab ${tab === id ? 'is-on' : ''}" data-tab="${id}" aria-selected="${tab === id}">${label}${n !== '' ? ` <span class="tab-n">${n}</span>` : ''}</button>`).join('')}
     </nav>
     <main class="page" id="tab-body"></main>
@@ -282,17 +302,36 @@ async function renderProject() {
   $('#proj-edit').onclick = () => editProject(project);
   $$('.tab').forEach((t) => (t.onclick = () => go({ ...state, tab: t.dataset.tab }, { replace: true })));
   const body = $('#tab-body');
-  if (tab === 'plans') renderPlansTab(body, project, plans, doors);
-  else if (tab === 'doors') renderDoorsTab(body, project, plans, doors);
-  else renderExportTab(body, project, plans, doors);
+  if (tab === 'plans') return renderPlansTab(body, project, allPlans, allDoors, coll);
+  // Doors and Export work on one collection at a time (or all)
+  body.innerHTML = '<div id="coll-bar"></div><div id="tab-inner"></div>';
+  if (colls.length > 1) {
+    $('#coll-bar').innerHTML = `
+      <label class="coll-bar">${icon('plan')}<span>Collection</span>
+        <select id="coll-sel">
+          ${colls.map((c) => `<option value="${esc(c)}" ${c === coll ? 'selected' : ''}>${esc(collLabel(c))}</option>`).join('')}
+          <option value="*" ${coll === '*' ? 'selected' : ''}>All collections</option>
+        </select>
+      </label>`;
+    $('#coll-sel').onchange = (e) => pickCollection(project, e.target.value);
+  }
+  if (tab === 'doors') renderDoorsTab($('#tab-inner'), project, plans, doors);
+  else renderExportTab($('#tab-inner'), project, plans, doors);
 }
 
-function renderPlansTab(body, project, plans, doors) {
+async function pickCollection(project, coll) {
+  state.coll = coll;
+  if (coll !== '*') await db.put('projects', { ...project, activeCollection: coll });
+  state.rf = emptyFilter(); // report filters belong to the collection shown
+  refresh();
+}
+
+function renderPlansTab(body, project, plans, doors, active) {
   const n = {};
   for (const d of doors) n[d.planId] = (n[d.planId] || 0) + 1;
-  body.innerHTML = `
-    <div class="plan-grid">
-      ${plans.map((p) => `
+  const colls = listCollections(plans);
+  const named = colls.length > 1 || (colls[0] ?? '') !== '';
+  const card = (p) => `
         <div class="plan-card">
           <button class="plan-open" data-id="${p.id}">
             <img alt="" src="${objUrl(p.thumb || p.blob)}">
@@ -301,7 +340,26 @@ function renderPlansTab(body, project, plans, doors) {
             <div><b>${esc(p.name)}</b><small>${n[p.id] || 0} doors pinned</small></div>
             <button class="icon-btn sm plan-menu" data-id="${p.id}" aria-label="Plan options">${icon('more')}</button>
           </div>
-        </div>`).join('')}
+        </div>`;
+  const group = (c) => {
+    const ps = plansIn(plans, c);
+    const pins = ps.reduce((t, p) => t + (n[p.id] || 0), 0);
+    return `
+      <section class="coll ${c === active ? 'is-active' : ''}" data-c="${esc(c)}">
+        <div class="coll-head">
+          <span class="coll-name">${icon('plan')}<span><b>${esc(collLabel(c))}</b><small>${ps.length} drawing${ps.length === 1 ? '' : 's'} · ${pins} pin${pins === 1 ? '' : 's'}${c === active && colls.length > 1 ? ' · <span class="coll-cur">current</span>' : ''}</small></span></span>
+          <span class="row-btns">
+            <button class="btn sm coll-copy">${icon('plus')} Copy to new collection</button>
+            <button class="icon-btn sm coll-menu" aria-label="Collection options">${icon('more')}</button>
+          </span>
+        </div>
+        <div class="plan-grid">${ps.map(card).join('')}</div>
+      </section>`;
+  };
+  body.innerHTML = `
+    ${plans.length && !named ? `<p class="muted small coll-tip">Doing a repeat service? Use <b>Copy to new collection</b> to start next month's folder with the same drawings and pins.</p>` : ''}
+    ${colls.map(group).join('')}
+    <div class="plan-grid">
       <label class="plan-card upload">
         <input type="file" id="plan-file" accept="application/pdf,image/*" hidden>
         <span class="upload-ico">${icon('upload')}</span>
@@ -309,18 +367,46 @@ function renderPlansTab(body, project, plans, doors) {
         <small>PDF or photo of a floor plan. Each PDF page becomes a plan.</small>
       </label>
     </div>`;
-  $$('.plan-open', body).forEach((b) => (b.onclick = () => go({ view: 'plan', projectId: project.id, planId: b.dataset.id })));
-  $$('.plan-menu', body).forEach((b) => (b.onclick = () => planMenu(plans.find((p) => p.id === b.dataset.id))));
+  $$('.plan-open', body).forEach((b) => (b.onclick = async () => {
+    // opening a drawing makes its collection the current one
+    const c = plans.find((p) => p.id === b.dataset.id)?.collection || '';
+    if (c !== active) {
+      state.coll = c;
+      await db.put('projects', { ...project, activeCollection: c });
+    }
+    go({ view: 'plan', projectId: project.id, planId: b.dataset.id });
+  }));
+  $$('.plan-menu', body).forEach((b) => (b.onclick = () => planMenu(plans.find((p) => p.id === b.dataset.id), colls)));
+  $$('.coll', body).forEach((sec) => {
+    const c = sec.dataset.c;
+    $('.coll-copy', sec).onclick = () => copyCollectionDialog(project, plans, c);
+    $('.coll-menu', sec).onclick = () => collectionMenu(project, plans, doors, c);
+  });
   $('#plan-file').onchange = async (e) => {
     const file = e.target.files[0];
+    e.target.value = '';
     if (!file) return;
+    // which collection does it go in?
+    let target = active === '*' ? colls[0] ?? '' : active;
+    if (named) {
+      const r = await dialog({
+        title: 'Add drawing to…',
+        body: `
+          <label class="field"><span>Collection</span>
+            <select name="coll" id="up-coll">${colls.map((c) => `<option value="${esc(c)}" ${c === target ? 'selected' : ''}>${esc(collLabel(c))}</option>`).join('')}<option value="__new">New collection…</option></select></label>
+          <label class="field"><span>New collection name (if new)</span><input name="newname" id="up-new" placeholder="${esc(suggestName(colls))}"></label>`,
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Add drawing', value: true, kind: 'primary' }],
+      });
+      if (r.value !== true) return;
+      target = r.data.coll === '__new' ? (r.data.newname || '').trim() || suggestName(colls) : r.data.coll;
+    }
     const bz = busy('Reading drawing…');
     try {
       const pages = await importDrawing(file, bz.update);
-      let order = plans.length;
+      let order = plansIn(plans, target).length;
       let first = null;
       for (const pg of pages) {
-        const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, ...pg });
+        const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, ...pg });
         first ||= rec;
       }
       bz.done();
@@ -335,14 +421,78 @@ function renderPlansTab(body, project, plans, doors) {
   };
 }
 
-async function planMenu(plan) {
+async function copyCollectionDialog(project, plans, from) {
+  const colls = listCollections(plans);
+  const ps = plansIn(plans, from);
+  const r = await dialog({
+    title: `Copy "${collLabel(from)}"`,
+    body: `
+      <p>Makes a new collection with the same ${ps.length} drawing${ps.length === 1 ? '' : 's'} and every pin in the same place, with the same numbers. "${esc(collLabel(from))}" stays as it is.</p>
+      <label class="field"><span>New collection name</span><input name="name" id="cc-name" required value="${esc(suggestName(colls))}"></label>
+      <fieldset class="scheme-set">
+        <legend>What to copy for each door</legend>
+        <label class="scheme-opt"><input type="radio" name="mode" value="reset" checked>
+          <span><b>Pins and door details</b><small>Door ref, room, door type and leaf. Every door starts as Not inspected with a blank checklist. Best for a repeat service.</small></span></label>
+        <label class="scheme-opt"><input type="radio" name="mode" value="all">
+          <span><b>Everything</b><small>Also status, checklist answers, defects, actions, materials and notes, ready to update.</small></span></label>
+      </fieldset>
+      <p class="muted small">Photos and videos aren't copied; they stay with "${esc(collLabel(from))}".</p>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Copy', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return;
+  const name = (r.data.name || '').trim();
+  if (!name) return toast('Give the new collection a name.', 'error');
+  if (colls.includes(name)) return toast(`There's already a collection called "${name}".`, 'error');
+  const b = busy('Copying drawings and pins…');
+  try {
+    const res = await copyCollection(project, plans, from, name, r.data.mode, lists.inspector || '');
+    b.done();
+    toast(`Copied ${res.drawings} drawing${res.drawings === 1 ? '' : 's'} and ${res.pins} pin${res.pins === 1 ? '' : 's'} to "${name}"`);
+    await pickCollection(project, name);
+  } catch (e) {
+    b.done();
+    toast(e.message, 'error');
+  }
+}
+
+async function collectionMenu(project, plans, doors, c) {
+  const ps = plansIn(plans, c);
+  const ids = new Set(ps.map((p) => p.id));
+  const nd = doors.filter((d) => ids.has(d.planId)).length;
+  const colls = listCollections(plans);
+  const r = await dialog({
+    title: 'Collection',
+    body: `<label class="field"><span>Name</span><input name="name" id="coll-name" value="${esc(c)}" placeholder="${esc(collLabel(c))}"></label>`,
+    buttons: [{ label: 'Delete collection', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
+  });
+  if (r.value === 'save') {
+    const name = (r.data.name || '').trim();
+    if (name === c) return;
+    if (colls.includes(name)) return toast(`There's already a collection called "${collLabel(name)}".`, 'error');
+    await renameCollection(plans, c, name);
+    if ((project.activeCollection ?? '') === c || state.coll === c) await pickCollection(project, name);
+    else refresh();
+    toast('Collection renamed');
+  } else if (r.value === 'delete') {
+    if (await confirmBox('Delete collection?', `This deletes "${collLabel(c)}": ${ps.length} drawing(s) and ${nd} door record(s) with their photos and history. Other collections aren't affected. This cannot be undone.`)) {
+      await deleteCollection(plans, c);
+      state.coll = null;
+      refresh();
+      toast('Collection deleted');
+    }
+  }
+}
+
+async function planMenu(plan, colls = []) {
   const r = await dialog({
     title: 'Plan',
-    body: `<label class="field"><span>Name</span><input name="name" id="plan-name" value="${esc(plan.name)}"></label>`,
+    body: `<label class="field"><span>Name</span><input name="name" id="plan-name" value="${esc(plan.name)}"></label>
+      ${colls.length > 1 || plan.collection ? `<label class="field"><span>Collection</span>
+        <select name="coll" id="plan-coll">${colls.map((c) => `<option value="${esc(c)}" ${c === (plan.collection || '') ? 'selected' : ''}>${esc(collLabel(c))}</option>`).join('')}</select></label>` : ''}`,
     buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
-    await db.put('plans', { ...plan, name: r.data.name || plan.name });
+    await db.put('plans', { ...plan, name: r.data.name || plan.name, ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
     refresh();
   } else if (r.value === 'delete') {
     const doors = await db.byIndex('doors', 'planId', plan.id);
@@ -413,7 +563,7 @@ function renderExportTab(body, project, plans, allDoors) {
   const questions = (lists.questions || []).filter((q) => q.text?.trim());
   const opts = filterOptions(allDoors, questions);
   const doors = applyFilter(allDoors, f);
-  const filterText = describeFilter(f, plans, opts.checks);
+  const filterText = [state.collText, describeFilter(f, plans, opts.checks)].filter(Boolean).join(' · ');
   const nDef = doors.reduce((a, d) => a + (d.defects || []).length, 0);
   const chip = (group, value, label, on, color) =>
     `<button class="chip ${on ? 'is-on' : ''}" data-g="${group}" data-v="${esc(value)}" ${color ? `style="--c:${color}"` : ''}>${color ? '<i></i>' : ''}${esc(label)}</button>`;
@@ -532,7 +682,7 @@ function renderExportTab(body, project, plans, allDoors) {
     const b = busy('Building PDF report…');
     try {
       if (!doors.length) return b.done(), noneMsg();
-      const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: $('#pdf-costs').checked, doors, filterText };
+      const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: $('#pdf-costs').checked, doors, filterText, plans };
       const r = await exportProjectPdf(project, lists, opts, b.update);
       b.done();
       if (r === 'saved') toast('PDF report saved');
@@ -565,11 +715,13 @@ function renderExportTab(body, project, plans, allDoors) {
 
 // ---------- Plan viewer screen ----------
 let mode = null; // null | 'add' | 'move'
+let planColl = ''; // collection of the plan on screen
 let selectedPin = null;
 
 async function renderPlan() {
   const plan = await db.get('plans', state.planId);
   useScheme(await db.get('projects', state.projectId));
+  planColl = plan?.collection || '';
   if (!plan) return go({ view: 'project', projectId: state.projectId, tab: 'plans' }, { replace: true });
   mode = null;
   selectedPin = null;
@@ -692,7 +844,7 @@ async function refreshPins() {
   );
   const c = countStatuses(doors);
   const el = $('#plan-counts');
-  if (el) el.textContent = `${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
+  if (el) el.textContent = `${planColl ? planColl + ' · ' : ''}${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
 }
 
 // ---------- Door record sheet ----------

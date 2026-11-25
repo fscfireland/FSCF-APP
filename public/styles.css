@@ -533,3 +533,20 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .sc-status { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: end; }
 .sc-dot { width: 14px; height: 14px; border-radius: 50%; margin-bottom: 15px; }
 .sc-inc { padding-bottom: 12px; }
+
+/* collections */
+.coll { margin-bottom: 18px; }
+.coll-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 10px; }
+.coll-name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.coll-name > .ico { color: var(--accent); }
+.coll-name b { display: block; font: 650 16px/1.25 var(--font-head); }
+.coll-name small { color: var(--ink-2); font-size: 12.5px; }
+.coll.is-active .coll-name b { color: var(--ink); }
+.coll-cur { color: var(--st-pass); font-weight: 650; }
+.coll-tip { margin: 0 0 12px; }
+.coll-bar {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 6px 6px 6px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px; color: var(--ink-2); font-weight: 600; font-size: 14px;
+}
+.coll-bar .ico { color: var(--accent); }
+.coll-bar select { flex: 1; min-width: 0; min-height: 40px; border: 0; background: var(--surface-2); border-radius: 8px; padding: 0 10px; font-weight: 650; color: var(--ink); font-size: 16px; }
