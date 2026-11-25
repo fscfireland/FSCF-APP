@@ -6,8 +6,8 @@
 // database (Supabase) and pull other people's changes down.
 
 const DB_NAME = 'fscf-doors';
-const DB_VERSION = 2; // v2 adds the 'files' store (project documents)
-const STORES = ['projects', 'plans', 'doors', 'photos', 'settings', 'files'];
+const DB_VERSION = 3; // v2 adds the 'files' store (project documents); v3 'quotes'
+const STORES = ['projects', 'plans', 'doors', 'photos', 'settings', 'files', 'quotes'];
 
 let dbPromise = null;
 

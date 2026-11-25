@@ -11,7 +11,8 @@ import {
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx } from './export.js';
-import { exportProjectPdf, exportRemedialPdf } from './report.js';
+import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
+import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
@@ -30,7 +31,7 @@ import { backupProjects, restoreBackup } from './backup.js';
 import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport.js';
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
-import { loadScript } from './files.js';
+import { loadScript, saveFile, safeName } from './files.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
 const reader = async () => { await loadScript('reader.js'); return window.FSCFReader; };
 const aiDoors = async (...a) => (await reader()).aiDoors(...a);
@@ -53,7 +54,7 @@ let lists = null; // settings: door types, defects, inspector
 const urls = new Set(); // object URLs to clean up per screen
 
 function viewKey(s) {
-  return [s.view, s.projectId, s.planId, s.tab].join('|');
+  return [s.view, s.projectId, s.planId, s.tab, s.quoteId].join('|');
 }
 
 // The phone's back button works through browser history when the app runs
@@ -185,6 +186,8 @@ async function render() {
     else if (state.view === 'plan') await renderPlan();
     else if (state.view === 'settings') await renderSettings();
     else if (state.view === 'library') await renderLibrary();
+    else if (state.view === 'quotes') await renderQuotes();
+    else if (state.view === 'quote') await renderQuoteDoc();
   } else if (state.view === 'plan') {
     await refreshPins();
   }
@@ -280,6 +283,7 @@ async function renderProjects() {
         return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Save a backup to Google Drive or email.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
       })()}
       ${liveHtml}
+      ${priced() ? `<button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Same numbers, customers and prices as your Excel workbook</small></span>${icon('more')}</button>` : ''}
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
@@ -307,6 +311,7 @@ async function renderProjects() {
     ${projects.length ? `<button class="fab" id="new-project">${icon('plus')} New project</button>` : ''}
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
+  $('#my-quotes')?.addEventListener('click', () => go({ view: 'quotes' }));
   $('#home-backup')?.addEventListener('click', async () => {
     const b = busy('Preparing backup…');
     try {
@@ -606,6 +611,431 @@ async function importFromDrawing(file) {
     console.error(err);
     toast('Could not finish: ' + (err.status === 401 ? 'the drawing reader key was not accepted. Check it in Settings.' : err.message), 'error');
   }
+}
+
+// ---------- Quotes & invoices ----------
+// Matches the "INVOICES AND QUOTES" workbook: same numbers, customers, sites,
+// VAT precedent, rates and terms. Owner only (hidden while prices are locked).
+async function quoteBook() {
+  return (await db.get('settings', 'quoteBook')) || null;
+}
+const QTERMS = {
+  quote: 'Please read the terms and conditions on page 2 carefully before accepting this quotation. Acceptance of this quote or issue of a purchase order confirms agreement to these terms.',
+  worksQuote: '1. A 70% deposit is required before fire doors, bespoke doorsets or special-order items are ordered. 2. VAT is charged at 13.5% on this supply of remedial works. 3. Please read the full terms and conditions on page 2 carefully before accepting this quotation.',
+  invoice: 'Payment is due by the date shown above. The terms and conditions on page 2 remain applicable to the quoted and invoiced scope.',
+};
+const pricingRule = () => lists.pricingRule || 'x1.4';
+
+async function importQuoteBook(file) {
+  const bz = busy('Reading your workbook…');
+  try {
+    const book = await readWorkbook(file, bz.update);
+    await db.put('settings', { id: 'quoteBook', ...book });
+    bz.done();
+    const nx = nextNumbers(book, await db.all('quotes'));
+    await dialog({
+      title: 'Workbook imported',
+      body: `<ul class="sheet-list small">
+        <li><b>${book.register.length}</b> quotes and invoices read</li>
+        <li><b>${book.customers.length}</b> customers with their addresses, sites, PO numbers and VAT</li>
+        <li><b>${book.rates.length}</b> priced items from SERV PD MASTER</li>
+        <li><b>${book.pastLines.length}</b> past quote lines to reuse</li>
+        <li>Next numbers: tab <b>${nx.tab}</b> · quote <b>${nx.quote}</b> · invoice <b>${nx.inv}</b></li></ul>
+        <p class="small">Import it again whenever you add documents in Excel, so the numbers stay in step.</p>`,
+      buttons: [{ label: 'OK', value: true, kind: 'primary' }],
+    });
+    refresh();
+  } catch (err) {
+    bz.done();
+    console.error(err);
+    toast('Could not read the workbook: ' + err.message, 'error');
+  }
+}
+
+async function renderQuotes() {
+  const book = await quoteBook();
+  const docs = (await db.all('quotes')).sort((a, b) => (b.tab || 0) - (a.tab || 0));
+  const nx = nextNumbers(book, docs);
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>Quotes &amp; invoices</b><small>${book ? `Next: ${nx.quote} · ${nx.inv} · tab ${nx.tab}` : 'Import your workbook to start'}</small></div>
+    </header>
+    <main class="page" id="q-body"></main>`;
+  $('#back').onclick = back;
+  const body = $('#q-body');
+  if (!priced()) {
+    body.innerHTML = `<p class="muted pad">Prices are locked. Unlock with your owner PIN on the home page to use quotes and invoices.</p>`;
+    return;
+  }
+  const status = (s) => `<span class="q-status q-${(s || '').toLowerCase()}">${esc(s || '')}</span>`;
+  const row = (d) => {
+    const t = totals(d);
+    return `<button class="q-row" data-id="${d.id}"><span class="q-kind ${d.kind === 'INV' ? 'is-inv' : ''}">${d.kind === 'INV' ? 'INV' : 'Q'}</span>
+      <span class="q-main"><b>${esc(d.kind === 'INV' ? d.inv : d.quote)} · ${esc(d.cust?.id || '')}</b><small>${esc((d.site?.lines || [])[0] || (d.cust?.lines || [])[0] || '')} · ${fmtDate(d.date)}</small></span>
+      <span class="q-amt"><b>${money(t.total)}</b>${status(d.status)}</span></button>`;
+  };
+  const wbRecent = book ? [...book.register].reverse().slice(0, 40) : [];
+  body.innerHTML = `
+    ${book ? '' : `<section class="panel"><h2 class="h2">Start with your workbook</h2>
+      <p class="small">Import <b>INVOICES AND QUOTES</b> (the .xlsx). The app reads your numbering, customers and their sites, PO numbers, VAT precedent, the SERV PD MASTER rates, past quote lines and your terms, so new quotes carry on exactly where Excel left off.</p>
+      <label class="btn primary">${icon('upload')} Import workbook (.xlsx)<input type="file" class="qb-import" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label></section>`}
+    <div class="row-btns">
+      <button class="btn primary" id="q-new">${icon('plus')} New quote</button>
+      <button class="btn" id="q-newinv">${icon('plus')} New invoice</button>
+    </div>
+    <h2 class="h2">Made in the app <span class="muted">${docs.length}</span></h2>
+    <div class="q-list">${docs.map(row).join('') || '<p class="muted small">None yet.</p>'}</div>
+    ${book ? `<details class="panel fold-d"><summary class="h2">In the workbook <span class="muted">latest ${wbRecent.length}</span></summary>
+      <div class="q-list">${wbRecent.map((r) => `<div class="q-row is-wb"><span class="q-kind ${r.kind === 'INV' ? 'is-inv' : ''}">${r.kind === 'INV' ? 'INV' : 'Q'}</span>
+        <span class="q-main"><b>${esc(r.kind === 'INV' ? r.inv : r.quote)} · ${esc(r.cust)}</b><small>${esc(r.location || '')} · ${fmtDate(r.date)}</small></span>
+        <span class="q-amt"><b>${r.total != null ? money(r.total) : ''}</b>${status(r.status)}${r.kind === 'Q' && r.items?.length ? `<button class="btn sm wb-inv" data-sheet="${esc(r.sheet)}">Invoice</button>` : ''}</span></div>`).join('')}</div></details>
+    <section class="panel">
+      <h2 class="h2">Workbook &amp; pricing</h2>
+      <p class="small muted">From <b>${esc(book.sourceName)}</b>, imported ${fmtDate(book.importedAt.slice(0, 10))}. Re-import after adding documents in Excel.</p>
+      <label class="field"><span>Selling price from cost + labour</span><select id="q-rule">
+        <option value="x1.4" ${pricingRule() === 'x1.4' ? 'selected' : ''}>× 1.4 (as your pricing docs, e.g. PD-031)</option>
+        <option value="margin40" ${pricingRule() === 'margin40' ? 'selected' : ''}>40% margin, ÷ 0.6 (as SERV PD MASTER)</option></select></label>
+      <label class="btn">${icon('upload')} Re-import workbook<input type="file" class="qb-import" accept=".xlsx,.xlsm" hidden></label>
+    </section>` : ''}`;
+  $$('.qb-import').forEach((inp) => (inp.onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importQuoteBook(f); }));
+  $('#q-rule')?.addEventListener('change', (e) => saveLists({ pricingRule: e.target.value }));
+  $$('.q-row[data-id]').forEach((b) => (b.onclick = () => go({ view: 'quote', quoteId: b.dataset.id })));
+  $('#q-new').onclick = () => newQuoteDoc('Q');
+  $('#q-newinv').onclick = () => newInvoiceFrom(null);
+  $$('.wb-inv').forEach((b) => (b.onclick = () => newInvoiceFrom(book.register.find((r) => r.sheet === b.dataset.sheet))));
+}
+
+// Choose (or add) the customer and site, then make the document
+async function pickCustomer(book) {
+  const cs = book?.customers || [];
+  const r = await dialog({
+    title: 'Customer and site',
+    body: `<label class="field"><span>Customer</span><select name="cust" id="pc-cust">
+        <option value="">New customer…</option>${cs.map((c) => `<option value="${esc(c.id)}">${esc(c.id)} · ${esc((c.lines.find((l) => !/^(mr|ms|mrs)\b/i.test(l) && l.length > 3) || c.lines[0] || '').slice(0, 40))}</option>`).join('')}</select></label>
+      <label class="field"><span>Site / delivery address</span><select name="site" id="pc-site"><option value="">New site…</option></select></label>
+      <label class="field"><span>Type of work</span><select name="wt">${Object.entries(WORK_TYPES).map(([k, v]) => `<option value="${k}">${k} · ${v}</option>`).join('')}</select></label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
+    onOpen: (el) => {
+      const sel = el.querySelector('#pc-cust');
+      const site = el.querySelector('#pc-site');
+      const wt = el.querySelector('select[name=wt]');
+      const fill = () => {
+        const c = cs.find((x) => x.id === sel.value);
+        site.innerHTML = `<option value="">New site…</option>${(c?.sites || []).map((s, i) => `<option value="${i}" ${i === 0 ? 'selected' : ''}>${esc(s.lines.join(', ').slice(0, 60))}</option>`).join('')}`;
+        const s0 = c?.sites?.[0];
+        if (s0?.workType && WORK_TYPES[s0.workType]) wt.value = s0.workType;
+      };
+      sel.onchange = fill;
+      site.onchange = () => { const s = cs.find((x) => x.id === sel.value)?.sites?.[+site.value]; if (s?.workType && WORK_TYPES[s.workType]) wt.value = s.workType; };
+      fill();
+    },
+  });
+  if (r.value !== true) return null;
+  let cust = cs.find((c) => c.id === r.data.cust);
+  let site = cust && r.data.site !== '' ? cust.sites[+r.data.site] : null;
+  if (!cust) {
+    const n = await dialog({
+      title: 'New customer',
+      body: `<label class="field"><span>Customer address block (one line each: name, role, company, address, Eircode)</span><textarea name="lines" rows="7" required></textarea></label>
+        <label class="field"><span>Customer ID</span><input name="id" placeholder="worked out from the name"></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
+    });
+    if (n.value !== true) return null;
+    const lines = n.data.lines.split('\n').map((l) => l.trim()).filter(Boolean);
+    const all = [...cs, ...(await db.all('quotes')).map((d) => d.cust)];
+    const id = (n.data.id || '').trim().toUpperCase() || suggestCustomerId(lines.find((l) => /\b(ltd|limited|hse|services|ireland|hotel|centre|hospital|council|group)\b/i.test(l)) || lines[0] || 'CUST', all);
+    cust = { id, lines, sites: [] };
+  }
+  if (!site) {
+    const n = await dialog({
+      title: 'Site / delivery address',
+      body: `<label class="field"><span>One line each: building, street, town, county, Eircode</span><textarea name="lines" rows="6" required>${esc((cust.lines || []).slice(2).join('\n'))}</textarea></label>
+        <label class="field"><span>PO / WO number (if known)</span><input name="po"></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
+    });
+    if (n.value !== true) return null;
+    site = { lines: n.data.lines.split('\n').map((l) => l.trim()).filter(Boolean), po: n.data.po.trim(), vatRate: null };
+  }
+  return { cust: { id: cust.id, lines: cust.lines }, site: { lines: site.lines }, po: site.po || '', vatRate: site.vatRate ?? cust.vatRate ?? null, workType: r.data.wt };
+}
+
+async function newQuoteDoc(kind = 'Q', preset = null) {
+  const book = await quoteBook();
+  const pick = preset || (await pickCustomer(book));
+  if (!pick) return;
+  const nx = nextNumbers(book, await db.all('quotes'));
+  const insp = pick.workType === 'FDINSP';
+  const vat = pick.vatRate != null ? pick.vatRate : insp ? 0.23 : 0.135;
+  const doc = await db.put('quotes', {
+    id: db.uid(), kind, tab: nx.tab, quote: nx.quote, inv: '', part: '', date: today(), days: 30,
+    cust: pick.cust, site: pick.site, po: pick.po || '', workType: pick.workType, status: 'PROC',
+    vatRate: vat, vatMode: 'normal', preLims: 0, fuel: 0, items: [], notes: [], specialOrder: '',
+    p1Terms: insp ? QTERMS.quote : QTERMS.worksQuote.replace('13.5%', `${+(vat * 100).toFixed(1)}%`),
+  });
+  go({ view: 'quote', quoteId: doc.id });
+}
+
+// An invoice from a quote made in the app or one in the workbook
+async function newInvoiceFrom(src) {
+  const book = await quoteBook();
+  const appQuotes = (await db.all('quotes')).filter((d) => d.kind === 'Q').sort((a, b) => b.tab - a.tab);
+  if (!src) {
+    const wbQuotes = book ? [...book.register].reverse().filter((r) => r.kind === 'Q' && r.items?.length).slice(0, 60) : [];
+    const r = await dialog({
+      title: 'Invoice which quote?',
+      body: `<label class="field"><span>Quote</span><select name="q">
+        ${appQuotes.map((d) => `<option value="app:${d.id}">${esc(d.quote)} · ${esc(d.cust.id)} · ${esc((d.site?.lines || [])[0] || '')} (app)</option>`).join('')}
+        ${wbQuotes.map((w) => `<option value="wb:${esc(w.sheet)}">${esc(w.quote)} · ${esc(w.cust)} · ${esc(w.location || '')}</option>`).join('')}
+        <option value="none">No quote (a new invoice)</option></select></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
+    });
+    if (r.value !== true) return;
+    if (r.data.q === 'none') {
+      const pick = await pickCustomer(book);
+      if (!pick) return;
+      return makeInvoice(book, { quote: nextNumbers(book, await db.all('quotes')).quote, ...pick, items: [], notes: [], vatMode: 'normal' }, 'full', true);
+    }
+    src = r.data.q.startsWith('app:') ? appQuotes.find((d) => d.id === r.data.q.slice(4)) : book.register.find((w) => w.sheet === r.data.q.slice(3));
+  }
+  if (!src) return;
+  // a workbook quote → the same shape as an app quote
+  if (src.sheet) {
+    const c = book.customers.find((x) => x.id === src.cust);
+    const site = c?.sites.find((s) => (s.lines[0] || '').toUpperCase() === (src.siteLines?.[0] || '').toUpperCase());
+    src = { quote: src.quote, cust: { id: src.cust, lines: c?.lines || [] }, site: { lines: src.siteLines || site?.lines || [] }, po: site?.po || src.po || '', workType: src.workType || site?.workType || 'FDREM', vatRate: src.vatRate ?? 0.135, vatMode: src.vatRate === 0 ? 'rct' : 'normal', items: src.items, notes: src.notes || [] };
+  }
+  const r = await dialog({
+    title: `Invoice for ${src.quote}`,
+    body: `<fieldset class="scheme-set"><legend>What does this invoice cover?</legend>
+      <label class="scheme-opt"><input type="radio" name="part" value="full" checked><span><b>The full quote</b><small>Every line, ready to adjust to what was done.</small></span></label>
+      <label class="scheme-opt"><input type="radio" name="part" value="DEP"><span><b>Deposit</b><small>One line: a % of the quote total.</small></span></label>
+      <label class="scheme-opt"><input type="radio" name="part" value="BAL"><span><b>Balance</b><small>Every line, less a deposit already invoiced.</small></span></label></fieldset>
+      <div class="grid2"><label class="field"><span>Deposit %</span><input name="pct" type="number" value="70" min="1" max="100"></label>
+      <label class="field"><span>Deposit already invoiced (€)</span><input name="paid" type="number" step="0.01" placeholder="for a balance"></label></div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Make invoice', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return;
+  return makeInvoice(book, src, r.data.part, false, +r.data.pct || 70, +r.data.paid || 0);
+}
+
+async function makeInvoice(book, src, part, fresh, pct = 70, paid = 0) {
+  const nx = nextNumbers(book, await db.all('quotes'));
+  const sub = totals(src).subtotal;
+  let items = (src.items || []).map((it) => ({ ...it }));
+  if (part === 'DEP') items = [{ desc: `${pct}% DEPOSIT AS PER QUOTE ${src.quote}`, qty: 1, unit: Math.round(sub * pct) / 100 }];
+  if (part === 'BAL' && paid) items.push({ desc: `LESS DEPOSIT PREVIOUSLY INVOICED`, qty: 1, unit: -paid });
+  const doc = await db.put('quotes', {
+    id: db.uid(), kind: 'INV', tab: nx.tab, quote: src.quote, inv: nx.inv, part: part === 'full' ? '' : part, date: today(), days: 30,
+    cust: src.cust, site: src.site, po: src.po || '', workType: src.workType || 'FDREM', status: 'WIP',
+    vatRate: src.vatRate ?? 0.135, vatMode: src.vatMode || 'normal', preLims: 0, fuel: 0, items, notes: part === 'DEP' ? [] : [...(src.notes || [])], specialOrder: src.specialOrder || '',
+    p1Terms: QTERMS.invoice, fromQuoteId: src.id || null,
+  });
+  if (fresh) toast('New invoice: no quote linked; quote number reserved as ' + src.quote);
+  go({ view: 'quote', quoteId: doc.id });
+}
+
+async function renderQuoteDoc() {
+  const doc = await db.get('quotes', state.quoteId);
+  if (!doc) return back();
+  const book = await quoteBook();
+  const isInv = doc.kind === 'INV';
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>${esc(isInv ? `${doc.inv} · ${doc.quote}` : doc.quote)} · ${esc(doc.cust.id)}</b><small>${esc(tabName(doc))}</small></div>
+    </header>
+    <main class="page q-edit" id="qd"></main>`;
+  $('#back').onclick = back;
+  const el = $('#qd');
+  let cur = doc;
+  let timer = null;
+  const save = () => { clearTimeout(timer); timer = setTimeout(async () => { cur = await db.put('quotes', cur); }, 400); };
+  const draw = () => {
+    const t = totals(cur);
+    el.innerHTML = `
+      <section class="panel">
+        <div class="grid2">
+          <label class="field"><span>Date</span><input type="date" data-k="date" value="${esc(cur.date)}"></label>
+          <label class="field"><span>${isInv ? 'Due after (days)' : 'Valid for (days)'}</span><input type="number" data-k="days" value="${cur.days || 30}"></label>
+          <label class="field"><span>Type of work</span><select data-k="workType">${Object.entries(WORK_TYPES).map(([k, v]) => `<option value="${k}" ${k === cur.workType ? 'selected' : ''}>${k} · ${v}</option>`).join('')}</select></label>
+          <label class="field"><span>Status</span><select data-k="status">${Object.entries(Q_STATUSES).map(([k, v]) => `<option value="${k}" ${k === cur.status ? 'selected' : ''}>${k} · ${v}</option>`).join('')}</select></label>
+          ${isInv ? `<label class="field"><span>PO / WO number</span><input data-k="po" value="${esc(cur.po || '')}"></label>` : ''}
+        </div>
+      </section>
+      <section class="panel">
+        <div class="grid2">
+          <label class="field"><span>Customer · ${esc(cur.cust.id)}</span><textarea rows="6" data-lines="cust">${esc((cur.cust.lines || []).join('\n'))}</textarea></label>
+          <label class="field"><span>Delivery address / site</span><textarea rows="6" data-lines="site">${esc((cur.site?.lines || []).join('\n'))}</textarea></label>
+        </div>
+      </section>
+      <section class="panel">
+        <div class="block-head"><h3>Lines</h3><span class="row-btns">
+          <button class="btn sm" id="qi-rate">${icon('list')} Price list</button>
+          <button class="btn sm" id="qi-past">${icon('search')} Past quotes</button>
+          <button class="btn sm" id="qi-proj">${icon('door')} From a project</button>
+          <button class="btn sm" id="qi-blank">${icon('plus')} Line</button></span></div>
+        <div class="qi-list">${(cur.items || []).map((it, i) => `
+          <div class="qi" data-i="${i}">
+            <textarea class="qi-desc" rows="2" placeholder="Description">${esc(it.desc)}</textarea>
+            <div class="qi-nums">
+              <label><span>Qty</span><input class="qi-qty" type="number" step="any" value="${it.qty}"></label>
+              <label><span>Unit €</span><input class="qi-unit" type="number" step="0.01" value="${it.unit}"></label>
+              <b class="qi-amt">${money((Number(it.qty) || 0) * (Number(it.unit) || 0))}</b>
+              <button class="icon-btn qi-del" aria-label="Remove line">${icon('trash')}</button>
+            </div>
+          </div>`).join('') || '<p class="muted small">No lines yet. Add from your price list, a past quote, a project, or type one.</p>'}</div>
+        <label class="field"><span>Notes under the lines (one per line)</span><textarea rows="4" data-lines="notes">${esc((cur.notes || []).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel">
+        <div class="grid2">
+          <label class="field"><span>VAT rate</span><select data-k="vatRate" data-num="1">${[...new Set([...VAT_RATES, Number(cur.vatRate) || 0])].map((v) => `<option value="${v}" ${v === Number(cur.vatRate) ? 'selected' : ''}>${(v * 100).toFixed(1)}%</option>`).join('')}</select></label>
+          <label class="field"><span>VAT</span><select data-k="vatMode"><option value="normal" ${cur.vatMode !== 'rct' ? 'selected' : ''}>Charged on this ${isInv ? 'invoice' : 'quote'}</option><option value="rct" ${cur.vatMode === 'rct' ? 'selected' : ''}>Accounted for by the principal contractor</option></select></label>
+          <label class="field"><span>Pre Lims (€)</span><input type="number" step="0.01" data-k="preLims" data-num="1" value="${cur.preLims || 0}"></label>
+          <label class="field"><span>Fuel surcharge (€)</span><input type="number" step="0.01" data-k="fuel" data-num="1" value="${cur.fuel || 0}"></label>
+        </div>
+        <div class="q-tot">
+          <span>Subtotal</span><b>${money(t.subtotal)}</b>
+          <span>VAT ${(t.vatRate * 100).toFixed(1)}%${cur.vatMode === 'rct' ? ' (principal contractor)' : ''}</span><b>${money(t.vatDue)}</b>
+          <span class="q-grand">TOTAL</span><b class="q-grand">${money(t.total)}</b>
+        </div>
+      </section>
+      <section class="panel">
+        <label class="field"><span>Terms on page 1</span><textarea rows="4" data-k="p1Terms">${esc(cur.p1Terms || '')}</textarea></label>
+        <label class="field"><span>Special-order item (adds the no-returns clause)</span><input data-k="specialOrder" value="${esc(cur.specialOrder || '')}" placeholder="e.g. back to back handles"></label>
+        <p class="muted small">Page 2: your ${isInspection(cur) ? 'inspection' : 'works'} terms from the workbook${book?.terms?.[isInspection(cur) ? 'insp' : 'works'] ? '' : ' (import the workbook to include them)'}.</p>
+      </section>
+      <div class="row-btns q-actions">
+        <button class="btn primary" id="q-pdf">${icon('report')} PDF to send</button>
+        <button class="btn" id="q-xlsx">${icon('sheet')} Excel tab for the workbook</button>
+        ${!isInv ? `<button class="btn" id="q-toinv">${icon('plus')} Make invoice</button>` : ''}
+        <button class="btn ghost danger-text" id="q-del">${icon('trash')} Delete</button>
+      </div>
+      <p class="muted small pad">The Excel file has one tab, named <b>${esc(tabName(cur))}</b>, in the same cells as your samples with live formulas, plus a SUMMARY ROW tab. In Excel: right-click the tab › Move or Copy › into INVOICES AND QUOTES, placed after tab ${cur.tab - 1}; then copy the SUMMARY ROW into the register.</p>`;
+    // field edits
+    $$('[data-k]', el).forEach((inp) => (inp.oninput = inp.onchange = () => {
+      cur = { ...cur, [inp.dataset.k]: inp.dataset.num ? Number(inp.value) || 0 : inp.dataset.k === 'days' ? +inp.value || 30 : inp.value };
+      save();
+      if (inp.tagName === 'SELECT' || inp.dataset.num) redrawTotals();
+    }));
+    $$('[data-lines]', el).forEach((ta) => (ta.oninput = () => {
+      const lines = ta.value.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (ta.dataset.lines === 'notes') cur = { ...cur, notes: lines };
+      else cur = { ...cur, [ta.dataset.lines]: { ...(cur[ta.dataset.lines] || {}), lines } };
+      save();
+    }));
+    $$('.qi', el).forEach((row) => {
+      const i = +row.dataset.i;
+      const upd = (k, v) => { const items = [...cur.items]; items[i] = { ...items[i], [k]: v }; cur = { ...cur, items }; save(); };
+      row.querySelector('.qi-desc').oninput = (e) => upd('desc', e.target.value);
+      row.querySelector('.qi-qty').oninput = (e) => { upd('qty', Number(e.target.value) || 0); redrawTotals(row); };
+      row.querySelector('.qi-unit').oninput = (e) => { upd('unit', Number(e.target.value) || 0); redrawTotals(row); };
+      row.querySelector('.qi-del').onclick = () => { cur = { ...cur, items: cur.items.filter((_, j) => j !== i) }; save(); draw(); };
+    });
+    const addLines = (lines) => { if (!lines?.length) return; cur = { ...cur, items: [...(cur.items || []), ...lines] }; save(); draw(); };
+    $('#qi-blank').onclick = () => addLines([{ desc: '', qty: 1, unit: 0 }]);
+    $('#qi-rate').onclick = async () => addLines(await pickFromRates(book));
+    $('#qi-past').onclick = async () => addLines(await pickFromPast(book));
+    $('#qi-proj').onclick = async () => addLines(await linesFromProject());
+    $('#q-pdf').onclick = async () => {
+      await db.put('quotes', cur);
+      const b = busy('Making the PDF…');
+      try {
+        const blob = await quotePdf(cur, { jsPDF: await loadJsPdfLib(), lists, book });
+        b.done();
+        await saveFile(`${safeName(tabName(cur))}.pdf`, blob);
+      } catch (err) { b.done(); console.error(err); toast('PDF failed: ' + err.message, 'error'); }
+    };
+    $('#q-xlsx').onclick = async () => { await db.put('quotes', cur); try { await quoteXlsx(cur, book); } catch (err) { console.error(err); toast('Excel failed: ' + err.message, 'error'); } };
+    $('#q-toinv')?.addEventListener('click', async () => { await db.put('quotes', cur); newInvoiceFrom(cur); });
+    $('#q-del').onclick = async () => {
+      if (!(await confirmBox('Delete this document?', `${tabName(cur)} is removed from the app. Its number is not reused.`))) return;
+      await db.remove('quotes', cur.id);
+      back();
+    };
+  };
+  const redrawTotals = (row) => {
+    if (row) { const it = cur.items[+row.dataset.i]; row.querySelector('.qi-amt').textContent = money((Number(it.qty) || 0) * (Number(it.unit) || 0)); }
+    const t = totals(cur);
+    const box = $('.q-tot', el);
+    if (box) box.innerHTML = `<span>Subtotal</span><b>${money(t.subtotal)}</b><span>VAT ${(t.vatRate * 100).toFixed(1)}%${cur.vatMode === 'rct' ? ' (principal contractor)' : ''}</span><b>${money(t.vatDue)}</b><span class="q-grand">TOTAL</span><b class="q-grand">${money(t.total)}</b>`;
+  };
+  draw();
+}
+
+// Search SERV PD MASTER (and the app's own price list): cost + labour → selling price
+async function pickFromRates(book) {
+  const rule = pricingRule();
+  const rates = [
+    ...(book?.rates || []).map((r) => ({ name: r.type === 'Tag' ? readableTag(r.item).name : r.item.replace(/^RECOMMENDATION(S)? FOR IMPROVEMENT\s*(\([^)]*\))?\s*:?\s*/i, ''), src: r.type, cost: r.cost, labour: r.labour, sell: sellPrice(r.cost, r.labour, rule) })),
+    ...(lists.materials || []).filter((m) => Number(m.cost)).map((m) => ({ name: m.name, src: 'App price list', cost: null, labour: null, sell: Number(m.cost) })),
+  ];
+  return searchPick('Price list', rates, (r) => `${r.name} ${r.src}`, (r) => `<b>${esc(r.name)}</b><small>${esc(r.src)}${r.cost != null ? ` · cost €${r.cost} + labour €${r.labour}` : ''}</small><em>${money(r.sell)}</em>`,
+    (r, qty) => ({ desc: r.name.toUpperCase(), qty, unit: r.sell }));
+}
+
+async function pickFromPast(book) {
+  const rows = (book?.pastLines || []).map((l) => ({ ...l }));
+  return searchPick('Past quote lines', rows, (r) => `${r.desc} ${r.cust} ${r.ref}`, (r) => `<b>${esc(r.desc)}</b><small>${esc(r.cust)} · ${esc(r.ref)} · ${fmtDate(r.date)}</small><em>${money(r.unit)}</em>`,
+    (r, qty) => ({ desc: r.desc, qty, unit: r.unit }));
+}
+
+async function searchPick(title, rows, hay, show, make) {
+  if (!rows.length) { toast('Nothing to pick from yet. Import your workbook first.', 'error'); return []; }
+  const picked = [];
+  await dialog({
+    title,
+    body: `<label class="search">${icon('search')}<input id="sp-q" type="search" placeholder="Search…" autocomplete="off"></label>
+      <div class="sp-list" id="sp-list"></div><p class="muted small" id="sp-n"></p>`,
+    buttons: [{ label: 'Done', value: true, kind: 'primary' }],
+    onOpen: (box) => {
+      const list = box.querySelector('#sp-list');
+      const q = box.querySelector('#sp-q');
+      const paint = () => {
+        const words = q.value.toLowerCase().split(/\s+/).filter(Boolean);
+        const hits = rows.filter((r) => { const h = hay(r).toLowerCase(); return words.every((w) => h.includes(w)); }).slice(0, 60);
+        list.innerHTML = hits.map((r, i) => `<div class="sp-row" data-i="${i}">${show(r)}<input class="sp-qty" type="number" value="1" min="0" step="any" aria-label="Quantity"><button type="button" class="btn sm sp-add">Add</button></div>`).join('') || '<p class="muted small">No matches.</p>';
+        list.querySelectorAll('.sp-row').forEach((row) => {
+          row.querySelector('.sp-add').onclick = () => {
+            picked.push(make(hits[+row.dataset.i], Number(row.querySelector('.sp-qty').value) || 1));
+            row.classList.add('is-added');
+            box.querySelector('#sp-n').textContent = `${picked.length} line${picked.length === 1 ? '' : 's'} added`;
+          };
+        });
+      };
+      q.oninput = paint;
+      q.onkeydown = (e) => { if (e.key === 'Enter') e.preventDefault(); };
+      paint();
+      setTimeout(() => q.focus(), 50);
+    },
+  });
+  return picked;
+}
+
+// One line per door with its products priced (like the PD door summary)
+async function linesFromProject() {
+  const projects = (await db.all('projects')).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  if (!projects.length) { toast('No projects yet', 'error'); return []; }
+  const r = await dialog({
+    title: 'Lines from a project',
+    body: `<label class="field"><span>Project</span><select name="p">${projects.map((p) => `<option value="${p.id}">${esc(p.site)}${p.client ? ' · ' + esc(p.client) : ''}</option>`).join('')}</select></label>
+      <fieldset class="scheme-set"><legend>Which doors</legend>
+        <label class="scheme-opt"><input type="radio" name="which" value="priced" checked><span><b>Doors with products priced</b><small>One line per door: "ID: ref - room", priced from its products.</small></span></label>
+        <label class="scheme-opt"><input type="radio" name="which" value="count"><span><b>A single inspection line</b><small>Door count × a rate per door.</small></span></label></fieldset>
+      <label class="field"><span>Rate per door (for an inspection line)</span><input name="rate" type="number" step="0.01" value="19"></label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Add lines', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return [];
+  const p = projects.find((x) => x.id === r.data.p);
+  const doors = (await db.projectDoors(p.id)).sort((a, b) => (a.pinNo || 0) - (b.pinNo || 0));
+  if (r.data.which === 'count') return [{ desc: `FIRE DOOR INSPECTION — ${(p.site || '').toUpperCase()} — ${doors.length} DOORS`, qty: doors.length, unit: Number(r.data.rate) || 0 }];
+  const out = [];
+  for (const d of doors) {
+    const amt = (d.materials || []).reduce((a, m) => a + (Number(m.qty) || 0) * (Number(m.cost) || 0), 0);
+    if (amt > 0) out.push({ desc: `ID: ${d.ref || d.pinNo} - ${(d.location || '').toUpperCase()}`, qty: 1, unit: Math.round(amt * 100) / 100 });
+  }
+  if (!out.length) toast('No door in that project has priced products yet. Use Cost all fails on the project first.', 'error');
+  return out;
 }
 
 async function importFieldwire(file) {

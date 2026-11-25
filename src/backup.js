@@ -45,6 +45,7 @@ export async function backupProjects(projects, { library = false } = {}) {
       data.files.push(await serialise(r));
     }
   }
+  if (library) data.quotes = await db.all('quotes'); // quotes & invoices made in the app
   data.settings = await db.all('settings');
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const name = projects.length === 1 ? safeName(projects[0].site || projects[0].client) : 'all-projects';
@@ -62,6 +63,7 @@ export async function restoreBackup(file) {
       if (store === 'projects') n++;
     }
   }
+  for (const q of data.quotes || []) if (!(await db.get('quotes', q.id))) await db.putRaw('quotes', q);
   for (const s of data.settings || []) {
     const existing = await db.get('settings', s.id);
     if (!existing) await db.putRaw('settings', s);

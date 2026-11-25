@@ -53,7 +53,7 @@ function t(s) {
 
 const rgbCss = (c) => `rgb(${c.join(',')})`;
 
-async function loadJsPdf() {
+export async function loadJsPdf() {
   await loadScript(JSPDF);
   await loadScript(AUTOTABLE);
   return window.jspdf.jsPDF;
