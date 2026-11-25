@@ -26,7 +26,12 @@ export class PlanViewer {
     this.img.alt = 'Floor plan';
     this.pinLayer = document.createElement('div');
     this.pinLayer.className = 'pin-layer';
-    this.stage.append(this.img, this.pinLayer);
+    // markups (lines, text, shaded areas, dimensions) sit between plan and pins
+    this.markLayer = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    this.markLayer.setAttribute('class', 'mk-layer');
+    this.markLayer.setAttribute('preserveAspectRatio', 'none');
+    this.drawHandler = null;
+    this.stage.append(this.img, this.markLayer, this.pinLayer);
     this.el.append(this.stage);
 
     this._down = this._down.bind(this);
@@ -59,6 +64,7 @@ export class PlanViewer {
     this.h = height;
     this.stage.style.width = width + 'px';
     this.stage.style.height = height + 'px';
+    this.markLayer.setAttribute('viewBox', `0 0 ${width} ${height}`);
     this.img.src = this.url;
     try {
       await this.img.decode();
@@ -143,6 +149,11 @@ export class PlanViewer {
     this.el.setPointerCapture?.(e.pointerId);
     const pt = this._local(e);
     this.pointers.set(e.pointerId, pt);
+    if (this.pointers.size === 1 && this.drawHandler) {
+      this.gesture = { start: pt, last: pt, t: performance.now(), moved: false, multi: false, draw: true };
+      this.drawHandler.down(this._toPlan(pt), e.target);
+      return;
+    }
     if (this.pointers.size === 1) {
       const pinEl = e.target.closest?.('.pin');
       this.gesture = {
@@ -172,6 +183,10 @@ export class PlanViewer {
       }
     } else if (this.pointers.size === 2) {
       clearTimeout(this.gesture?.lpTimer);
+      if (this.gesture?.draw) {
+        this.gesture.draw = false;
+        this.drawHandler?.cancel();
+      }
       const [a, b] = [...this.pointers.values()];
       this.gesture = {
         ...this.gesture,
@@ -188,6 +203,10 @@ export class PlanViewer {
     const pt = this._local(e);
     this.pointers.set(e.pointerId, pt);
     const g = this.gesture;
+    if (g.draw && this.pointers.size === 1) {
+      this.drawHandler?.move(this._toPlan(pt));
+      return;
+    }
     if (this.pointers.size >= 2) {
       const [a, b] = [...this.pointers.values()];
       const dist = Math.hypot(a.x - b.x, a.y - b.y);
@@ -229,6 +248,10 @@ export class PlanViewer {
     const g = this.gesture;
     if (this.pointers.size > 0 || !g) return;
     this.gesture = null;
+    if (g.draw) {
+      this.drawHandler?.up(this._toPlan(pt));
+      return;
+    }
     clearTimeout(g.lpTimer);
     if (g.longPress) {
       this.pinLayer.querySelector(`[data-id="${g.pinId}"]`)?.classList.remove('is-lifting');

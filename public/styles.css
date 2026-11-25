@@ -555,3 +555,30 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .mat .defect-top .row-btns { flex-wrap: nowrap; flex: none; gap: 0; align-items: center; }
 .mat .defect-top .mat-dup { padding: 0 8px; }
 .block-head .row-btns { gap: 4px; }
+
+/* plan markups */
+.mk-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+.mk-layer.is-editing .mk { pointer-events: visiblePainted; }
+.mk-layer .mk-hit { pointer-events: stroke; }
+.mk.is-sel { filter: drop-shadow(0 0 4px rgba(21, 101, 192, 0.9)); }
+.plan-toolbar { gap: 10px; }
+.mk-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 13; display: grid; gap: 8px;
+  padding: 10px max(10px, var(--safe-r)) calc(10px + var(--safe-b)) max(10px, var(--safe-l));
+  background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,.12);
+}
+.mk-row { display: flex; align-items: center; gap: 6px; }
+.mk-tools { display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.mk-tool { display: grid; justify-items: center; gap: 2px; padding: 6px 0; border: 0; border-radius: 10px; background: none; color: var(--ink-2); font-size: 10.5px; font-weight: 600; min-width: 0; }
+.mk-tool .ico { width: 22px; height: 22px; }
+.mk-tool.is-on { background: var(--ink); color: var(--bg); }
+.mk-colors { display: flex; gap: 6px; flex: 1; flex-wrap: wrap; }
+.mk-color { width: 30px; height: 30px; border-radius: 50%; border: 3px solid var(--surface); background: var(--c); box-shadow: 0 0 0 1px var(--line); padding: 0; }
+.mk-color.is-on { box-shadow: 0 0 0 2.5px var(--ink); }
+.mk-ctx { flex-wrap: wrap; font-size: 13.5px; font-weight: 600; color: var(--ink-2); }
+.mk-ctx > span { margin-right: auto; }
+.mk-size.is-on { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.plan-screen:has(.mk-panel:not([hidden])) .zoom-ctl { bottom: calc(200px + var(--safe-b)); }
+/* taps go through the pin layer to markups underneath, except on pins */
+.pin-layer { pointer-events: none; }
+.pin { pointer-events: auto; }

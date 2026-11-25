@@ -10,6 +10,7 @@ import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
 import { exportProjectPdf } from './report.js';
+import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
 import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView } from './history.js';
 import { emptyFilter, isFiltered, applyFilter, filterOptions, describeFilter } from './filters.js';
@@ -748,8 +749,10 @@ async function renderPlan() {
         <button class="icon-btn" id="zfit" aria-label="Fit to screen">${icon('fit')}</button>
       </div>
       <div class="plan-toolbar">
+        <button class="btn big" id="mk-toggle">${icon('pencil')} Markup</button>
         <button class="btn primary big" id="add-door">${icon('pin')} Add door</button>
       </div>
+      <div class="mk-panel" id="mk-panel" hidden></div>
     </div>`;
   $('#back').onclick = back;
   $('#to-list').onclick = () => go({ view: 'project', projectId: state.projectId, tab: 'doors' });
@@ -767,6 +770,12 @@ async function renderPlan() {
     },
   });
   await viewer.load(plan.blob, plan.width, plan.height);
+  curPlan = plan;
+  mk.on = false;
+  mk.selected = null;
+  mk.draft = null;
+  drawMarkups();
+  $('#mk-toggle').onclick = () => setMarkup(true);
   $('#zin').onclick = () => viewer.zoomBy(1.6);
   $('#zout').onclick = () => viewer.zoomBy(1 / 1.6);
   $('#zfit').onclick = () => viewer.fit();
@@ -790,6 +799,251 @@ async function renderPlan() {
     await refreshPins();
   }
 }
+
+// ---------- Markup tools ----------
+let curPlan = null;
+const mk = { on: false, tool: 'line', color: MK_COLORS[0], selected: null, draft: null, size: 'M' };
+const clamp01 = (v) => Math.max(0, Math.min(1, v));
+const P = (p) => [clamp01(p.x), clamp01(p.y)];
+
+function drawMarkups() {
+  if (!viewer || !curPlan) return;
+  renderSvg(viewer.markLayer, curPlan, curPlan.markups || [], mk.selected, mk.draft);
+}
+
+async function savePlanMarkups(patch) {
+  curPlan = await db.put('plans', { ...curPlan, ...patch });
+  drawMarkups();
+}
+
+async function addMarkup(m) {
+  await savePlanMarkups({ markups: [...(curPlan.markups || []), { id: db.uid(), createdAt: new Date().toISOString(), color: mk.color, ...m }] });
+}
+
+const TOOL_HINT = {
+  select: 'Tap a markup to change its colour, edit or delete it',
+  line: 'Drag to draw a line',
+  arrow: 'Drag from the start to the point of the arrow',
+  pen: 'Draw freehand with one finger',
+  text: 'Tap to place a text bubble, or drag from the item to where the bubble goes',
+  rect: 'Drag to shade a box',
+  area: 'Tap each corner of the area, then tap the first corner or Finish',
+  measure: 'Drag along something you know the length of',
+};
+
+function setMarkup(on) {
+  mk.on = on;
+  mk.selected = null;
+  mk.draft = null;
+  if (on) setMode(null);
+  $('.plan-toolbar').hidden = on;
+  $('#mk-panel').hidden = !on;
+  viewer.markLayer.classList.toggle('is-editing', on);
+  viewer.drawHandler = on ? markupHandler : null;
+  drawMarkups();
+  if (on) drawMarkupPanel();
+  const banner = $('#banner');
+  if (!on && banner) banner.hidden = true;
+}
+
+function drawMarkupPanel() {
+  const panel = $('#mk-panel');
+  const sel = (curPlan.markups || []).find((m) => m.id === mk.selected);
+  const icons = { select: 'cursor', line: 'lineTool', arrow: 'arrowTool', pen: 'penTool', text: 'textTool', rect: 'box', area: 'areaTool', measure: 'ruler' };
+  let context = '';
+  if (sel) {
+    context = `<div class="mk-row mk-ctx"><span>Selected ${esc(TOOLS.find((t) => t.id === (sel.type === 'measure' ? 'measure' : sel.type))?.label || '')}</span>
+      ${sel.type === 'text' ? '<button class="btn sm" id="mk-edit">Edit text</button>' : ''}
+      ${sel.type === 'measure' && sel.guide ? '<button class="btn sm" id="mk-rescale">Change scale</button>' : ''}
+      <button class="btn sm danger-text" id="mk-del">${icon('trash')} Delete</button></div>`;
+  } else if (mk.tool === 'area' && mk.draft?.pts?.length) {
+    context = `<div class="mk-row mk-ctx"><span>${mk.draft.pts.length} corner${mk.draft.pts.length > 1 ? 's' : ''}</span>
+      <button class="btn sm" id="mk-area-done" ${mk.draft.pts.length < 3 ? 'disabled' : ''}>Finish area</button></div>`;
+  } else if (mk.tool === 'measure') {
+    context = `<div class="mk-row mk-ctx"><span>${curPlan.scale ? 'Scale set from your guide line' : 'First line sets the scale: you type its real length'}</span>
+      ${curPlan.scale ? '<button class="btn sm" id="mk-rescale">Reset scale</button>' : ''}</div>`;
+  } else if (mk.tool === 'text') {
+    context = `<div class="mk-row mk-ctx"><span>Text size</span>${Object.keys(TEXT_SIZES).map((k) => `<button class="btn sm mk-size ${mk.size === k ? 'is-on' : ''}" data-s="${k}">${k}</button>`).join('')}</div>`;
+  }
+  panel.innerHTML = `
+    ${context}
+    <div class="mk-row mk-tools" role="toolbar" aria-label="Markup tools">
+      ${TOOLS.map((t) => `<button class="mk-tool ${mk.tool === t.id ? 'is-on' : ''}" data-t="${t.id}" aria-pressed="${mk.tool === t.id}">${icon(icons[t.id])}<span>${t.label}</span></button>`).join('')}
+    </div>
+    <div class="mk-row">
+      <span class="mk-colors">${MK_COLORS.map((c) => `<button class="mk-color ${mk.color === c ? 'is-on' : ''}" data-c="${c}" style="--c:${c}" aria-label="Colour"></button>`).join('')}</span>
+      <button class="icon-btn" id="mk-undo" aria-label="Undo">${icon('undo')}</button>
+      <button class="btn primary sm" id="mk-done">Done</button>
+    </div>`;
+  const banner = $('#banner');
+  banner.hidden = false;
+  banner.innerHTML = `<span>${esc(TOOL_HINT[mk.tool])}</span>`;
+  $$('.mk-tool', panel).forEach((b) => (b.onclick = () => {
+    mk.tool = b.dataset.t;
+    mk.selected = null;
+    mk.draft = null;
+    drawMarkups();
+    drawMarkupPanel();
+  }));
+  $$('.mk-color', panel).forEach((b) => (b.onclick = async () => {
+    mk.color = b.dataset.c;
+    if (sel) await savePlanMarkups({ markups: curPlan.markups.map((m) => (m.id === sel.id ? { ...m, color: mk.color } : m)) });
+    drawMarkupPanel();
+  }));
+  $$('.mk-size', panel).forEach((b) => (b.onclick = () => { mk.size = b.dataset.s; drawMarkupPanel(); }));
+  $('#mk-done').onclick = () => setMarkup(false);
+  $('#mk-undo').onclick = async () => {
+    if (mk.draft?.pts?.length) {
+      mk.draft.pts.pop();
+      if (!mk.draft.pts.length) mk.draft = null;
+      drawMarkups();
+      return drawMarkupPanel();
+    }
+    const list = [...(curPlan.markups || [])].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
+    const last = list.pop();
+    if (!last) return toast('Nothing to undo');
+    await savePlanMarkups({ markups: curPlan.markups.filter((m) => m.id !== last.id), ...(last.guide ? { scale: null } : {}) });
+    mk.selected = null;
+    drawMarkupPanel();
+  };
+  $('#mk-del')?.addEventListener('click', async () => {
+    await savePlanMarkups({ markups: curPlan.markups.filter((m) => m.id !== sel.id), ...(sel.guide ? { scale: null } : {}) });
+    mk.selected = null;
+    drawMarkupPanel();
+  });
+  $('#mk-edit')?.addEventListener('click', async () => {
+    const t = await askText(sel.text, sel.size);
+    if (t) await savePlanMarkups({ markups: curPlan.markups.map((m) => (m.id === sel.id ? { ...m, text: t.text, size: t.size } : m)) });
+    drawMarkupPanel();
+  });
+  $('#mk-rescale')?.addEventListener('click', async () => {
+    const guide = (curPlan.markups || []).find((m) => m.guide);
+    if (guide && sel?.id === guide.id) {
+      const scale = await askScale(guide.pts);
+      if (scale) await savePlanMarkups({ scale });
+    } else {
+      await savePlanMarkups({ scale: null, markups: (curPlan.markups || []).map((m) => ({ ...m, guide: false })) });
+      toast('Scale cleared. Your next measure line sets it again.');
+    }
+    drawMarkupPanel();
+  });
+  $('#mk-area-done')?.addEventListener('click', finishArea);
+}
+
+async function finishArea() {
+  const pts = mk.draft?.pts || [];
+  mk.draft = null;
+  if (pts.length >= 3) await addMarkup({ type: 'area', pts });
+  drawMarkups();
+  drawMarkupPanel();
+}
+
+async function askText(text = '', size = mk.size) {
+  const r = await dialog({
+    title: 'Text bubble',
+    body: `<label class="field"><span>Text</span><textarea name="text" id="mk-text" rows="3" required placeholder="e.g. Fire stopping required above door">${esc(text)}</textarea></label>
+      <label class="field"><span>Size</span><select name="size" id="mk-tsize">${Object.keys(TEXT_SIZES).map((k) => `<option ${k === size ? 'selected' : ''}>${k}</option>`).join('')}</select></label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Save', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true || !r.data.text.trim()) return null;
+  mk.size = r.data.size;
+  return { text: r.data.text.trim(), size: r.data.size };
+}
+
+async function askScale(pts) {
+  const px = lineLengthPx(curPlan, pts[0], pts[1]);
+  const r = await dialog({
+    title: 'Set the scale',
+    body: `<p>How long is this line in real life? Every measurement on this drawing is worked out from it.</p>
+      <div class="grid2">
+        <label class="field"><span>Length</span><input name="len" id="mk-len" type="number" inputmode="decimal" min="0" step="any" required placeholder="e.g. 926"></label>
+        <label class="field"><span>Unit</span><select name="unit" id="mk-unit"><option value="mm">mm</option><option value="m">m</option></select></label>
+      </div>
+      <p class="muted small">Tip: draw along a door opening, a grid line or a printed dimension for an accurate scale.</p>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Set scale', value: true, kind: 'primary' }],
+  });
+  const len = Number(r.data?.len);
+  if (r.value !== true || !(len > 0) || !px) return null;
+  const metres = r.data.unit === 'mm' ? len / 1000 : len;
+  toast(`Scale set: this line is ${fmtLength(metres)}`);
+  return metres / px;
+}
+
+// one-finger gestures while Markup is on (two fingers still zoom and pan)
+const markupHandler = {
+  down(p, target) {
+    const pt = P(p);
+    if (mk.tool === 'select') {
+      const id = target?.closest?.('[data-mk]')?.dataset.mk || null;
+      mk.selected = id && id !== '__draft' ? id : null;
+      const m = (curPlan.markups || []).find((x) => x.id === mk.selected);
+      if (m) mk.color = m.color || mk.color;
+      drawMarkups();
+      drawMarkupPanel();
+      return;
+    }
+    if (mk.tool === 'area') return; // corners are added on lift
+    mk.draft = { type: mk.tool, color: mk.color, pts: mk.tool === 'pen' ? [pt] : [pt, pt] };
+    drawMarkups();
+  },
+  move(p) {
+    const pt = P(p);
+    const d = mk.draft;
+    if (!d || mk.tool === 'select' || mk.tool === 'area') return;
+    if (mk.tool === 'pen') {
+      const last = d.pts[d.pts.length - 1];
+      if (Math.hypot((pt[0] - last[0]) * curPlan.width, (pt[1] - last[1]) * curPlan.height) * viewer.s > 3) d.pts.push(pt);
+    } else d.pts[1] = pt;
+    // a text bubble being dragged shows its leader line as a preview
+    if (mk.tool === 'text') d.type = 'line';
+    drawMarkups();
+  },
+  async up(p) {
+    const pt = P(p);
+    const d = mk.draft;
+    const screenLen = (a, b) => Math.hypot((b[0] - a[0]) * curPlan.width, (b[1] - a[1]) * curPlan.height) * viewer.s;
+    if (mk.tool === 'select') return;
+    if (mk.tool === 'area') {
+      const pts = mk.draft?.pts || [];
+      if (pts.length >= 3 && screenLen(pts[0], pt) < 24) return finishArea(); // tapped the first corner
+      mk.draft = { type: 'area', color: mk.color, pts: [...pts, pt] };
+      drawMarkups();
+      return drawMarkupPanel();
+    }
+    mk.draft = null;
+    if (!d) return drawMarkups();
+    if (mk.tool === 'text') {
+      const moved = screenLen(d.pts[0], pt) > 12;
+      const t = await askText('', mk.size);
+      if (t) await addMarkup({ type: 'text', pts: moved ? [d.pts[0], pt] : [pt], ...t });
+      return drawMarkups();
+    }
+    if (mk.tool === 'pen') {
+      if (d.pts.length > 1) await addMarkup({ type: 'pen', pts: d.pts });
+      return drawMarkups();
+    }
+    d.pts[1] = pt;
+    if (screenLen(d.pts[0], d.pts[1]) < 10) return drawMarkups(); // too short: treat as a stray tap
+    if (mk.tool === 'measure' && !curPlan.scale) {
+      drawMarkups();
+      mk.draft = d; // keep it visible while asking
+      drawMarkups();
+      const scale = await askScale(d.pts);
+      mk.draft = null;
+      if (scale) {
+        await savePlanMarkups({ scale });
+        await addMarkup({ type: 'measure', pts: d.pts, guide: true });
+      }
+      drawMarkupPanel();
+      return drawMarkups();
+    }
+    await addMarkup({ type: mk.tool, pts: d.pts });
+  },
+  cancel() {
+    if (mk.tool !== 'area') mk.draft = null;
+    drawMarkups();
+  },
+};
 
 function setMode(m, doorId = null) {
   mode = m;

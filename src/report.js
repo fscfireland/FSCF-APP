@@ -7,6 +7,7 @@ import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, 
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
 import { isVideo, fmtDuration } from './media.js';
 import { photoInView } from './history.js';
+import { drawOnCanvas } from './markup.js';
 import { fmtDate } from './ui.js';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -104,6 +105,7 @@ async function planWithPins(plan, doors) {
   g.fillStyle = '#fff';
   g.fillRect(0, 0, c.width, c.height);
   g.drawImage(bmp, 0, 0, c.width, c.height);
+  drawOnCanvas(g, plan, plan.markups, c.width / plan.width);
   const r = Math.max(16, Math.max(c.width, c.height) * 0.016);
   for (const d of doors) {
     const st = d.status || 'not_inspected';
