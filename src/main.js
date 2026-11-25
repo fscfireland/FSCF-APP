@@ -1758,8 +1758,8 @@ async function drawSheet(door) {
       <section class="block">
         <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
           <span class="row-btns">
-            <button class="btn sm" id="q-rest">${icon('check')} Mark rest ${esc(ANSWERS[0].label)}</button>
-            <button class="btn sm danger-text" id="q-rest-fail">${icon('close')} Mark rest ${esc(ANSWERS[1].label)}</button>
+            <button type="button" class="btn sm q-all q-all-pass" id="q-all-pass" aria-pressed="false" title="Set every question to ${esc(ANSWERS[0].label)}; tap again to undo">${icon('check')} All ${esc(ANSWERS[0].label)}</button>
+            <button type="button" class="btn sm q-all q-all-fail" id="q-all-fail" aria-pressed="false" title="Set every question to ${esc(ANSWERS[1].label)}; tap again to undo">${icon('close')} All ${esc(ANSWERS[1].label)}</button>
             <button class="btn ghost sm" id="q-edit">${icon('gear')} Edit questions</button>
           </span>
         </div>
@@ -2036,8 +2036,12 @@ async function drawSheet(door) {
     const answered = qs.filter((q) => checks[q.id]?.answer).length;
     const fails = qs.filter((q) => checks[q.id]?.answer === 'fail').length;
     $('#q-n').textContent = qs.length ? `(${answered}/${qs.length}${fails ? ` · ${fails} fail` : ''})` : '';
-    $('#q-rest').hidden = !qs.length || answered === qs.length;
-    $('#q-rest-fail').hidden = !qs.length || answered === qs.length;
+    // the All Pass / All Fail toggles light up when every answer matches
+    const allAre = (a) => qs.length > 0 && qs.every((q) => checks[q.id]?.answer === a);
+    for (const [id, a] of [['#q-all-pass', 'pass'], ['#q-all-fail', 'fail']]) {
+      $(id).hidden = !qs.length;
+      $(id).setAttribute('aria-pressed', String(allAre(a)));
+    }
     $('#questions').innerHTML = qs.length
       ? qs.map((q, i) => {
         const a = checks[q.id]?.answer || '';
@@ -2067,17 +2071,28 @@ async function drawSheet(door) {
     await flushSave();
     go({ view: 'settings', focus: 's-qs' });
   };
-  // fill every unanswered question with one answer
-  const markRest = (answer) => {
-    const checks = { ...(current.checks || {}) };
-    for (const q of questionsFor(current, lists.questions || [])) {
-      if (!checks[q.id]?.answer) checks[q.id] = { text: q.text, answer };
+  // All Pass / All Fail are toggles: the first tap sets every question,
+  // tapping the same one again puts the answers back as they were, and
+  // tapping the other switches straight across.
+  let beforeAll = null;
+  const toggleAll = (answer) => {
+    const qs = questionsFor(current, lists.questions || []);
+    const cur = current.checks || {};
+    const allAre = (a) => qs.length > 0 && qs.every((q) => cur[q.id]?.answer === a);
+    let checks;
+    if (allAre(answer)) {
+      checks = beforeAll ? { ...beforeAll } : {};
+      beforeAll = null;
+    } else {
+      if (!beforeAll || !(allAre('pass') || allAre('fail'))) beforeAll = { ...cur };
+      checks = { ...cur };
+      for (const q of qs) checks[q.id] = { text: q.text, answer };
     }
     queue(autoFail({ checks }));
     drawQuestions();
   };
-  $('#q-rest').onclick = () => markRest('pass');
-  $('#q-rest-fail').onclick = () => markRest('fail');
+  $('#q-all-pass').onclick = () => toggleAll('pass');
+  $('#q-all-fail').onclick = () => toggleAll('fail');
 
   // recommended actions (several per door)
   const drawActions = () => {

@@ -646,3 +646,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 /* result worked out from the checklist */
 .auto-res { margin: -4px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; }
 .auto-res small { color: var(--ink-2); font-weight: 400; font-size: 12.5px; }
+
+/* All Pass / All Fail toggles */
+.q-all-pass { --c: var(--st-pass); }
+.q-all-fail { --c: var(--st-fail); color: var(--st-fail); }
+.q-all[aria-pressed="true"] { background: var(--c); border-color: var(--c); color: #fff; }
