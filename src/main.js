@@ -144,7 +144,7 @@ async function renderProjects() {
 
   app.innerHTML = `
     <header class="bar">
-      <div class="brand"><span class="brand-mark">${icon('shield')}</span><div><b>FSCF Doors</b><small>Fire door inspections</small></div></div>
+      <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Doors</b><small>Fire door inspections</small></div></div>
       <button class="icon-btn" id="settings" aria-label="Settings">${icon('gear')}</button>
     </header>
     <main class="page">
@@ -1710,6 +1710,9 @@ async function drawSheet(door) {
   useScheme(await db.get('projects', door.projectId));
   const s = statusById[door.status || 'not_inspected'];
   const types = [...new Set([...(lists.doorTypes || []), door.doorType].filter(Boolean))];
+  // pass / fail comes from the checklist and defects (unless switched off in
+  // Settings, or no checklist is set up)
+  const autoRes = lists.autoResult !== false && questionsFor(door, lists.questions || []).length > 0;
   // fire alarm zones already used on this project: number → name
   const project = await db.get('projects', door.projectId);
   const zoneMap = new Map((project?.zones || []).filter((z) => z.no).map((z) => [String(z.no), z.name || '']));
@@ -1727,8 +1730,9 @@ async function drawSheet(door) {
     <div class="sheet-body">
       ${door.planId ? `<button type="button" class="door-map" id="door-map" aria-label="Show on the drawing"><img alt="Where this door is on ${esc(plan?.name || 'the drawing')}" id="door-map-img"><span>${icon('plan')} ${esc(plan?.name || 'Drawing')} · tap to view</span></button>` : ''}
       <fieldset class="status-set" aria-label="Status">
-        ${STATUSES.map((st) => `<label class="status-opt" style="--c:${st.color}"><input type="radio" name="status" value="${st.id}" ${st.id === (door.status || 'not_inspected') ? 'checked' : ''}><span>${st.label}</span></label>`).join('')}
+        ${STATUSES.filter((st) => !autoRes || !['pass', 'fail'].includes(st.id)).map((st) => `<label class="status-opt" style="--c:${st.color}"><input type="radio" name="status" value="${st.id}" ${st.id === (door.status || 'not_inspected') ? 'checked' : ''}><span>${st.label}</span></label>`).join('')}
       </fieldset>
+      ${autoRes ? '<p class="auto-res" id="auto-res"></p>' : ''}
 
       <div class="grid2">
         <label class="field"><span>Door ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. GF-012" autocomplete="off"></label>
@@ -1754,7 +1758,8 @@ async function drawSheet(door) {
       <section class="block">
         <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
           <span class="row-btns">
-            <button class="btn sm" id="q-rest">${icon('check')} Mark rest Pass</button>
+            <button class="btn sm" id="q-rest">${icon('check')} Mark rest ${esc(ANSWERS[0].label)}</button>
+            <button class="btn sm danger-text" id="q-rest-fail">${icon('close')} Mark rest ${esc(ANSWERS[1].label)}</button>
             <button class="btn ghost sm" id="q-edit">${icon('gear')} Edit questions</button>
           </span>
         </div>
@@ -1834,16 +1839,38 @@ async function drawSheet(door) {
     queue(patch);
   };
 
-  // A door with defects or failed questions has failed — set that
-  // automatically if it is still "Not inspected" or marked "Pass".
-  const autoFail = (patch) => {
-    if (['not_inspected', 'pass'].includes(current.status || 'not_inspected')) {
-      patch.status = 'fail';
-      $(`input[name=status][value=fail]`, el).checked = true;
-      $('#sh-badge').style.setProperty('--pin', statusById.fail.color);
-      $('#sh-badge').classList.remove('is-hollow');
+  // The door's result, worked out from its checklist and defects:
+  //   any failed check or any defect → fail; everything answered → pass.
+  // Not applicable / No access / Repaired are left alone.
+  const showStatus = (id) => {
+    const st = statusById[id || 'not_inspected'];
+    $('#sh-badge').style.setProperty('--pin', st.color);
+    $('#sh-badge').classList.toggle('is-hollow', st.id === 'not_inspected');
+    const r = $(`input[name=status][value=${st.id}]`, el);
+    if (r) r.checked = true;
+    else $$('input[name=status]', el).forEach((x) => (x.checked = false));
+    const ar = $('#auto-res');
+    if (ar) {
+      ar.innerHTML = ['pass', 'fail'].includes(st.id)
+        ? `Result: <span class="status-pill" style="--c:${st.color}">${esc(st.label)}</span> <small>from the checklist and defects</small>`
+        : st.id === 'not_inspected' ? '<small>The result is set from the checklist: any failed check or defect gives <b>' + esc(statusById.fail.label) + '</b>, all answered gives <b>' + esc(statusById.pass.label) + '</b>.</small>' : '';
     }
-    if (!current.inspectedOn) {
+  };
+  const autoFail = (patch) => {
+    const merged = { ...current, ...patch };
+    const cur = merged.status || 'not_inspected';
+    if (autoRes && ['not_inspected', 'pass', 'fail'].includes(cur)) {
+      const qs = questionsFor(merged, lists.questions || []);
+      const checks = merged.checks || {};
+      const failed = (merged.defects || []).length > 0 || qs.some((q) => checks[q.id]?.answer === 'fail');
+      const allDone = qs.length > 0 && qs.every((q) => checks[q.id]?.answer);
+      const next = failed ? 'fail' : allDone ? 'pass' : 'not_inspected';
+      if (next !== cur) patch.status = next;
+    } else if (!autoRes && ['not_inspected', 'pass'].includes(cur) && ((merged.defects || []).length || Object.values(merged.checks || {}).some((c) => c?.answer === 'fail'))) {
+      patch.status = 'fail';
+    }
+    if (patch.status) showStatus(patch.status);
+    if (!current.inspectedOn && (patch.status || '') !== 'not_inspected') {
       patch.inspectedOn = today();
       $('#f-on').value = patch.inspectedOn;
     }
@@ -1851,7 +1878,13 @@ async function drawSheet(door) {
   };
 
   $('#sh-close').onclick = () => back();
-  $$('input[name=status]', el).forEach((r) => (r.onchange = () => setStatus(r.value)));
+  $$('input[name=status]', el).forEach((r) => (r.onchange = () => {
+    setStatus(r.value);
+    // back to "Not inspected" with a checklist: work the result out again
+    if (autoRes && r.value === 'not_inspected') queue(autoFail({}));
+    else showStatus(r.value);
+  }));
+  showStatus(door.status);
   // Redraw the whole record (after history changes), keeping the scroll place
   const redraw = async () => {
     await flushSave();
@@ -1972,7 +2005,7 @@ async function drawSheet(door) {
       $('.def-del', row).onclick = () => {
         const defects = [...current.defects];
         defects.splice(i, 1);
-        queue({ defects });
+        queue(autoFail({ defects }));
         drawDefects();
       };
       $('.def-rem', row).oninput = (e) => {
@@ -2004,6 +2037,7 @@ async function drawSheet(door) {
     const fails = qs.filter((q) => checks[q.id]?.answer === 'fail').length;
     $('#q-n').textContent = qs.length ? `(${answered}/${qs.length}${fails ? ` · ${fails} fail` : ''})` : '';
     $('#q-rest').hidden = !qs.length || answered === qs.length;
+    $('#q-rest-fail').hidden = !qs.length || answered === qs.length;
     $('#questions').innerHTML = qs.length
       ? qs.map((q, i) => {
         const a = checks[q.id]?.answer || '';
@@ -2023,10 +2057,7 @@ async function drawSheet(door) {
         const prev = checks[q.id]?.answer;
         if (prev === b.dataset.a) delete checks[q.id]; // tap again to clear
         else checks[q.id] = { text: q.text, answer: b.dataset.a };
-        const patch = { checks };
-        if (b.dataset.a === 'fail' && prev !== 'fail') autoFail(patch);
-        else if (!current.inspectedOn) { patch.inspectedOn = today(); $('#f-on').value = patch.inspectedOn; }
-        queue(patch);
+        queue(autoFail({ checks }));
         drawQuestions();
       }));
     });
@@ -2036,16 +2067,17 @@ async function drawSheet(door) {
     await flushSave();
     go({ view: 'settings', focus: 's-qs' });
   };
-  $('#q-rest').onclick = () => {
+  // fill every unanswered question with one answer
+  const markRest = (answer) => {
     const checks = { ...(current.checks || {}) };
     for (const q of questionsFor(current, lists.questions || [])) {
-      if (!checks[q.id]?.answer) checks[q.id] = { text: q.text, answer: 'pass' };
+      if (!checks[q.id]?.answer) checks[q.id] = { text: q.text, answer };
     }
-    const patch = { checks };
-    if (!current.inspectedOn) { patch.inspectedOn = today(); $('#f-on').value = patch.inspectedOn; }
-    queue(patch);
+    queue(autoFail({ checks }));
     drawQuestions();
   };
+  $('#q-rest').onclick = () => markRest('pass');
+  $('#q-rest-fail').onclick = () => markRest('fail');
 
   // recommended actions (several per door)
   const drawActions = () => {
@@ -2124,6 +2156,7 @@ async function drawSheet(door) {
   // photos
   const drawPhotos = async () => {
     const photos = (await db.doorPhotos(door.id)).filter((p) => photoInView(p, { ...current, _current: true }));
+    if (!$('#photos')) return; // the door was closed while this loaded
     const nv = photos.filter(isVideo).length;
     $('#ph-n').textContent = photos.length ? `(${photos.length - nv} photo${photos.length - nv === 1 ? '' : 's'}${nv ? `, ${nv} video${nv === 1 ? '' : 's'}` : ''})` : '';
     $('#photos').innerHTML = photos.length
@@ -2183,6 +2216,7 @@ async function drawSheet(door) {
     };
     const log = [...(d.log || [])].reverse();
     const shown = showAllLog ? log : log.slice(0, 12);
+    if (!$('#history')) return; // the door was closed while this loaded
     $('#history').innerHTML = `
       <div class="insp-list">
         <div class="insp is-current">
@@ -2509,6 +2543,26 @@ function openPhoto(photo, onChange) {
   };
 }
 
+// Logos are kept as small PNG images (with transparency) inside the settings
+async function logoFromFile(file, maxSide) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const w0 = img.naturalWidth || 600;
+    const h0 = img.naturalHeight || 600;
+    const k = Math.min(1, maxSide / Math.max(w0, h0));
+    const c = document.createElement('canvas');
+    c.width = Math.round(w0 * k);
+    c.height = Math.round(h0 * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return { data: c.toDataURL('image/png'), w: c.width, h: c.height };
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // ---------- Settings ----------
 async function renderSettings() {
   const est = await db.storageEstimate();
@@ -2520,6 +2574,27 @@ async function renderSettings() {
       <span></span>
     </header>
     <main class="page">
+      <section class="panel">
+        <h2 class="h2">Company logo</h2>
+        <p class="muted small">Shown on every PDF report. The round logo is also used at the top of the app. Use PNG files; a round logo looks best with transparent corners.</p>
+        <div class="logo-grid">
+          ${[['banner', 'Banner logo (wide)', 'Across the top of report covers'], ['round', 'Round logo', 'Cover corner and every page header']].map(([k, label, hint]) => {
+            const lg = lists[k === 'banner' ? 'logoBanner' : 'logoRound'];
+            return `<div class="logo-slot ${k}">
+              <div class="logo-prev">${lg ? `<img alt="${label}" src="${lg.data}">` : `<span class="muted small">No ${k} logo</span>`}</div>
+              <b>${label}</b><small class="muted">${hint}</small>
+              <div class="row-btns">
+                <label class="btn sm">${icon('upload')} ${lg ? 'Replace' : 'Upload'}<input type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" id="logo-${k}" hidden></label>
+                ${lg ? `<button class="btn ghost sm danger-text" id="logo-del-${k}">Remove</button>` : ''}
+              </div>
+            </div>`;
+          }).join('')}
+        </div>
+      </section>
+      <section class="panel">
+        <label class="check-line"><input type="checkbox" id="s-autores" ${lists.autoResult !== false ? 'checked' : ''}> Set each door's pass / fail result from its checklist and defects</label>
+        <p class="muted small">When on, the door record shows only Not inspected, Not applicable and No access (and Repaired) as buttons; the pass / fail result is worked out for you. Turn off to choose it by hand.</p>
+      </section>
       <section class="panel">
         <label class="field"><span>Inspector name (fills "Inspected by")</span><input id="s-insp" value="${esc(lists.inspector || '')}" placeholder="e.g. Mark Crosby"></label>
       </section>
@@ -2576,6 +2651,26 @@ async function renderSettings() {
       <p class="muted small pad">FSCF Doors v0.1 · data stays on this device until cloud sync is set up.</p>
     </main>`;
   $('#back').onclick = back;
+  $('#s-autores').onchange = (e) => saveLists({ autoResult: e.target.checked });
+  for (const k of ['banner', 'round']) {
+    const key = k === 'banner' ? 'logoBanner' : 'logoRound';
+    $(`#logo-${k}`).onchange = async (e) => {
+      const f = e.target.files[0];
+      e.target.value = '';
+      if (!f) return;
+      try {
+        await saveLists({ [key]: await logoFromFile(f, k === 'banner' ? 1400 : 500) });
+        toast('Logo saved');
+        refresh();
+      } catch (err) {
+        toast('Could not read that image: ' + err.message, 'error');
+      }
+    };
+    $(`#logo-del-${k}`)?.addEventListener('click', async () => {
+      await saveLists({ [key]: null });
+      refresh();
+    });
+  }
   $('#s-insp').onchange = (e) => saveLists({ inspector: e.target.value });
   $('#s-types').onchange = (e) => saveLists({ doorTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   // status schemes

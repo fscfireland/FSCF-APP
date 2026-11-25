@@ -175,6 +175,54 @@ function drawBars(doc, rows, x0, y0, width, { max = 100, unit = '%', labelW = 78
   return y0 + h + 9;
 }
 
+// Place an image inside a box, keeping its shape; returns the drawn size
+function fitImage(doc, lg, x, y, maxW, maxH, align = 'left') {
+  const k = Math.min(maxW / lg.w, maxH / lg.h);
+  const w = lg.w * k;
+  const h = lg.h * k;
+  const dx = align === 'right' ? maxW - w : align === 'center' ? (maxW - w) / 2 : 0;
+  doc.addImage(lg.data, 'PNG', x + dx, y + (maxH - h) / 2, w, h, undefined, 'FAST');
+  return { w, h };
+}
+
+// The report's top band: your logos on white with a red title bar, or the
+// plain red band when no logo has been added
+function reportBanner(doc, lists, title, { bandH = 64, titleSize = 26 } = {}) {
+  const banner = lists?.logoBanner;
+  const round = lists?.logoRound;
+  if (!banner && !round) {
+    doc.setFillColor(...C.accent);
+    doc.rect(0, 0, A4.w, bandH, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(bandH > 40 ? 12 : 10);
+    doc.setTextColor(255, 255, 255);
+    doc.text('FSCF IRELAND', M, bandH > 40 ? 22 : 12);
+    if (bandH > 40) {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(255, 225, 222);
+      doc.text(t('Fire door inspection · remedial works · fire stopping'), M, 28);
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(titleSize);
+    doc.setTextColor(255, 255, 255);
+    doc.text(t(title), M, bandH > 40 ? 50 : 23);
+    return bandH;
+  }
+  const logoH = bandH > 40 ? 28 : 18;
+  if (banner) fitImage(doc, banner, M, 7, round ? CW - logoH - 8 : CW, logoH);
+  if (round) fitImage(doc, round, A4.w - M - logoH, 7, logoH, logoH, 'right');
+  const top = logoH + 12;
+  const barH = bandH > 40 ? 18 : 13;
+  doc.setFillColor(...C.accent);
+  doc.rect(0, top, A4.w, barH, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(bandH > 40 ? 20 : 15);
+  doc.setTextColor(255, 255, 255);
+  doc.text(t(title), M, top + barH * 0.68);
+  return top + barH;
+}
+
 function donutPng(parts, sizePx = 600) {
   const c = document.createElement('canvas');
   c.width = c.height = sizePx;
@@ -308,16 +356,8 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
   // ---------- 1. Cover ----------
   onProgress('Building cover and summary…');
-  doc.setFillColor(...C.accent);
-  doc.rect(0, 0, A4.w, 64, 'F');
-  font('bold', 12, [255, 255, 255]);
-  text('FSCF IRELAND', M, 22);
-  font('normal', 9.5, [255, 225, 222]);
-  text('Fire door inspection · remedial works · fire stopping', M, 28);
-  font('bold', 26, [255, 255, 255]);
-  text('Fire Door Inspection Report', M, 50);
-
-  y = 84;
+  const bandBottom = reportBanner(doc, lists, 'Fire Door Inspection Report');
+  y = Math.max(84, bandBottom + 18);
   font('bold', 20);
   doc.text(doc.splitTextToSize(t(project.site || 'Site'), CW), M, y);
   y += 9 * doc.splitTextToSize(t(project.site || 'Site'), CW).length + 2;
@@ -732,10 +772,13 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     doc.setPage(i);
     const pw = doc.internal.pageSize.getWidth();
     const ph = doc.internal.pageSize.getHeight();
+    let hx = M;
+    const rl = lists.logoRound || lists.logoBanner;
+    if (rl) hx += fitImage(doc, rl, M, M - 5.5, lists.logoRound ? 7 : 24, 7).w + 2.5;
     font('bold', 8, C.accent);
-    text('FSCF IRELAND', M, M);
+    text('FSCF IRELAND', hx, M);
     font('normal', 8, C.ink2);
-    text(t(`Fire door inspection · ${project.site || ''}`), M + 26, M);
+    text(t(`Fire door inspection · ${project.site || ''}`), hx + 26, M);
     doc.setDrawColor(...C.line);
     doc.setLineWidth(0.2);
     doc.line(M, M + 2.5, pw - M, M + 2.5);
@@ -783,14 +826,9 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   };
 
   // ---- title + instructions
-  doc.setFillColor(...C.accent);
-  doc.rect(0, 0, A4.w, 30, 'F');
-  font('bold', 10, [255, 255, 255]);
-  text('FSCF IRELAND', M, 12);
-  font('bold', 18, [255, 255, 255]);
   const isReport = opts.mode === 'report';
-  text(isReport ? 'Remedial works completion report' : 'Remedial works sheet', M, 23);
-  y = 40;
+  const bandBottom = reportBanner(doc, lists, isReport ? 'Remedial works completion report' : 'Remedial works sheet', { bandH: 30, titleSize: 18 });
+  y = bandBottom + 10;
   font('bold', 14);
   doc.text(doc.splitTextToSize(t(project.site || 'Site'), CW), M, y);
   y += 6;
@@ -1042,8 +1080,11 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     doc.setPage(i);
     const pw = doc.internal.pageSize.getWidth();
     const ph = doc.internal.pageSize.getHeight();
+    let fx = M;
+    const rl = lists.logoRound;
+    if (rl && i > 1) fx += fitImage(doc, rl, M, ph - 12.5, 6, 6).w + 2;
     font('normal', 8, C.muted);
-    text(`Remedial works · ${project.site || ''}`, M, ph - 8);
+    text(`Remedial works · ${project.site || ''}`, fx, ph - 8);
     text(`Page ${i} of ${total2}`, pw - M, ph - 8, { align: 'right' });
   }
   onProgress('Saving PDF…');

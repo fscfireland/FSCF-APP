@@ -634,3 +634,15 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .rep-map:not([src]) { visibility: hidden; }
 .field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .field-head .link-btn { font-size: 12.5px; }
+
+/* logos */
+.brand-mark.has-logo { background: #fff; overflow: hidden; border: 1px solid var(--line); }
+.brand-mark img { width: 100%; height: 100%; object-fit: contain; }
+.logo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
+.logo-slot { display: grid; gap: 6px; }
+.logo-prev { display: grid; place-items: center; height: 96px; border: 1px dashed var(--line); border-radius: 10px; background: #fff; overflow: hidden; }
+.logo-prev img { max-width: 92%; max-height: 80px; object-fit: contain; }
+.logo-slot.round .logo-prev img { max-height: 80px; border-radius: 50%; }
+/* result worked out from the checklist */
+.auto-res { margin: -4px 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-weight: 600; }
+.auto-res small { color: var(--ink-2); font-weight: 400; font-size: 12.5px; }
