@@ -211,11 +211,12 @@ export const euro = (n) => eur.format(Number(n) || 0);
 // The questions to show for a door: the current list, plus any the door
 // answered that have since been removed from Settings.
 export function questionsFor(d, questions) {
-  questions = questions.filter((q) => q.text?.trim());
+  const hidden = new Set(questions.filter((q) => q.hidden).map((q) => q.id));
+  questions = questions.filter((q) => q.text?.trim() && !q.hidden);
   const ids = new Set(questions.map((q) => q.id));
   const extra = Object.entries(d.checks || {})
     .filter(([id, v]) => !ids.has(id) && v?.answer)
-    .map(([id, v]) => ({ id, text: v.text, removed: true }));
+    .map(([id, v]) => ({ id, text: v.text, removed: true, hidden: hidden.has(id) }));
   return [...questions, ...extra];
 }
 

@@ -6,6 +6,10 @@ export const esc = escapeHtml;
 const P = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   up: '<path d="M5 15l7-7 7 7"/>',
+  eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M3 3l18 18"/><path d="M10.6 5.1A10.5 10.5 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6A17 17 0 0 0 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  grip: '<circle cx="9" cy="6" r="1.4" fill="currentColor"/><circle cx="15" cy="6" r="1.4" fill="currentColor"/><circle cx="9" cy="12" r="1.4" fill="currentColor"/><circle cx="15" cy="12" r="1.4" fill="currentColor"/><circle cx="9" cy="18" r="1.4" fill="currentColor"/><circle cx="15" cy="18" r="1.4" fill="currentColor"/>',
+  down: '<path d="M5 9l7 7 7-7"/>',
   filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
   pencil: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
   cursor: '<path d="M6 3l13 8-6 1.5L10 19z"/>',
@@ -115,6 +119,49 @@ export async function confirmBox(title, message, okLabel = 'Delete', danger = tr
     ],
   });
   return r.value === true;
+}
+
+// Drag rows up or down by their grip handle; calls onDone with the new
+// order of the rows' data-id values when the drag ends.
+export function makeSortable(container, onDone) {
+  container.addEventListener('pointerdown', (e) => {
+    const grip = e.target.closest('.grip');
+    if (!grip) return;
+    const row = grip.closest('[data-id]');
+    if (!row) return;
+    e.preventDefault();
+    row.classList.add('is-dragging');
+    const pid = e.pointerId;
+    const move = (ev) => {
+      const rows = [...container.querySelectorAll(':scope > [data-id]')];
+      for (const other of rows) {
+        if (other === row) continue;
+        const r = other.getBoundingClientRect();
+        const mid = r.top + r.height / 2;
+        const before = rows.indexOf(other) < rows.indexOf(row);
+        if (before && ev.clientY < mid) {
+          container.insertBefore(row, other);
+          break;
+        }
+        if (!before && ev.clientY > mid) {
+          container.insertBefore(row, other.nextSibling);
+        }
+      }
+    };
+    // listen on the window: moving the row in the page would end a captured drag
+    const onMove = (ev) => ev.pointerId === pid && move(ev);
+    const up = (ev) => {
+      if (ev.pointerId !== pid) return;
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      row.classList.remove('is-dragging');
+      onDone([...container.querySelectorAll(':scope > [data-id]')].map((x) => x.dataset.id));
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+  });
 }
 
 export function busy(msg) {

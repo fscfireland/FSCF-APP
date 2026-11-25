@@ -263,7 +263,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   // only drawings in the collection being reported, and only those with doors in the report
   const plans = (opts.plans || (await db.projectPlans(project.id))).filter((pl) => !opts.doors || doors.some((d) => d.planId === pl.id));
   const planById = Object.fromEntries(plans.map((p) => [p.id, p]));
-  const questions = (lists.questions || []).filter((q) => q.text?.trim());
+  const questions = (lists.questions || []).filter((q) => q.text?.trim() && !q.hidden);
   const inspector = lists.inspector || [...new Set(doors.map((d) => d.inspectedBy).filter(Boolean))].join(', ');
   const reportDate = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' });
 

@@ -24,7 +24,7 @@ import {
   collLabel, listCollections, activeCollection, plansIn, suggestName, copyCollection, renameCollection, deleteCollection,
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
-import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today } from './ui.js';
+import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
 
 const app = document.getElementById('app');
 const sheetRoot = document.getElementById('sheet-root');
@@ -803,7 +803,7 @@ function renderExportTab(body, project, plans, allDoors) {
     state.rf = emptyFilter();
   }
   const f = state.rf;
-  const questions = (lists.questions || []).filter((q) => q.text?.trim());
+  const questions = (lists.questions || []).filter((q) => q.text?.trim() && !q.hidden);
   const opts = filterOptions(allDoors, questions);
   const doors = applyFilter(allDoors, f);
   const filterText = [state.collText, describeFilter(f, plans, opts.checks)].filter(Boolean).join(' · ');
@@ -926,7 +926,7 @@ function renderExportTab(body, project, plans, allDoors) {
     const b = busy('Building Excel workbook…');
     try {
       if (!doors.length) return b.done(), noneMsg();
-      const r = await exportProjectXlsx(project, lists.questions || [], { doors, filterText });
+      const r = await exportProjectXlsx(project, questions, { doors, filterText });
       b.done();
       if (r === 'saved') toast('Excel file saved');
     } catch (e) {
@@ -985,6 +985,7 @@ let mode = null; // null | 'add' | 'move'
 // The fire alarm zone last entered on a plan, so neighbouring doors get it too
 const lastZone = { planId: '', no: '', name: '' };
 const lastCategory = { planId: '', value: '' }; // new pins on a drawing get the last category used there
+const restMemo = new Map(); // door id → the questions a "Rest" toggle filled, so it can be undone
 let planColl = ''; // collection of the plan on screen
 let placingId = null; // an imported door waiting to be placed as a pin
 let placingLabel = '';
@@ -1844,8 +1845,9 @@ async function drawSheet(door) {
       <section class="block">
         <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
           <span class="row-btns">
-            <button type="button" class="btn sm q-all q-all-pass" id="q-all-pass" aria-pressed="false" title="Set every question to ${esc(ANSWERS[0].label)}; tap again to undo">${icon('check')} All ${esc(ANSWERS[0].label)}</button>
-            <button type="button" class="btn sm q-all q-all-fail" id="q-all-fail" aria-pressed="false" title="Set every question to ${esc(ANSWERS[1].label)}; tap again to undo">${icon('close')} All ${esc(ANSWERS[1].label)}</button>
+            <button type="button" class="btn sm q-all q-all-pass" id="q-all-pass" aria-pressed="false" title="Answer every remaining question ${esc(ANSWERS[0].label)}; tap again to undo">${icon('check')} Rest: ${esc(ANSWERS[0].label)}</button>
+            <button type="button" class="btn sm q-all q-all-fail" id="q-all-fail" aria-pressed="false" title="Answer every remaining question ${esc(ANSWERS[1].label)}; tap again to undo">${icon('close')} Rest: ${esc(ANSWERS[1].label)}</button>
+            <button type="button" class="btn ghost sm" id="q-arrange" aria-pressed="false">${icon('grip')} Arrange</button>
             <button class="btn ghost sm" id="q-edit">${icon('gear')} Edit questions</button>
           </span>
         </div>
@@ -2143,24 +2145,29 @@ async function drawSheet(door) {
   };
 
   // inspection questions
+  let arranging = false;
   const drawQuestions = () => {
+    if (!$('#questions')) return;
     const qs = questionsFor(current, lists.questions || []);
     const checks = current.checks || {};
     const answered = qs.filter((q) => checks[q.id]?.answer).length;
     const fails = qs.filter((q) => checks[q.id]?.answer === 'fail').length;
     $('#q-n').textContent = qs.length ? `(${answered}/${qs.length}${fails ? ` · ${fails} fail` : ''})` : '';
-    // the All Pass / All Fail toggles light up when every answer matches
-    const allAre = (a) => qs.length > 0 && qs.every((q) => checks[q.id]?.answer === a);
+    // the "Rest" toggles light up while the questions they filled still hold their answer
+    const memo = restMemo.get(door.id);
     for (const [id, a] of [['#q-all-pass', 'pass'], ['#q-all-fail', 'fail']]) {
-      $(id).hidden = !qs.length;
-      $(id).setAttribute('aria-pressed', String(allAre(a)));
+      $(id).hidden = !qs.length || arranging;
+      $(id).setAttribute('aria-pressed', String(!!(memo && memo.answer === a && restStillSet(memo))));
     }
+    $('#q-arrange').setAttribute('aria-pressed', String(arranging));
+    $('#q-arrange').innerHTML = arranging ? `${icon('check')} Done arranging` : `${icon('grip')} Arrange`;
+    if (arranging) return drawArrange();
     $('#questions').innerHTML = qs.length
       ? qs.map((q, i) => {
         const a = checks[q.id]?.answer || '';
         return `
         <div class="q-row ${a ? 'is-' + a : ''}" data-id="${esc(q.id)}">
-          <span class="q-text"><span class="q-no">${i + 1}</span>${esc(q.text)}${q.removed ? ' <small class="muted">(removed from list)</small>' : ''}</span>
+          <span class="q-text"><span class="q-no">${i + 1}</span>${esc(q.text)}${q.removed ? ` <small class="muted">(${q.hidden ? 'hidden question' : 'removed from list'})</small>` : ''}</span>
           <span class="q-ans" role="group" aria-label="Answer">
             ${ANSWERS.map((x) => `<button type="button" class="q-btn q-${x.id}" data-a="${x.id}" aria-pressed="${a === x.id}">${x.label}</button>`).join('')}
           </span>
@@ -2184,28 +2191,85 @@ async function drawSheet(door) {
     await flushSave();
     go({ view: 'settings', focus: 's-qs' });
   };
-  // All Pass / All Fail are toggles: the first tap sets every question,
-  // tapping the same one again puts the answers back as they were, and
-  // tapping the other switches straight across.
-  let beforeAll = null;
-  const toggleAll = (answer) => {
+  // "Rest: No action" / "Rest: Action" are toggles that only touch the
+  // questions you haven't answered. Tap again to clear what they filled;
+  // tap the other to switch those same questions across.
+  const restStillSet = (memo) => memo.ids.length > 0 && memo.ids.every((id) => (current.checks || {})[id]?.answer === memo.answer);
+  const toggleRest = (answer) => {
     const qs = questionsFor(current, lists.questions || []);
-    const cur = current.checks || {};
-    const allAre = (a) => qs.length > 0 && qs.every((q) => cur[q.id]?.answer === a);
-    let checks;
-    if (allAre(answer)) {
-      checks = beforeAll ? { ...beforeAll } : {};
-      beforeAll = null;
+    const checks = { ...(current.checks || {}) };
+    const memo = restMemo.get(door.id);
+    if (memo && restStillSet(memo)) {
+      if (memo.answer === answer) {
+        for (const id of memo.ids) delete checks[id]; // undo
+        restMemo.delete(door.id);
+      } else {
+        for (const id of memo.ids) checks[id] = { ...checks[id], answer }; // switch across
+        memo.answer = answer;
+      }
     } else {
-      if (!beforeAll || !(allAre('pass') || allAre('fail'))) beforeAll = { ...cur };
-      checks = { ...cur };
-      for (const q of qs) checks[q.id] = { text: q.text, answer };
+      const ids = qs.filter((q) => !checks[q.id]?.answer).map((q) => q.id);
+      if (!ids.length) return toast('Every question already has an answer.');
+      for (const q of qs) if (ids.includes(q.id)) checks[q.id] = { text: q.text, answer };
+      restMemo.set(door.id, { answer, ids });
     }
     queue(autoFail({ checks }));
     drawQuestions();
   };
-  $('#q-all-pass').onclick = () => toggleAll('pass');
-  $('#q-all-fail').onclick = () => toggleAll('fail');
+  $('#q-all-pass').onclick = () => toggleRest('pass');
+  $('#q-all-fail').onclick = () => toggleRest('fail');
+
+  // Arrange: show / hide each question and slide them into your order.
+  // This changes the question list used for every door.
+  const drawArrange = () => {
+    const list = (lists.questions || []).filter((q) => q.text?.trim());
+    $('#questions').innerHTML = `
+      <p class="muted small arr-note">Drag ${icon('grip')} to move a question, or use the arrows. Tap ${icon('eye')} to hide a question you don't use. This sets the order for every door.</p>
+      <div class="arr-list" id="arr-list">
+        ${list.map((q, i) => `
+          <div class="q-arr ${q.hidden ? 'is-hidden' : ''}" data-id="${esc(q.id)}">
+            <button type="button" class="grip" aria-label="Drag to move">${icon('grip')}</button>
+            <span class="q-arr-text">${esc(q.text)}</span>
+            <span class="q-arr-btns">
+              <button type="button" class="icon-btn sm arr-up" aria-label="Move up" ${i ? '' : 'disabled'}>${icon('up')}</button>
+              <button type="button" class="icon-btn sm arr-down" aria-label="Move down" ${i < list.length - 1 ? '' : 'disabled'}>${icon('down')}</button>
+              <button type="button" class="icon-btn sm arr-eye" aria-label="${q.hidden ? 'Show question' : 'Hide question'}" aria-pressed="${!q.hidden}">${icon(q.hidden ? 'eyeOff' : 'eye')}</button>
+            </span>
+          </div>`).join('')}
+      </div>`;
+    const saveOrder = async (ids) => {
+      const byId = Object.fromEntries((lists.questions || []).map((q) => [q.id, q]));
+      const rest = (lists.questions || []).filter((q) => !ids.includes(q.id));
+      await saveLists({ questions: [...ids.map((id) => byId[id]).filter(Boolean), ...rest] });
+      drawQuestions();
+    };
+    makeSortable($('#arr-list'), saveOrder);
+    $$('.q-arr', el).forEach((row) => {
+      const id = row.dataset.id;
+      const ids = () => $$('.q-arr', el).map((r) => r.dataset.id);
+      $('.arr-up', row).onclick = () => {
+        const o = ids();
+        const i = o.indexOf(id);
+        if (i > 0) [o[i - 1], o[i]] = [o[i], o[i - 1]];
+        saveOrder(o);
+      };
+      $('.arr-down', row).onclick = () => {
+        const o = ids();
+        const i = o.indexOf(id);
+        if (i < o.length - 1) [o[i + 1], o[i]] = [o[i], o[i + 1]];
+        saveOrder(o);
+      };
+      $('.arr-eye', row).onclick = async () => {
+        await saveLists({ questions: lists.questions.map((q) => (q.id === id ? { ...q, hidden: !q.hidden } : q)) });
+        queue(autoFail({}));
+        drawQuestions();
+      };
+    });
+  };
+  $('#q-arrange').onclick = () => {
+    arranging = !arranging;
+    drawQuestions();
+  };
 
   // recommended actions (several per door)
   const drawActions = () => {
@@ -2870,18 +2934,25 @@ async function renderSettings() {
 
   const drawQs = () => {
     $('#s-qs').innerHTML = (lists.questions || []).map((q, i) => `
-      <div class="q-edit" data-i="${i}">
-        <span class="q-no">${i + 1}</span>
+      <div class="q-edit ${q.hidden ? 'is-hidden' : ''}" data-i="${i}" data-id="${esc(q.id)}">
+        <button type="button" class="grip" aria-label="Drag to move">${icon('grip')}</button>
         <textarea class="qe-text" id="qe-text-${i}" rows="2" aria-label="Question ${i + 1}">${esc(q.text)}</textarea>
         <span class="q-edit-btns">
+          <button class="icon-btn sm qe-eye" aria-label="${q.hidden ? 'Show question' : 'Hide question'}">${icon(q.hidden ? 'eyeOff' : 'eye')}</button>
           <button class="icon-btn sm qe-up" aria-label="Move up" ${i ? '' : 'disabled'}>${icon('up')}</button>
           <button class="icon-btn sm qe-del" aria-label="Remove">${icon('trash')}</button>
         </span>
       </div>`).join('') || '<p class="muted small">No questions.</p>';
+    makeSortable($('#s-qs'), async (ids) => {
+      const byId = Object.fromEntries(lists.questions.map((q) => [q.id, q]));
+      await saveLists({ questions: ids.map((id) => byId[id]).filter(Boolean) });
+      drawQs();
+    });
     $$('.q-edit').forEach((row) => {
       const i = Number(row.dataset.i);
       $('.qe-text', row).onchange = (e) => saveLists({ questions: lists.questions.map((q, j) => (j === i ? { ...q, text: e.target.value } : q)) });
       $('.qe-del', row).onclick = async () => { await saveLists({ questions: lists.questions.filter((_, j) => j !== i) }); drawQs(); };
+      $('.qe-eye', row).onclick = async () => { await saveLists({ questions: lists.questions.map((q, j) => (j === i ? { ...q, hidden: !q.hidden } : q)) }); drawQs(); };
       $('.qe-up', row).onclick = async () => {
         const qs = [...lists.questions];
         [qs[i - 1], qs[i]] = [qs[i], qs[i - 1]];
