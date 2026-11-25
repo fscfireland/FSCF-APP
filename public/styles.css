@@ -651,3 +651,18 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .q-all-pass { --c: var(--st-pass); }
 .q-all-fail { --c: var(--st-fail); color: var(--st-fail); }
 .q-all[aria-pressed="true"] { background: var(--c); border-color: var(--c); color: #fff; }
+
+/* signatures */
+.sig-wrap { position: relative; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+#sig-pad { display: block; width: 100%; height: 170px; touch-action: none; cursor: crosshair; }
+.sig-line { position: absolute; left: 16px; right: 16px; bottom: 30px; border-top: 1px solid #c3ccd4; padding-top: 2px; font-size: 11.5px; color: #8a97a3; pointer-events: none; }
+.sig-show { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.sig-show img { height: 56px; max-width: 220px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; }
+.sig-show b { display: block; }
+.sig-show small { color: var(--ink-2); font-size: 12.5px; }
+.signoff { display: grid; gap: 8px; margin: 4px 0 14px; padding: 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.signoff.is-signed { border-style: solid; border-color: var(--st-pass); }
+/* GPS */
+.gps-line { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13.5px; }
+.gps-line .ico { width: 16px; height: 16px; color: var(--accent); }
+.gps-line a { color: var(--st-repaired); font-weight: 600; }

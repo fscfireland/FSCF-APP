@@ -96,7 +96,7 @@ export function dialog({ title, body = '', buttons = [{ label: 'OK', value: true
       const b = buttons.find((x) => x.kind?.includes('primary'));
       done(b ? b.value : true);
     });
-    $$('button[type=button]', wrap).forEach((btn) => btn.addEventListener('click', () => done(buttons[btn.dataset.i].value)));
+    $$('.modal-actions button[type=button]', wrap).forEach((btn) => btn.addEventListener('click', () => done(buttons[btn.dataset.i].value)));
     wrap.addEventListener('pointerdown', (e) => {
       if (e.target === wrap) done(null);
     });

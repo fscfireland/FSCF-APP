@@ -9,6 +9,7 @@ import { isVideo, fmtDuration } from './media.js';
 import { photoInView } from './history.js';
 import { drawOnCanvas } from './markup.js';
 import { remedialItems } from './remedial.js';
+import { gpsText } from './geo.js';
 import { fmtDate } from './ui.js';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -408,6 +409,18 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
       11
     );
   }
+  if (project.signoff?.data) {
+    const sy = A4.h - M - 46;
+    font('bold', 10, C.ink);
+    text('Signed', M, sy);
+    doc.setDrawColor(...C.line);
+    doc.setLineWidth(0.3);
+    const k = Math.min(60 / project.signoff.w, 20 / project.signoff.h);
+    doc.addImage(project.signoff.data, 'PNG', M, sy + 3, project.signoff.w * k, project.signoff.h * k, undefined, 'FAST');
+    doc.line(M, sy + 25, M + 70, sy + 25);
+    font('normal', 9, C.ink2);
+    text(`${project.signoff.name || ''} · ${new Date(project.signoff.at).toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })}`, M, sy + 30);
+  }
   font('normal', 8.5, C.muted);
   doc.text(
     doc.splitTextToSize(
@@ -596,7 +609,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
     // details + plan close-up side by side
     const detailRows = [
-      ['Door type', d.doorType], ['Leaf configuration', d.leaf], ['Fire alarm zone', zoneText(d)], ['Risk rating', riskText(d)], ['Category', d.category],
+      ['Door type', d.doorType], ['Leaf configuration', d.leaf], ['Fire alarm zone', zoneText(d)], ['Risk rating', riskText(d)], ['Category', d.category], ['Location (GPS)', d.gps ? gpsText(d.gps) : ''],
       ['Inspected on', fmtDate(d.inspectedOn)], ['Inspected by', d.inspectedBy], ['Next inspection due', fmtDate(d.nextDue)],
     ].filter((r) => r[1]);
     const cropW = 70;
@@ -866,6 +879,11 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   font('bold', 9.5, C.ink);
   if (ackBy) text(ackBy, M + 17, ay - 0.5);
   if (ackOn) text(ackOn, M + 146, ay - 0.5);
+  const sg = opts.ack?.sig;
+  if (sg?.data) {
+    const k = Math.min(40 / sg.w, 9 / sg.h);
+    doc.addImage(sg.data, 'PNG', M + 91, ay - sg.h * k + 0.5, sg.w * k, sg.h * k, undefined, 'FAST');
+  }
   doc.setDrawColor(...C.muted);
   doc.setLineWidth(0.2);
   doc.line(M + 16, ay + 1, M + 68, ay + 1);

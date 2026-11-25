@@ -38,6 +38,8 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 - **Categories** can be added straight from a door (**+ Add new category…**), and **Edit list** opens Settings → Door categories.
 - **Company logo** (Settings): upload a banner (wide) logo and a round logo; they appear on every PDF report (cover band, page headers) and the round one at the top of the app.
 - **Automatic pass / fail**: each door's result is worked out from its checklist and defects (any failed check or defect → fail; all answered → pass). The door record shows only Not inspected, Not applicable, No access (and Repaired) as buttons; switch off in Settings to choose by hand. **All Pass** and **All Fail** are toggles: they set every question, tap the same one again to put the answers back as they were, or tap the other to switch across.
+- **Signatures**: a finger-drawn signature pad. Inspector sign-off in the Export tab (printed on the report cover); repairer's signature in the Repairs tab (printed on the repair sheet / completion report); save your own signature once in Settings and reuse it.
+- **GPS location**: when you inspect a door (status, checklist or defects) or take a photo, the phone's location, accuracy and time are recorded and shown on the door with a map link, and included in the Excel and PDF. Indoors expect about 10–50 m accuracy (confirms the site, not the room). Switch off in Settings. Not available inside the Claude preview; works once the app is hosted at its own address.
 - **Door list**: all doors on a project, with status filter chips and counts, plus search.
 - **Excel export**: Summary, Doors, Checklist, Defects (pricing), Materials and Material totals (with formulas and totals), and Defect totals.
 - **PDF report**: a client report you can send as it is. It has a cover page with headline figures, summary charts (door status pie, failure rate by inspection check, most common defects), each plan marked up with numbered pins, a door schedule, and a page per door with its plan location, checklist, defects, actions and photos. Material costs are optional, so you can keep them out of the client copy.
@@ -71,6 +73,8 @@ npm run build    # builds dist/ for hosting
 | `src/importer.js` | Import doors from Excel / CSV |
 | `src/remedial.js` | Remedial works tick list |
 | `src/minimap.js` | Door location close-ups |
+| `src/signature.js` | Signature pad |
+| `src/geo.js` | GPS location |
 | `src/media.js` | Video thumbnails, durations and links |
 | `src/backup.js` | Backup and restore |
 | `src/defaults.js` | Statuses, door types, default defect list |

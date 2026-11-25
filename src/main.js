@@ -13,6 +13,8 @@ import { exportProjectXlsx, exportRemedialXlsx } from './export.js';
 import { exportProjectPdf, exportRemedialPdf } from './report.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { doorMapURL } from './minimap.js';
+import { getPosition, geoError, gpsText, mapLink } from './geo.js';
+import { signaturePad } from './signature.js';
 import { DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
@@ -354,6 +356,9 @@ function renderRepairsTab(body, project, plans, doors) {
         <label class="rep-check"><input type="checkbox" id="rep-ack" ${ack ? 'checked' : ''}>
           <span><b>I have read these instructions and have the competencies required to carry out these repairs</b>
           ${ack ? `<small>Confirmed by ${esc(ack.by || 'unknown')} on ${esc(when(ack.at))}</small>` : ''}</span></label>
+        ${ack ? (ack.sig
+          ? `<div class="sig-show"><img alt="Signature of ${esc(ack.by)}" src="${ack.sig.data}"><span><small>Repairer's signature</small></span><button class="btn ghost sm" id="rep-sign">Sign again</button></div>`
+          : '<div class="row-btns"><button class="btn sm" id="rep-sign">' + icon('pencil') + ' Add repairer\'s signature</button></div>') : ''}
         ${ack ? '' : `<label class="field"><span>Repairer's name</span><input id="rep-name" value="${esc(lists.inspector || '')}" placeholder="Name of the person doing the repairs"></label>`}
       </div>
     </section>
@@ -424,6 +429,12 @@ function renderRepairsTab(body, project, plans, doors) {
     } else await saveProject({ remedialAck: null });
     renderRepairsTab(body, project, plans, doors);
   };
+  $('#rep-sign')?.addEventListener('click', async () => {
+    const sig = await signaturePad({ title: "Repairer's signature", name: project.remedialAck?.by || '', askName: false });
+    if (!sig) return;
+    await saveProject({ remedialAck: { ...project.remedialAck, sig } });
+    renderRepairsTab(body, project, plans, doors);
+  });
   $$('.rep-show', body).forEach((b) => (b.onclick = () => { state.repShow = b.dataset.s; renderRepairsTab(body, project, plans, doors); }));
   $$('.rep-door', body).forEach((sec) => {
     const id = sec.dataset.id;
@@ -803,6 +814,13 @@ function renderExportTab(body, project, plans, allDoors) {
     </section>
     <section class="panel">
       <h2 class="h2">${icon('report')} Client PDF report</h2>
+      <div class="signoff ${project.signoff ? 'is-signed' : ''}">
+        <span class="rf-label">Inspector sign-off (printed on the report cover)</span>
+        ${project.signoff
+          ? `<div class="sig-show"><img alt="Signature of ${esc(project.signoff.name)}" src="${project.signoff.data}"><span><b>${esc(project.signoff.name)}</b><small>Signed ${esc(fmtDate(project.signoff.at.slice(0, 10)))}</small></span></div>
+             <div class="row-btns"><button class="btn sm" id="sign-insp">Sign again</button><button class="btn ghost sm danger-text" id="sign-clear">Remove</button></div>`
+          : `<div class="row-btns"><button class="btn sm" id="sign-insp">${icon('pencil')} Sign the report</button></div>`}
+      </div>
       <p>A report for the client with these sections:</p>
       <ul class="sheet-list">
         <li>Cover page with the headline figures</li>
@@ -859,6 +877,17 @@ function renderExportTab(body, project, plans, allDoors) {
       toast(e.message, 'error');
     }
   };
+  $('#sign-insp').onclick = async () => {
+    const sig = await signaturePad({ title: 'Inspector signature', name: project.signoff?.name || lists.inspector || '', saved: lists.signature });
+    if (!sig) return;
+    await db.put('projects', { ...(await db.get('projects', project.id)), signoff: { ...sig, at: new Date().toISOString() } });
+    toast('Report signed');
+    refresh();
+  };
+  $('#sign-clear')?.addEventListener('click', async () => {
+    await db.put('projects', { ...(await db.get('projects', project.id)), signoff: null });
+    refresh();
+  });
   $('#pdf').onclick = async () => {
     const b = busy('Building PDF report…');
     try {
@@ -1804,6 +1833,7 @@ async function drawSheet(door) {
         <label class="field"><span>Inspected by</span><input id="f-by" data-k="inspectedBy" value="${esc(door.inspectedBy)}" placeholder="Name"></label>
         <label class="field"><span>Next inspection due</span><input type="date" id="f-due" data-k="nextDue" value="${esc(door.nextDue || '')}"></label>
       </div>
+      ${lists.gps !== false ? '<p class="gps-line" id="gps-line"></p>' : ''}
 
       <section class="block">
         <div class="block-head"><h3>History</h3>
@@ -1826,6 +1856,31 @@ async function drawSheet(door) {
     $('#saved').textContent = 'Saving…';
     clearTimeout(saveTimer);
     saveTimer = setTimeout(flushSave, 400);
+    // inspecting (status, checklist or defects) records where the phone is
+    if ((patch.status && patch.status !== 'not_inspected') || 'checks' in patch || 'defects' in patch) stampGps();
+  };
+  // ---- location of the inspector for this visit
+  let gpsBusy = false;
+  const showGps = (failed = false) => {
+    const el2 = $('#gps-line');
+    if (!el2) return;
+    const g = current.gps;
+    el2.innerHTML = g
+      ? `${icon('pin')} <span>Recorded at <b>${esc(gpsText(g))}</b> · ${esc(new Date(g.at).toLocaleString('en-IE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}</span> <a href="${mapLink(g)}" target="_blank" rel="noopener">View map</a>`
+      : failed ? `${icon('pin')} <span class="muted">Location not recorded: ${esc(geoError() || 'not available here')}</span>`
+        : `${icon('pin')} <span class="muted">Your location is recorded when you inspect this door.</span>`;
+  };
+  const stampGps = async () => {
+    if (lists.gps === false || gpsBusy) return;
+    const visit = current.inspectedOn || today();
+    if (current.gps?.visit === visit) return;
+    gpsBusy = true;
+    const g = await getPosition();
+    gpsBusy = false;
+    if (g && current.id === door.id) {
+      queue({ gps: { ...g, visit } });
+      showGps();
+    } else showGps(true);
   };
   const setStatus = (id) => {
     const st = statusById[id];
@@ -1885,6 +1940,7 @@ async function drawSheet(door) {
     else showStatus(r.value);
   }));
   showStatus(door.status);
+  showGps();
   // Redraw the whole record (after history changes), keeping the scroll place
   const redraw = async () => {
     await flushSave();
@@ -2199,7 +2255,8 @@ async function drawSheet(door) {
         } else {
           bz.update('Saving photo…');
           const { blob, thumb, width, height } = await compressImage(f, 1600, 0.8);
-          await db.put('photos', { id: db.uid(), projectId: door.projectId, doorId: door.id, inspection: current.inspectedOn || '', blob, thumb, width, height });
+          const gps = lists.gps !== false ? await getPosition({ timeout: 4000 }) : null;
+          await db.put('photos', { id: db.uid(), projectId: door.projectId, doorId: door.id, inspection: current.inspectedOn || '', blob, thumb, width, height, ...(gps ? { gps } : {}) });
         }
       }
       bz.done();
@@ -2607,6 +2664,17 @@ async function renderSettings() {
         </div>
       </section>
       <section class="panel">
+        <h2 class="h2">My signature</h2>
+        <p class="muted small">Save your signature once and use it when signing reports.</p>
+        ${lists.signature ? `<div class="sig-show"><img alt="Your saved signature" src="${lists.signature.data}"></div>` : ''}
+        <div class="row-btns"><button class="btn sm" id="s-sign">${icon('pencil')} ${lists.signature ? 'Replace' : 'Add'} my signature</button>
+          ${lists.signature ? '<button class="btn ghost sm danger-text" id="s-sign-del">Remove</button>' : ''}</div>
+      </section>
+      <section class="panel">
+        <label class="check-line"><input type="checkbox" id="s-gps" ${lists.gps !== false ? 'checked' : ''}> Record my location (GPS) when I inspect a door or take a photo</label>
+        <p class="muted small">Shows you were on site and when. Indoors, phones are usually accurate to about 10–50 m, so it confirms the building, not the room. Your phone will ask for permission the first time.</p>
+      </section>
+      <section class="panel">
         <label class="check-line"><input type="checkbox" id="s-autores" ${lists.autoResult !== false ? 'checked' : ''}> Set each door's pass / fail result from its checklist and defects</label>
         <p class="muted small">When on, the door record shows only Not inspected, Not applicable and No access (and Repaired) as buttons; the pass / fail result is worked out for you. Turn off to choose it by hand.</p>
       </section>
@@ -2666,6 +2734,19 @@ async function renderSettings() {
       <p class="muted small pad">FSCF Doors v0.1 · data stays on this device until cloud sync is set up.</p>
     </main>`;
   $('#back').onclick = back;
+  $('#s-gps').onchange = (e) => saveLists({ gps: e.target.checked });
+  $('#s-sign').onclick = async () => {
+    const sig = await signaturePad({ title: 'My signature', name: lists.inspector || '', askName: false });
+    if (sig) {
+      await saveLists({ signature: { data: sig.data, w: sig.w, h: sig.h } });
+      toast('Signature saved');
+      refresh();
+    }
+  };
+  $('#s-sign-del')?.addEventListener('click', async () => {
+    await saveLists({ signature: null });
+    refresh();
+  });
   $('#s-autores').onchange = (e) => saveLists({ autoResult: e.target.checked });
   for (const k of ['banner', 'round']) {
     const key = k === 'banner' ? 'logoBanner' : 'logoRound';
