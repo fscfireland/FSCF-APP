@@ -1454,7 +1454,7 @@ function renderPlansTab(body, project, plans, doors, active) {
             </span>
           </button>
           <div class="plan-meta">
-            <div><b>${esc(p.name)}</b><small><span class="kind-chip k-${kindOfPlan(p)}">${esc(kitOf(kindOfPlan(p)).name)}</span> ${n[p.id] || 0} pin${(n[p.id] || 0) === 1 ? '' : 's'}</small></div>
+            <div><b>${esc(p.name)}</b><small><button type="button" class="kind-chip kind-pick k-${kindOfPlan(p)}" data-id="${p.id}" aria-label="Inspection type: ${esc(kitOf(kindOfPlan(p)).name)}. Tap to change">${esc(kitOf(kindOfPlan(p)).name)} ${icon('down')}</button> ${n[p.id] || 0} pin${(n[p.id] || 0) === 1 ? '' : 's'}</small></div>
             <button class="icon-btn sm plan-menu" data-id="${p.id}" aria-label="Plan options">${icon('more')}</button>
           </div>
           <div class="plan-svc">${svcControls(project, p)}</div>
@@ -1509,6 +1509,12 @@ function renderPlansTab(body, project, plans, doors, active) {
     go({ view: 'plan', projectId: project.id, planId: b.dataset.id });
   }));
   $$('.plan-menu', body).forEach((b) => (b.onclick = () => planMenu(plans.find((p) => p.id === b.dataset.id), colls)));
+  $$('.kind-pick', body).forEach((b) => (b.onclick = async (e) => {
+    e.stopPropagation();
+    const pl = plans.find((p) => p.id === b.dataset.id);
+    const k = await pickKind(`Inspection type for "${pl.name}"`, kindOfPlan(pl));
+    if (k) { await setPlanKind(pl, k); refresh(); }
+  }));
   $$('.coll', body).forEach((sec) => {
     const c = sec.dataset.c;
     $('.coll-copy', sec).onclick = () => copyCollectionDialog(project, plans, c);
@@ -1546,13 +1552,15 @@ function renderPlansTab(body, project, plans, doors, active) {
       if (r.value !== true) return;
       target = r.data.coll === '__new' ? joinColl((r.data.newfolder || '').trim(), (r.data.newname || '').trim() || suggestName(colls, !(r.data.newfolder || '').trim())) : r.data.coll;
     }
+    const kind = await pickKind('What is this drawing for?', kindForWork(project.workType));
+    if (!kind) return;
     const bz = busy('Reading drawing…');
     try {
       const pages = await importDrawing(file, bz.update);
       let order = plansIn(plans, target).length;
       let first = null;
       for (const pg of pages) {
-        const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, inspType: kindForWork(project.workType), ...pg });
+        const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, inspType: kind, ...pg });
         first ||= rec;
       }
       bz.done();
@@ -1670,6 +1678,24 @@ async function folderMenu(project, plans, doors, f) {
   }
 }
 
+// Choose an inspection type (big buttons, one tap)
+async function pickKind(title, current) {
+  const r = await dialog({
+    title,
+    body: `<p class="muted small">Sets the checklist, defects and item types for every new pin on the drawing.</p>
+      <div class="kind-list">${KIND_IDS.map((k) => `<label class="kind-opt k-${k}"><input type="radio" name="kind" value="${k}" ${k === current ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>Each pin is ${/^[aeiou]/i.test(kitOf(k).item) ? 'an' : 'a'} ${esc(kitOf(k).item.toLowerCase())} · ${(kitOf(k).questions || []).filter((q) => q.text?.trim() && !q.hidden).length} checks</small></span></label>`).join('')}</div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Use this type', value: true, kind: 'primary' }],
+  });
+  return r.value === true ? r.data.kind || current : null;
+}
+async function setPlanKind(plan, newKind) {
+  if (newKind === kindOfPlan(plan)) return;
+  // pins already on the drawing keep the type they were inspected under
+  for (const d of await db.byIndex('doors', 'planId', plan.id)) if (!d.kind) await db.put('doors', { ...d, kind: kindOfPlan(plan) });
+  await db.put('plans', { ...(await db.get('plans', plan.id)), inspType: newKind });
+  toast(`${plan.name}: ${kitOf(newKind).name}`);
+}
+
 async function planMenu(plan, colls = []) {
   const r = await dialog({
     title: 'Plan',
@@ -1681,13 +1707,8 @@ async function planMenu(plan, colls = []) {
     buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
-    const newKind = r.data.kind || kindOfPlan(plan);
-    if (newKind !== kindOfPlan(plan)) {
-      // pins already on the drawing keep the type they were inspected under
-      for (const d of await db.byIndex('doors', 'planId', plan.id)) if (!d.kind) await db.put('doors', { ...d, kind: kindOfPlan(plan) });
-      toast(`New pins on this drawing will be ${kitOf(newKind).name.toLowerCase()}`);
-    }
-    await db.put('plans', { ...plan, name: r.data.name || plan.name, inspType: newKind, ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
+    await setPlanKind(plan, r.data.kind || kindOfPlan(plan));
+    await db.put('plans', { ...(await db.get('plans', plan.id)), name: r.data.name || plan.name, ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
     refresh();
   } else if (r.value === 'delete') {
     const doors = await db.byIndex('doors', 'planId', plan.id);
