@@ -179,6 +179,18 @@ export function doorActions(d) {
 // rating shows "No risk assessment".
 export const DEFAULT_RISKS = ['Low', 'Medium', 'High'];
 
+// Types of work a project can be (editable in Settings). Used to group and
+// filter projects and as the report title.
+export const DEFAULT_WORK_TYPES = [
+  'Fire door inspection',
+  'Fire damper check',
+  'Fire alarm check',
+  'Fire stopping survey',
+  'Compartmentation survey',
+  'Emergency lighting check',
+  'Remedial works',
+];
+
 // Categories: another way to group doors (like Fieldwire categories), used to
 // filter pins on a drawing, the door list and reports. Editable in Settings.
 export const DEFAULT_CATEGORIES = ['Escape route', 'Stair core', 'Corridor', 'Bedroom', 'Communal room', 'Kitchen', 'Store / plant', 'Riser / service cupboard', 'Final exit'];

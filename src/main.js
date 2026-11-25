@@ -5,7 +5,7 @@ import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
-  DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES,
+  DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -89,7 +89,7 @@ async function loadLists() {
   const s = await db.get('settings', 'lists');
   lists = {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
-    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, inspector: '', ...(s || {}),
+    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, inspector: '', ...(s || {}),
   };
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
@@ -144,6 +144,34 @@ async function renderProjects() {
     collOf[p.id] = listCollections(pls).length > 1 || coll ? collLabel(coll) : '';
   }
 
+  // grouping and filtering
+  let groupBy = 'group';
+  try {
+    groupBy = localStorage.getItem('fscf-groupby') || 'group';
+  } catch {
+    /* storage blocked */
+  }
+  const types = [...new Set(projects.map((p) => p.workType || '').filter(Boolean))].sort();
+  const q = (state.projQ || '').toLowerCase();
+  const shown = projects.filter((p) =>
+    (!state.projType || (p.workType || '') === state.projType) &&
+    (!q || [p.site, p.client, p.address, p.group, p.workType].join(' ').toLowerCase().includes(q)));
+  const keyOf = (p) => (groupBy === 'group' ? p.group : groupBy === 'type' ? p.workType : groupBy === 'client' ? p.client : '') || '';
+  const emptyName = { group: 'No group', type: 'Type not set', client: 'No client' }[groupBy] || '';
+  const sections = new Map();
+  for (const p of shown) {
+    const k = groupBy === 'none' ? '' : keyOf(p);
+    (sections.get(k) || sections.set(k, []).get(k)).push(p);
+  }
+  const ordered = [...sections.entries()].sort((a, b) => (a[0] === '') - (b[0] === '') || a[0].localeCompare(b[0]));
+  const closed = new Set(state.closedGroups || []);
+  const groupedHtml = !projects.length ? '' : !shown.length ? '<p class="muted pad">No projects match.</p>' : ordered.map(([k, list]) => groupBy === 'none'
+    ? `<div class="project-list">${list.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id])).join('')}</div>`
+    : `<section class="pgroup ${closed.has(groupBy + ':' + k) ? 'is-closed' : ''}" data-k="${esc(groupBy + ':' + k)}">
+        <button class="pgroup-head" aria-expanded="${!closed.has(groupBy + ':' + k)}">${icon('down')}<b>${esc(k || emptyName)}</b><span class="muted">${list.length}</span></button>
+        <div class="project-list">${list.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id])).join('')}</div>
+      </section>`).join('');
+
   app.innerHTML = `
     <header class="bar">
       <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Doors</b><small>Fire door inspections</small></div></div>
@@ -151,10 +179,15 @@ async function renderProjects() {
     </header>
     <main class="page">
       <div class="offline-note">${icon('check')} Saved on this phone — works with no signal</div>
-      ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>` : ''}
-      <div class="project-list">
-        ${projects.map((p) => projectCard(p, byProject[p.id] || [], collOf[p.id])).join('')}
-      </div>
+      ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
+      <div class="home-tools">
+        <label class="search">${icon('search')}<input id="proj-q" type="search" placeholder="Search site, client or group…" value="${esc(state.projQ || '')}"></label>
+        <div class="seg seg4" role="group" aria-label="Group projects by">
+          ${[['group', 'Group'], ['type', 'Type of work'], ['client', 'Client'], ['none', 'None']].map(([v, l]) => `<button class="seg-btn ${groupBy === v ? 'is-on' : ''}" data-gb="${v}">${l}</button>`).join('')}
+        </div>
+        ${types.length > 1 ? `<div class="chips wrap">${['', ...types].map((t) => `<button class="chip type-chip ${(state.projType || '') === t ? 'is-on' : ''}" data-t="${esc(t)}">${esc(t || 'All types')} ${t ? `<b>${projects.filter((p) => (p.workType || '') === t).length}</b>` : ''}</button>`).join('')}</div>` : ''}
+      </div>` : ''}
+      <div id="project-groups">${groupedHtml}</div>
       ${projects.length ? '' : `
         <section class="empty">
           <div class="empty-ico">${icon('door')}</div>
@@ -173,6 +206,33 @@ async function renderProjects() {
   const demo = $('#demo');
   if (demo) demo.onclick = loadDemo;
   $$('.project-card').forEach((el) => (el.onclick = () => go({ view: 'project', projectId: el.dataset.id, tab: 'plans' })));
+  $$('[data-gb]').forEach((b) => (b.onclick = () => {
+    try {
+      localStorage.setItem('fscf-groupby', b.dataset.gb);
+    } catch {
+      /* storage blocked */
+    }
+    refresh();
+  }));
+  $$('.type-chip').forEach((c) => (c.onclick = () => { state.projType = c.dataset.t; refresh(); }));
+  $$('.pgroup-head').forEach((h) => (h.onclick = () => {
+    const k = h.closest('.pgroup').dataset.k;
+    const set = new Set(state.closedGroups || []);
+    set.has(k) ? set.delete(k) : set.add(k);
+    state.closedGroups = [...set];
+    h.closest('.pgroup').classList.toggle('is-closed');
+    h.setAttribute('aria-expanded', String(!set.has(k)));
+  }));
+  const pq = $('#proj-q');
+  if (pq) pq.oninput = () => {
+    state.projQ = pq.value;
+    const pos = pq.selectionStart;
+    refresh().then(() => {
+      const n = $('#proj-q');
+      n?.focus();
+      n?.setSelectionRange(pos, pos);
+    });
+  };
 }
 
 function statusBar(doors) {
@@ -201,6 +261,7 @@ function projectCard(p, doors, coll = '') {
         <div class="pc-date">${esc(fmtDate(p.date))}</div>
       </div>
       <div class="pc-sub">${esc([p.client, p.address].filter(Boolean).join(' · '))}</div>
+      ${p.group || p.workType ? `<div class="pc-tags">${p.workType ? `<span class="pc-type">${esc(p.workType)}</span>` : ''}${p.group ? `<span class="pc-group">${icon('list')} ${esc(p.group)}</span>` : ''}</div>` : ''}
       <div class="pc-scheme">${esc([coll, scheme.name].filter(Boolean).join(' · '))}</div>
       ${doors.length ? statusBar(doors) : ''}
       <div class="pc-counts">
@@ -215,11 +276,21 @@ function projectCard(p, doors, coll = '') {
 async function editProject(existing) {
   const p = existing || { client: '', site: '', address: '', date: today(), scheme: lists.lastScheme || DEFAULT_SCHEME };
   const cur = schemeById(p.scheme) ? p.scheme : DEFAULT_SCHEME;
+  const allProjects = await db.all('projects');
+  const groupNames = [...new Set(allProjects.map((x) => x.group).filter(Boolean))].sort();
+  const clientNames = [...new Set(allProjects.map((x) => x.client).filter(Boolean))].sort();
   const r = await dialog({
     title: existing ? 'Project details' : 'New project',
     body: `
       <label class="field"><span>Site name</span><input name="site" id="pf-site" required value="${esc(p.site)}" placeholder="e.g. Tearmann Ward, Cavan General"></label>
-      <label class="field"><span>Client</span><input name="client" id="pf-client" value="${esc(p.client)}" placeholder="e.g. HSE Estates"></label>
+      <label class="field"><span>Client</span><input name="client" id="pf-client" value="${esc(p.client)}" placeholder="e.g. HSE Estates" list="pf-clients"></label>
+      <div class="grid2">
+        <label class="field"><span>Group</span><input name="group" id="pf-group" value="${esc(p.group || '')}" placeholder="e.g. Cavan / Monaghan, or Block B" list="pf-groups" autocomplete="off"></label>
+        <label class="field"><span>Type of work</span><input name="workType" id="pf-type" value="${esc(p.workType ?? (existing ? '' : 'Fire door inspection'))}" placeholder="e.g. Fire damper check" list="pf-types" autocomplete="off"></label>
+      </div>
+      <datalist id="pf-groups">${groupNames.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
+      <datalist id="pf-types">${(lists.workTypes || DEFAULT_WORK_TYPES).map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
+      <datalist id="pf-clients">${clientNames.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
       <label class="field"><span>Address</span><input name="address" id="pf-address" value="${esc(p.address)}" placeholder="Town, county / Eircode"></label>
       <label class="field"><span>Inspection date</span><input type="date" name="date" id="pf-date" value="${esc(p.date)}"></label>
       <label class="field"><span>Fire alarm zones (one per line: number, name)</span>
@@ -240,6 +311,8 @@ async function editProject(existing) {
   const { zones: zonesRaw, ...form } = r.data;
   const rec = await db.put('projects', { ...p, ...form, zones: parseZones(zonesRaw), id: p.id || db.uid(), nextPin: p.nextPin || 1 });
   if (r.data.scheme && r.data.scheme !== lists.lastScheme) await saveLists({ lastScheme: r.data.scheme });
+  const wt = (r.data.workType || '').trim();
+  if (wt && !(lists.workTypes || DEFAULT_WORK_TYPES).includes(wt)) await saveLists({ workTypes: [...(lists.workTypes || DEFAULT_WORK_TYPES), wt] });
   if (!existing) go({ view: 'project', projectId: rec.id, tab: 'plans' });
   else refresh();
   return rec;
@@ -249,7 +322,7 @@ async function loadDemo() {
   const b = busy('Creating demo project…');
   try {
     const project = await db.put('projects', {
-      id: db.uid(), site: 'DEMO – Rosewood Nursing Home', client: 'Example client', address: 'Bailieborough, Co. Cavan', date: today(), nextPin: 1, demo: true, scheme: 'passfail',
+      id: db.uid(), site: 'DEMO – Rosewood Nursing Home', client: 'Example client', address: 'Bailieborough, Co. Cavan', date: today(), nextPin: 1, demo: true, scheme: 'passfail', group: 'Demo – Cavan', workType: 'Fire door inspection',
     });
     const canvas = drawDemoPlan();
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.9));
@@ -2877,6 +2950,10 @@ async function renderSettings() {
           <textarea id="s-rem" rows="8">${esc(lists.remedialText ?? DEFAULT_REMEDIAL_TEXT)}</textarea></label>
       </section>
       <section class="panel">
+        <h2 class="h2">Types of work</h2>
+        <label class="field"><span>One per line. Each project picks one; used to group and filter projects and as the report title.</span><textarea id="s-wtypes" rows="7">${esc((lists.workTypes || DEFAULT_WORK_TYPES).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel">
         <h2 class="h2">Door categories</h2>
         <label class="field"><span>One per line. Used to group and filter doors on drawings, the door list and reports.</span><textarea id="s-cats" rows="7">${esc((lists.categories || DEFAULT_CATEGORIES).join('\n'))}</textarea></label>
       </section>
@@ -2987,6 +3064,7 @@ async function renderSettings() {
   };
 
   $('#s-rem').onchange = (e) => saveLists({ remedialText: e.target.value });
+  $('#s-wtypes').onchange = (e) => saveLists({ workTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-cats').onchange = (e) => saveLists({ categories: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-risks').onchange = (e) => saveLists({ risks: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });

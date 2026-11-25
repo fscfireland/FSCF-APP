@@ -357,7 +357,8 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
   // ---------- 1. Cover ----------
   onProgress('Building cover and summary…');
-  const bandBottom = reportBanner(doc, lists, 'Fire Door Inspection Report');
+  const title = project.workType ? `${project.workType.replace(/\b\w/g, (c) => c.toUpperCase())} Report` : 'Fire Door Inspection Report';
+  const bandBottom = reportBanner(doc, lists, title);
   y = Math.max(84, bandBottom + 18);
   font('bold', 20);
   doc.text(doc.splitTextToSize(t(project.site || 'Site'), CW), M, y);

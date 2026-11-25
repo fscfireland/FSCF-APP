@@ -6,7 +6,7 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 
 ## What it does now
 
-- **Projects**: one per site (site name, client, address, inspection date).
+- **Projects**: one per site (site name, client, address, inspection date), with a **Group** (any name: customer, region, area within a complex) and a **Type of work** (fire door inspection, fire damper check, fire alarm check… editable in Settings). The home screen groups projects by Group, Type of work or Client (collapsible), with type filter chips and search; the report title follows the type of work.
 - **Plans**: upload a floor plan as a PDF or an image. Each PDF page becomes its own plan. Pinch to zoom and drag to pan. Double-tap zooms in.
 - **Status schemes** (chosen per project):
   - *Pass / Fail*: Pass (green), Fail (red), Not applicable (grey), No access (orange), Repaired (blue).
