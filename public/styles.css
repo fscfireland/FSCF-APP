@@ -721,3 +721,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .pc-type { font-size: 12px; font-weight: 650; padding: 1px 8px; border-radius: 10px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); }
 .pc-group { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--ink-2); }
 .pc-group .ico { width: 13px; height: 13px; }
+
+/* main folders of collections */
+.cfolder { margin-bottom: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: color-mix(in srgb, var(--surface-2) 45%, transparent); padding: 8px 10px 2px; }
+.cfolder-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
+.cfolder-toggle { flex: 1; display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 6px 0; text-align: left; color: var(--ink); }
+.cfolder-toggle b { font: 700 16.5px/1.2 var(--font-head); }
+.cfolder-toggle small { margin-left: auto; color: var(--ink-2); font-size: 12.5px; }
+.cfolder-toggle .ico { width: 18px; height: 18px; color: var(--accent); transition: transform .15s; }
+.cfolder.is-closed .cfolder-body { display: none; }
+.cfolder.is-closed .cfolder-toggle .ico { transform: rotate(-90deg); }
+.cfolder-body .coll { padding-left: 6px; border-left: 3px solid var(--line); }

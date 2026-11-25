@@ -8,7 +8,33 @@
 import * as db from './db.js';
 
 export const DEFAULT_COLLECTION = '';
-export const collLabel = (c) => c || 'Main drawings';
+
+// Collections can sit in a main folder: "Remedial repairs / November 2026".
+// A choice of "F:Remedial repairs" means the whole folder (all its sections).
+export const SEP = ' / ';
+export function splitColl(c) {
+  const v = c || '';
+  const i = v.indexOf(SEP);
+  return i < 0 ? { folder: '', section: v } : { folder: v.slice(0, i), section: v.slice(i + SEP.length) };
+}
+export const joinColl = (folder, section) => (folder ? `${folder}${SEP}${section || 'General'}` : section || '');
+export const isFolderPick = (c) => typeof c === 'string' && c.startsWith('F:');
+
+export function collLabel(c) {
+  if (isFolderPick(c)) return `${c.slice(2)} (all sections)`;
+  const { folder, section } = splitColl(c);
+  return folder ? `${folder} › ${section}` : section || 'Main drawings';
+}
+export const sectionLabel = (c) => splitColl(c).section || 'Main drawings';
+
+// does a collection name belong to the current choice?
+export function inColl(name, coll) {
+  if (coll === '*') return true;
+  if (isFolderPick(coll)) return splitColl(name).folder === coll.slice(2);
+  return (name || '') === coll;
+}
+
+export const listFolders = (colls) => [...new Set(colls.map((c) => splitColl(c).folder).filter(Boolean))].sort();
 
 // Collection names, the one with the newest drawing first
 export function listCollections(plans) {
@@ -24,19 +50,25 @@ export function listCollections(plans) {
 // last-used one, else the newest. '*' means all collections.
 export function activeCollection(project, plans, picked) {
   const list = listCollections(plans);
+  const folders = listFolders(list);
+  const ok = (c) => c != null && (list.includes(c) || (isFolderPick(c) && folders.includes(c.slice(2))));
   if (picked === '*' && list.length > 1) return '*';
-  if (picked != null && list.includes(picked)) return picked;
-  if (project.activeCollection != null && list.includes(project.activeCollection)) return project.activeCollection;
+  if (ok(picked)) return picked;
+  if (ok(project.activeCollection)) return project.activeCollection;
   return list[0] ?? '';
 }
 
-export const plansIn = (plans, coll) => (coll === '*' ? plans : plans.filter((p) => (p.collection || '') === coll));
+export const plansIn = (plans, coll) => (coll === '*' ? plans : plans.filter((p) => inColl(p.collection || '', coll)));
 
-export function suggestName(existing) {
-  const base = new Date().toLocaleDateString('en-IE', { month: 'long', year: 'numeric' }) + ' service';
-  let name = base;
-  for (let i = 2; existing.includes(name); i++) name = `${base} (${i})`;
-  return name;
+// The next month that doesn't have a collection yet, e.g. "December 2026"
+export function suggestName(existing, withService = true) {
+  const now = new Date();
+  for (let k = 0; k < 36; k++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + k, 1);
+    const name = d.toLocaleDateString('en-IE', { month: 'long', year: 'numeric' }) + (withService ? ' service' : '');
+    if (!existing.includes(name)) return name;
+  }
+  return 'New collection';
 }
 
 // Copy every drawing in `from` (with its pins) into a new collection.
@@ -88,5 +120,20 @@ export async function renameCollection(plans, from, to) {
 export async function deleteCollection(plans, coll) {
   for (const p of plansIn(plans, coll)) await db.deletePlan(p.id);
   const projectId = plans[0]?.projectId;
-  if (projectId) for (const d of await db.byIndex('doors', 'projectId', projectId)) if (!d.planId && (d.collection || '') === coll) await db.deleteDoor(d.id);
+  if (projectId) for (const d of await db.byIndex('doors', 'projectId', projectId)) if (!d.planId && inColl(d.collection || '', coll)) await db.deleteDoor(d.id);
+}
+
+// Rename a main folder: every section in it moves with it
+export async function renameFolder(plans, from, to) {
+  for (const p of plans) {
+    const { folder, section } = splitColl(p.collection);
+    if (folder === from) await db.put('plans', { ...p, collection: joinColl(to, section) });
+  }
+  const projectId = plans[0]?.projectId;
+  if (projectId) {
+    for (const d of await db.byIndex('doors', 'projectId', projectId)) {
+      const { folder, section } = splitColl(d.collection);
+      if (!d.planId && folder === from) await db.put('doors', { ...d, collection: joinColl(to, section) });
+    }
+  }
 }

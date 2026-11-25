@@ -22,6 +22,7 @@ import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoIn
 import { emptyFilter, isFiltered, applyFilter, filterOptions, describeFilter } from './filters.js';
 import {
   collLabel, listCollections, activeCollection, plansIn, suggestName, copyCollection, renameCollection, deleteCollection,
+  splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
@@ -140,7 +141,7 @@ async function renderProjects() {
     const pls = plansBy[p.id] || [];
     const coll = activeCollection(p, pls);
     const ids = new Set(plansIn(pls, coll).map((x) => x.id));
-    byProject[p.id] = allDoors.filter((d) => d.projectId === p.id && (ids.has(d.planId) || (!d.planId && (d.collection || '') === coll)));
+    byProject[p.id] = allDoors.filter((d) => d.projectId === p.id && (ids.has(d.planId) || (!d.planId && inColl(d.collection || '', coll))));
     collOf[p.id] = listCollections(pls).length > 1 || coll ? collLabel(coll) : '';
   }
 
@@ -371,7 +372,7 @@ async function renderProject() {
   const coll = activeCollection(project, allPlans, state.coll);
   const plans = plansIn(allPlans, coll);
   const planIds = new Set(plans.map((p) => p.id));
-  const doors = allDoors.filter((d) => planIds.has(d.planId) || (!d.planId && (coll === '*' || (d.collection || '') === coll)));
+  const doors = allDoors.filter((d) => planIds.has(d.planId) || (!d.planId && inColl(d.collection || '', coll)));
   state.collText = colls.length > 1 ? (coll === '*' ? 'All collections' : collLabel(coll)) : '';
 
   app.innerHTML = `
@@ -397,7 +398,7 @@ async function renderProject() {
     $('#coll-bar').innerHTML = `
       <label class="coll-bar">${icon('plan')}<span>Collection</span>
         <select id="coll-sel">
-          ${colls.map((c) => `<option value="${esc(c)}" ${c === coll ? 'selected' : ''}>${esc(collLabel(c))}</option>`).join('')}
+          ${collOptions(colls, coll)}
           <option value="*" ${coll === '*' ? 'selected' : ''}>All collections</option>
         </select>
       </label>`;
@@ -613,6 +614,18 @@ async function askVerifier(doneBy) {
   return who;
 }
 
+// <option>s for a collection picker: plain collections, then each main
+// folder as a group with "All sections" and its sections
+function collOptions(colls, selected, { folders: withFolderPick = true } = {}) {
+  const plain = colls.filter((c) => !splitColl(c).folder);
+  const opt = (v, label) => `<option value="${esc(v)}" ${v === selected ? 'selected' : ''}>${esc(label)}</option>`;
+  return plain.map((c) => opt(c, collLabel(c))).join('') +
+    listFolders(colls).map((f) => `<optgroup label="${esc(f)}">
+      ${withFolderPick ? opt('F:' + f, `All of ${f}`) : ''}
+      ${colls.filter((c) => splitColl(c).folder === f).map((c) => opt(c, sectionLabel(c))).join('')}
+    </optgroup>`).join('');
+}
+
 async function pickCollection(project, coll) {
   state.coll = coll;
   if (coll !== '*') await db.put('projects', { ...project, activeCollection: coll });
@@ -641,7 +654,7 @@ function renderPlansTab(body, project, plans, doors, active) {
     return `
       <section class="coll ${c === active ? 'is-active' : ''}" data-c="${esc(c)}">
         <div class="coll-head">
-          <span class="coll-name">${icon('plan')}<span><b>${esc(collLabel(c))}</b><small>${ps.length} drawing${ps.length === 1 ? '' : 's'} · ${pins} pin${pins === 1 ? '' : 's'}${c === active && colls.length > 1 ? ' · <span class="coll-cur">current</span>' : ''}</small></span></span>
+          <span class="coll-name">${icon('plan')}<span><b>${esc(splitColl(c).folder ? sectionLabel(c) : collLabel(c))}</b><small>${ps.length} drawing${ps.length === 1 ? '' : 's'} · ${pins} pin${pins === 1 ? '' : 's'}${c === active && colls.length > 1 ? ' · <span class="coll-cur">current</span>' : ''}</small></span></span>
           <span class="row-btns">
             <button class="btn sm coll-copy">${icon('plus')} Copy to new collection</button>
             <button class="icon-btn sm coll-menu" aria-label="Collection options">${icon('more')}</button>
@@ -652,7 +665,19 @@ function renderPlansTab(body, project, plans, doors, active) {
   };
   body.innerHTML = `
     ${plans.length && !named ? `<p class="muted small coll-tip">Doing a repeat service? Use <b>Copy to new collection</b> to start next month's folder with the same drawings and pins.</p>` : ''}
-    ${colls.map(group).join('')}
+    ${colls.filter((c) => !splitColl(c).folder).map(group).join('')}
+    ${listFolders(colls).map((f) => {
+      const inF = colls.filter((c) => splitColl(c).folder === f);
+      const nPlans = plansIn(plans, 'F:' + f).length;
+      const closedF = (state.closedFolders || []).includes(f);
+      return `<section class="cfolder ${closedF ? 'is-closed' : ''}" data-f="${esc(f)}">
+        <div class="cfolder-head">
+          <button class="cfolder-toggle" aria-expanded="${!closedF}">${icon('down')}<b>${esc(f)}</b><small>${inF.length} section${inF.length === 1 ? '' : 's'} · ${nPlans} drawing${nPlans === 1 ? '' : 's'}</small></button>
+          <button class="icon-btn sm folder-menu" aria-label="Folder options">${icon('more')}</button>
+        </div>
+        <div class="cfolder-body">${inF.map(group).join('')}</div>
+      </section>`;
+    }).join('')}
     <div class="plan-grid">
       <label class="plan-card upload">
         <input type="file" id="plan-file" accept="application/pdf,image/*" hidden>
@@ -676,23 +701,37 @@ function renderPlansTab(body, project, plans, doors, active) {
     $('.coll-copy', sec).onclick = () => copyCollectionDialog(project, plans, c);
     $('.coll-menu', sec).onclick = () => collectionMenu(project, plans, doors, c);
   });
+  $$('.cfolder', body).forEach((fs) => {
+    const f = fs.dataset.f;
+    $('.cfolder-toggle', fs).onclick = () => {
+      const set = new Set(state.closedFolders || []);
+      set.has(f) ? set.delete(f) : set.add(f);
+      state.closedFolders = [...set];
+      fs.classList.toggle('is-closed');
+    };
+    $('.folder-menu', fs).onclick = () => folderMenu(project, plans, doors, f);
+  });
   $('#plan-file').onchange = async (e) => {
     const file = e.target.files[0];
     e.target.value = '';
     if (!file) return;
     // which collection does it go in?
-    let target = active === '*' ? colls[0] ?? '' : active;
+    let target = active === '*' || isFolderPick(active) ? plansIn(plans, active)[0]?.collection || colls[0] || '' : active;
     if (named) {
       const r = await dialog({
         title: 'Add drawing to…',
         body: `
           <label class="field"><span>Collection</span>
-            <select name="coll" id="up-coll">${colls.map((c) => `<option value="${esc(c)}" ${c === target ? 'selected' : ''}>${esc(collLabel(c))}</option>`).join('')}<option value="__new">New collection…</option></select></label>
-          <label class="field"><span>New collection name (if new)</span><input name="newname" id="up-new" placeholder="${esc(suggestName(colls))}"></label>`,
+            <select name="coll" id="up-coll">${collOptions(colls, target, { folders: false })}<option value="__new">New collection…</option></select></label>
+          <div class="grid2">
+            <label class="field"><span>If new: main folder (optional)</span><input name="newfolder" id="up-newf" list="up-folders" placeholder="e.g. Remedial repairs"></label>
+            <label class="field"><span>If new: name / section</span><input name="newname" id="up-new" placeholder="${esc(suggestName(colls, false))}"></label>
+          </div>
+          <datalist id="up-folders">${listFolders(colls).map((f) => `<option value="${esc(f)}"></option>`).join('')}</datalist>`,
         buttons: [{ label: 'Cancel', value: false }, { label: 'Add drawing', value: true, kind: 'primary' }],
       });
       if (r.value !== true) return;
-      target = r.data.coll === '__new' ? (r.data.newname || '').trim() || suggestName(colls) : r.data.coll;
+      target = r.data.coll === '__new' ? joinColl((r.data.newfolder || '').trim(), (r.data.newname || '').trim() || suggestName(colls, !(r.data.newfolder || '').trim())) : r.data.coll;
     }
     const bz = busy('Reading drawing…');
     try {
@@ -722,7 +761,12 @@ async function copyCollectionDialog(project, plans, from) {
     title: `Copy "${collLabel(from)}"`,
     body: `
       <p>Makes a new collection with the same ${ps.length} drawing${ps.length === 1 ? '' : 's'} and every pin in the same place, with the same numbers. "${esc(collLabel(from))}" stays as it is.</p>
-      <label class="field"><span>New collection name</span><input name="name" id="cc-name" required value="${esc(suggestName(colls))}"></label>
+      <div class="grid2">
+        <label class="field"><span>Main folder (optional)</span><input name="folder" id="cc-folder" value="${esc(splitColl(from).folder)}" list="cc-folders" placeholder="e.g. Remedial repairs"></label>
+        <label class="field"><span>Section / name</span><input name="name" id="cc-name" required value="${esc(suggestName(colls.map((c) => splitColl(c).section), !splitColl(from).folder))}"></label>
+      </div>
+      <datalist id="cc-folders">${listFolders(colls).map((f) => `<option value="${esc(f)}"></option>`).join('')}</datalist>
+      <p class="muted small">With a main folder, the new collection becomes a section inside it, e.g. <b>Remedial repairs › December 2026</b>.</p>
       <fieldset class="scheme-set">
         <legend>What to copy for each door</legend>
         <label class="scheme-opt"><input type="radio" name="mode" value="reset" checked>
@@ -734,14 +778,15 @@ async function copyCollectionDialog(project, plans, from) {
     buttons: [{ label: 'Cancel', value: false }, { label: 'Copy', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return;
-  const name = (r.data.name || '').trim();
-  if (!name) return toast('Give the new collection a name.', 'error');
-  if (colls.includes(name)) return toast(`There's already a collection called "${name}".`, 'error');
+  const sec = (r.data.name || '').trim();
+  if (!sec) return toast('Give the new collection a name.', 'error');
+  const name = joinColl((r.data.folder || '').trim(), sec);
+  if (colls.includes(name)) return toast(`There's already a collection called "${collLabel(name)}".`, 'error');
   const b = busy('Copying drawings and pins…');
   try {
     const res = await copyCollection(project, plans, from, name, r.data.mode, lists.inspector || '');
     b.done();
-    toast(`Copied ${res.drawings} drawing${res.drawings === 1 ? '' : 's'} and ${res.pins} pin${res.pins === 1 ? '' : 's'} to "${name}"`);
+    toast(`Copied ${res.drawings} drawing${res.drawings === 1 ? '' : 's'} and ${res.pins} pin${res.pins === 1 ? '' : 's'} to "${collLabel(name)}"`);
     await pickCollection(project, name);
   } catch (e) {
     b.done();
@@ -756,11 +801,16 @@ async function collectionMenu(project, plans, doors, c) {
   const colls = listCollections(plans);
   const r = await dialog({
     title: 'Collection',
-    body: `<label class="field"><span>Name</span><input name="name" id="coll-name" value="${esc(c)}" placeholder="${esc(collLabel(c))}"></label>`,
+    body: `<div class="grid2">
+        <label class="field"><span>Main folder (optional)</span><input name="folder" id="coll-folder" value="${esc(splitColl(c).folder)}" list="coll-folders" placeholder="e.g. Remedial repairs"></label>
+        <label class="field"><span>Name / section</span><input name="name" id="coll-name" value="${esc(splitColl(c).section)}" placeholder="${esc(sectionLabel(c))}"></label>
+      </div>
+      <datalist id="coll-folders">${listFolders(colls).map((f) => `<option value="${esc(f)}"></option>`).join('')}</datalist>
+      <p class="muted small">Put it in a main folder to group it with other sections, e.g. months of a repair programme.</p>`,
     buttons: [{ label: 'Delete collection', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
-    const name = (r.data.name || '').trim();
+    const name = joinColl((r.data.folder || '').trim(), (r.data.name || '').trim());
     if (name === c) return;
     if (colls.includes(name)) return toast(`There's already a collection called "${collLabel(name)}".`, 'error');
     await renameCollection(plans, c, name);
@@ -777,12 +827,42 @@ async function collectionMenu(project, plans, doors, c) {
   }
 }
 
+// Main folder menu: rename it (its sections move with it) or delete it all
+async function folderMenu(project, plans, doors, f) {
+  const ps = plansIn(plans, 'F:' + f);
+  const ids = new Set(ps.map((p) => p.id));
+  const nd = doors.filter((d) => ids.has(d.planId)).length;
+  const r = await dialog({
+    title: 'Main folder',
+    body: `<label class="field"><span>Folder name</span><input name="name" id="folder-name" value="${esc(f)}"></label>`,
+    buttons: [{ label: 'Delete folder', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
+  });
+  if (r.value === 'save') {
+    const name = (r.data.name || '').trim();
+    if (!name || name === f) return;
+    if (listFolders(listCollections(plans)).includes(name)) return toast(`There's already a folder called "${name}".`, 'error');
+    await renameFolder(plans, f, name);
+    const cur = state.coll ?? project.activeCollection ?? '';
+    const moved = isFolderPick(cur) && cur.slice(2) === f ? 'F:' + name : splitColl(cur).folder === f ? joinColl(name, splitColl(cur).section) : null;
+    if (moved != null) await pickCollection(project, moved);
+    else refresh();
+    toast('Folder renamed');
+  } else if (r.value === 'delete') {
+    if (await confirmBox('Delete folder?', `This deletes "${f}" and every section in it: ${ps.length} drawing(s) and ${nd} door record(s) with their photos and history. This cannot be undone.`)) {
+      await deleteCollection(plans, 'F:' + f);
+      state.coll = null;
+      refresh();
+      toast('Folder deleted');
+    }
+  }
+}
+
 async function planMenu(plan, colls = []) {
   const r = await dialog({
     title: 'Plan',
     body: `<label class="field"><span>Name</span><input name="name" id="plan-name" value="${esc(plan.name)}"></label>
       ${colls.length > 1 || plan.collection ? `<label class="field"><span>Collection</span>
-        <select name="coll" id="plan-coll">${colls.map((c) => `<option value="${esc(c)}" ${c === (plan.collection || '') ? 'selected' : ''}>${esc(collLabel(c))}</option>`).join('')}</select></label>` : ''}`,
+        <select name="coll" id="plan-coll">${collOptions(colls, plan.collection || '', { folders: false })}</select></label>` : ''}`,
     buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
@@ -837,7 +917,8 @@ function renderDoorsTab(body, project, plans, doors) {
     const f = e.target.files[0];
     e.target.value = '';
     if (!f) return;
-    const coll = state.coll && state.coll !== '*' ? state.coll : project.activeCollection ?? (plans[0]?.collection || '');
+    const pick = state.coll && state.coll !== '*' ? state.coll : project.activeCollection ?? (plans[0]?.collection || '');
+    const coll = isFolderPick(pick) ? plans[0]?.collection || '' : pick;
     importDoors(project, f, coll);
   };
   const qi = $('#door-q');
@@ -1161,7 +1242,7 @@ async function renderPlan() {
 // ---------- Imported doors: placing them as pins ----------
 async function unplacedDoors() {
   const all = await db.byIndex('doors', 'projectId', state.projectId);
-  return all.filter((d) => !d.planId && (d.collection || '') === planColl).sort((a, b) => a.pinNo - b.pinNo);
+  return all.filter((d) => !d.planId && inColl(d.collection || '', planColl)).sort((a, b) => a.pinNo - b.pinNo);
 }
 
 async function updatePlaceButton() {
@@ -1829,7 +1910,7 @@ async function refreshPins() {
   const el = $('#plan-counts');
   if (el) el.textContent = filtered
     ? `Showing ${doors.length} of ${all.length} · ${[...planFilter.cats.map((x) => x || 'No category'), ...planFilter.statuses.map((x) => statusById[x]?.short || x)].join(', ')}`
-    : `${planColl ? planColl + ' · ' : ''}${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
+    : `${planColl ? collLabel(planColl) + ' · ' : ''}${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
 }
 
 // ---------- Door record sheet ----------
