@@ -10,6 +10,8 @@ import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
 import { exportProjectPdf } from './report.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
+import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView } from './history.js';
+import { emptyFilter, isFiltered, applyFilter, filterOptions, describeFilter } from './filters.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today } from './ui.js';
 
@@ -78,11 +80,13 @@ async function loadLists() {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
     questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, inspector: '', ...(s || {}),
   };
+  setActor(lists.inspector);
   return lists;
 }
 
 async function saveLists(patch) {
   lists = await db.put('settings', { ...lists, ...patch });
+  setActor(lists.inspector);
 }
 
 // ---------- render ----------
@@ -396,9 +400,51 @@ function doorRow(d, planName) {
     </button>`;
 }
 
-function renderExportTab(body, project, plans, doors) {
+function renderExportTab(body, project, plans, allDoors) {
+  if (state.rfProject !== project.id) {
+    state.rfProject = project.id;
+    state.rf = emptyFilter();
+  }
+  const f = state.rf;
+  const questions = (lists.questions || []).filter((q) => q.text?.trim());
+  const opts = filterOptions(allDoors, questions);
+  const doors = applyFilter(allDoors, f);
+  const filterText = describeFilter(f, plans, opts.checks);
   const nDef = doors.reduce((a, d) => a + (d.defects || []).length, 0);
+  const chip = (group, value, label, on, color) =>
+    `<button class="chip ${on ? 'is-on' : ''}" data-g="${group}" data-v="${esc(value)}" ${color ? `style="--c:${color}"` : ''}>${color ? '<i></i>' : ''}${esc(label)}</button>`;
   body.innerHTML = `
+    <section class="panel filter-panel">
+      <div class="block-head"><h2 class="h2">${icon('search')} Report filters</h2>
+        ${isFiltered(f) ? '<button class="btn ghost sm" id="rf-clear">Clear filters</button>' : ''}</div>
+      <p class="muted small">Apply to both the Excel and the PDF. Nothing selected means everything.</p>
+
+      <div class="rf-group">
+        <span class="rf-label">Inspection date</span>
+        <div class="seg" role="group">
+          ${[['all', 'Latest'], ['on', 'On a date'], ['range', 'Between dates']].map(([v, l]) => `<button class="seg-btn ${f.dateMode === v ? 'is-on' : ''}" data-mode="${v}">${l}</button>`).join('')}
+        </div>
+        ${f.dateMode === 'on' ? `<label class="field"><span>Date</span><input type="date" id="rf-from" value="${esc(f.from)}" list="rf-dates"></label>` : ''}
+        ${f.dateMode === 'range' ? `<div class="grid2"><label class="field"><span>From</span><input type="date" id="rf-from" value="${esc(f.from)}"></label><label class="field"><span>To</span><input type="date" id="rf-to" value="${esc(f.to)}"></label></div>` : ''}
+        ${f.dateMode !== 'all' && opts.dates.length ? `<p class="muted small">Inspection dates on this project: ${opts.dates.map((d) => `<button class="link-btn rf-date" data-d="${d}">${esc(fmtDate(d))}</button>`).join(', ')}</p>` : ''}
+        ${f.dateMode !== 'all' ? '<p class="muted small">Each door is reported as it was at its latest inspection in that period, including inspections now in its history.</p>' : ''}
+      </div>
+
+      <div class="rf-group"><span class="rf-label">Status</span>
+        <div class="chips wrap">${STATUSES.map((st) => chip('statuses', st.id, st.label, f.statuses.includes(st.id), st.color)).join('')}</div></div>
+      <div class="rf-group"><span class="rf-label">Door type</span>
+        <div class="chips wrap">${opts.types.map((t) => chip('types', t, t, f.types.includes(t))).join('')}</div></div>
+      ${plans.length > 1 ? `<div class="rf-group"><span class="rf-label">Plan / level</span>
+        <div class="chips wrap">${plans.map((pl) => chip('plans', pl.id, pl.name, f.plans.includes(pl.id))).join('')}</div></div>` : ''}
+      <div class="grid2">
+        <label class="field"><span>Has defect</span>
+          <select id="rf-defect"><option value="">Any</option>${opts.defects.map((d) => `<option ${d === f.defect ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select></label>
+        <label class="field"><span>Failed check (${esc(ANSWERS[1].label)})</span>
+          <select id="rf-check"><option value="">Any</option>${opts.checks.map((q) => `<option value="${esc(q.id)}" ${q.id === f.check ? 'selected' : ''}>${esc(q.text)}</option>`).join('')}</select></label>
+      </div>
+      <p class="rf-count"><b>${doors.length}</b> of ${allDoors.length} doors will be included${filterText ? `<br><span class="muted small">${esc(filterText)}</span>` : ''}</p>
+    </section>
+
     <section class="panel">
       <h2 class="h2">${icon('sheet')} Excel for pricing</h2>
       <p>One workbook with these sheets:</p>
@@ -410,6 +456,7 @@ function renderExportTab(body, project, plans, doors) {
         <li><b>Materials</b>: one row per material with costs and a total</li>
         <li><b>Material totals</b>: what to order for the whole site</li>
         <li><b>Defect totals</b>: how many of each defect</li>
+        <li><b>Inspection history</b>: every inspection of every door, by date</li>
       </ul>
       <p class="muted">${doors.length} doors · ${nDef} defects · materials ${euro(doors.reduce((t, d) => t + materialsTotal(d), 0))} ex VAT</p>
       <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
@@ -439,10 +486,37 @@ function renderExportTab(body, project, plans, doors) {
     <section class="panel danger-zone">
       <button class="btn ghost danger-text" id="del-proj">${icon('trash')} Delete project</button>
     </section>`;
+  // filter controls
+  const rerender = () => {
+    const y = window.scrollY;
+    renderExportTab(body, project, plans, allDoors);
+    window.scrollTo(0, y);
+  };
+  $$('.filter-panel .chip', body).forEach((c) => (c.onclick = () => {
+    const list = f[c.dataset.g];
+    const i = list.indexOf(c.dataset.v);
+    if (i >= 0) list.splice(i, 1);
+    else list.push(c.dataset.v);
+    rerender();
+  }));
+  $$('.seg-btn', body).forEach((b) => (b.onclick = () => { f.dateMode = b.dataset.mode; rerender(); }));
+  $$('.rf-date', body).forEach((b) => (b.onclick = () => {
+    f.from = b.dataset.d;
+    if (f.dateMode === 'range') f.to = b.dataset.d;
+    rerender();
+  }));
+  $('#rf-from')?.addEventListener('change', (e) => { f.from = e.target.value; rerender(); });
+  $('#rf-to')?.addEventListener('change', (e) => { f.to = e.target.value; rerender(); });
+  $('#rf-defect').onchange = (e) => { f.defect = e.target.value; rerender(); };
+  $('#rf-check').onchange = (e) => { f.check = e.target.value; rerender(); };
+  $('#rf-clear')?.addEventListener('click', () => { state.rf = emptyFilter(); rerender(); });
+  const noneMsg = () => toast('No doors match these filters. Change or clear the filters first.', 'error');
+
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
     try {
-      const r = await exportProjectXlsx(project, lists.questions || []);
+      if (!doors.length) return b.done(), noneMsg();
+      const r = await exportProjectXlsx(project, lists.questions || [], { doors, filterText });
       b.done();
       if (r === 'saved') toast('Excel file saved');
     } catch (e) {
@@ -453,7 +527,8 @@ function renderExportTab(body, project, plans, doors) {
   $('#pdf').onclick = async () => {
     const b = busy('Building PDF report…');
     try {
-      const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: $('#pdf-costs').checked };
+      if (!doors.length) return b.done(), noneMsg();
+      const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: $('#pdf-costs').checked, doors, filterText };
       const r = await exportProjectPdf(project, lists, opts, b.update);
       b.done();
       if (r === 'saved') toast('PDF report saved');
@@ -522,7 +597,7 @@ async function renderPlan() {
     },
     onPinDrag: async (id, x, y) => {
       const d = await db.get('doors', id);
-      await db.put('doors', { ...d, x, y });
+      await saveDoor({ ...d, x, y });
       toast('Pin moved');
       setMode(null);
     },
@@ -584,7 +659,7 @@ async function onPlanTap(x, y) {
   if (mode === 'hint') return setMode(null);
   if (mode === 'add') {
     const pinNo = await db.nextPinNo(state.projectId);
-    const door = await db.put('doors', {
+    const door = await saveDoor({
       id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y,
       ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
       inspectedOn: '', inspectedBy: lists.inspector || '',
@@ -593,7 +668,7 @@ async function onPlanTap(x, y) {
     go({ ...state, doorId: door.id, isNew: true });
   } else if (mode === 'move' && selectedPin) {
     const d = await db.get('doors', selectedPin);
-    await db.put('doors', { ...d, x, y });
+    await saveDoor({ ...d, x, y });
     toast('Pin moved');
     setMode(null);
   }
@@ -618,6 +693,7 @@ async function refreshPins() {
 
 // ---------- Door record sheet ----------
 let sheetDoorId = null;
+let afterSave = null; // refreshes the open door's history after each save
 let saveTimer = null;
 let pending = null;
 
@@ -721,6 +797,13 @@ async function drawSheet(door) {
         <label class="field"><span>Inspected by</span><input id="f-by" data-k="inspectedBy" value="${esc(door.inspectedBy)}" placeholder="Name"></label>
       </div>
 
+      <section class="block">
+        <div class="block-head"><h3>History</h3>
+          <button class="btn sm" id="new-insp">${icon('plus')} New inspection</button>
+        </div>
+        <div id="history"></div>
+      </section>
+
       <div class="sheet-actions">
         ${state.view === 'plan' ? `<button class="btn" id="sh-move">${icon('move')} Move pin</button>` : `<button class="btn" id="sh-show">${icon('plan')} Show on plan</button>`}
         <button class="btn ghost danger-text" id="sh-del">${icon('trash')} Delete door</button>
@@ -765,9 +848,49 @@ async function drawSheet(door) {
 
   $('#sh-close').onclick = () => back();
   $$('input[name=status]', el).forEach((r) => (r.onchange = () => setStatus(r.value)));
+  // Redraw the whole record (after history changes), keeping the scroll place
+  const redraw = async () => {
+    await flushSave();
+    const top = el.scrollTop;
+    await drawSheet(await db.get('doors', door.id));
+    el.scrollTop = top;
+  };
+  // Keep the current inspection in history, then start from `patch`
+  const archive = async (patch, message) => {
+    const old = current.inspectedOn || '';
+    queue({ ...patch, history: [snapshotOf(current), ...(current.history || [])] });
+    await flushSave();
+    await tagPhotosForSnapshot(door.id, old);
+    toast(message);
+    await redraw();
+  };
+  let dateAsk = false;
+  const hasInspection = () => (current.status || 'not_inspected') !== 'not_inspected' || Object.keys(current.checks || {}).length;
   $$('[data-k]', el).forEach((inp) => {
     const ev = inp.tagName === 'SELECT' || inp.type === 'date' ? 'change' : 'input';
     inp.addEventListener(ev, () => {
+      if (inp.dataset.k === 'inspectedOn') {
+        const old = current.inspectedOn || '';
+        if (old && inp.value && inp.value !== old && hasInspection()) {
+          if (dateAsk) return; // one question at a time
+          dateAsk = true;
+          const newDate = inp.value;
+          dialog({
+            title: 'Change inspection date',
+            body: `<p>Is this a new visit, or are you correcting the date of the inspection already recorded?</p>`,
+            buttons: [
+              { label: 'Correct the date', value: 'fix' },
+              { label: `Keep ${fmtDate(old)} in history`, value: 'keep', kind: 'primary' },
+            ],
+          }).then(({ value }) => {
+            dateAsk = false;
+            if (value === 'keep') archive({ inspectedOn: newDate }, `Inspection of ${fmtDate(old)} saved to history`);
+            else if (value === 'fix') queue({ inspectedOn: newDate });
+            else inp.value = old; // dismissed: leave the date as it was
+          });
+          return;
+        }
+      }
       queue({ [inp.dataset.k]: inp.value });
       if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || 'Door ' + door.pinNo;
     });
@@ -925,7 +1048,7 @@ async function drawSheet(door) {
 
   // photos
   const drawPhotos = async () => {
-    const photos = await db.doorPhotos(door.id);
+    const photos = (await db.doorPhotos(door.id)).filter((p) => photoInView(p, { ...current, _current: true }));
     const nv = photos.filter(isVideo).length;
     $('#ph-n').textContent = photos.length ? `(${photos.length - nv} photo${photos.length - nv === 1 ? '' : 's'}${nv ? `, ${nv} video${nv === 1 ? '' : 's'}` : ''})` : '';
     $('#photos').innerHTML = photos.length
@@ -946,18 +1069,23 @@ async function drawSheet(door) {
           bz.update('Saving video…');
           const info = await videoInfo(f);
           await db.put('photos', {
-            id: db.uid(), projectId: door.projectId, doorId: door.id, kind: 'video',
+            id: db.uid(), projectId: door.projectId, doorId: door.id, kind: 'video', inspection: current.inspectedOn || '',
             blob: f, mime: f.type || 'video/mp4', size: f.size, name: f.name, link: '', ...info,
           });
           if (f.size > 150 * 1048576) bigVideo = true;
         } else {
           bz.update('Saving photo…');
           const { blob, thumb, width, height } = await compressImage(f, 1600, 0.8);
-          await db.put('photos', { id: db.uid(), projectId: door.projectId, doorId: door.id, blob, thumb, width, height });
+          await db.put('photos', { id: db.uid(), projectId: door.projectId, doorId: door.id, inspection: current.inspectedOn || '', blob, thumb, width, height });
         }
       }
       bz.done();
+      const nVid = files.filter((f) => f.type.startsWith('video/') || /\.(mov|mp4|m4v|webm|3gp)$/i.test(f.name)).length;
+      const nPh = files.length - nVid;
+      await flushSave();
+      await logEvent(door.id, [nPh ? `Added ${nPh} photo${nPh > 1 ? 's' : ''}` : '', nVid ? `Added ${nVid} video${nVid > 1 ? 's' : ''}` : ''].filter(Boolean).join(', '));
       drawPhotos();
+      drawHistory();
       if (bigVideo) toast('Large video saved. Short clips (under a minute) keep the phone from filling up.');
     } catch (e) {
       bz.done();
@@ -967,6 +1095,60 @@ async function drawSheet(door) {
   $('#ph-cam').onchange = (e) => { addPhotos([...e.target.files]); e.target.value = ''; };
   $('#ph-lib').onchange = (e) => { addPhotos([...e.target.files]); e.target.value = ''; };
   $('#ph-vid').onchange = (e) => { addPhotos([...e.target.files]); e.target.value = ''; };
+
+  // history: earlier inspections and the change log
+  let showAllLog = false;
+  const drawHistory = async () => {
+    const d = (await db.get('doors', door.id)) || current;
+    const hist = current.history || [];
+    const allPhotos = await db.doorPhotos(door.id);
+    const pill = (st) => {
+      const x = statusById[st || 'not_inspected'];
+      return `<span class="status-pill" style="--c:${x.color}">${esc(x.short)}</span>`;
+    };
+    const log = [...(d.log || [])].reverse();
+    const shown = showAllLog ? log : log.slice(0, 12);
+    $('#history').innerHTML = `
+      <div class="insp-list">
+        <div class="insp is-current">
+          <span class="insp-date"><b>${current.inspectedOn ? esc(fmtDate(current.inspectedOn)) : 'No date yet'}</b><small>Current inspection</small></span>
+          ${pill(current.status)}
+        </div>
+        ${hist.map((h, i) => {
+          const n = allPhotos.filter((p) => photoInView(p, { ...h, _current: false })).length;
+          return `
+          <div class="insp" data-i="${i}">
+            <span class="insp-date"><b>${h.inspectedOn ? esc(fmtDate(h.inspectedOn)) : '(no date)'}</b>
+              <small>${(h.defects || []).length} defect${(h.defects || []).length === 1 ? '' : 's'} · ${n} photo${n === 1 ? '' : 's'}${h.inspectedBy ? ' · ' + esc(h.inspectedBy) : ''}</small></span>
+            ${pill(h.status)}
+            <button class="btn sm insp-view">View</button>
+          </div>`;
+        }).join('')}
+      </div>
+      <h4 class="log-head">Change log</h4>
+      ${shown.length ? `<ol class="log">${shown.map((e) => `
+        <li><time>${esc(new Date(e.at).toLocaleString('en-IE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }))}${e.by ? ' · ' + esc(e.by) : ''}</time><span>${esc(e.text)}</span></li>`).join('')}</ol>`
+        : '<p class="muted small">No changes recorded yet.</p>'}
+      ${log.length > 12 ? `<button class="btn ghost sm" id="log-more">${showAllLog ? 'Show fewer' : `Show all ${log.length} changes`}</button>` : ''}`;
+    $('#log-more')?.addEventListener('click', () => { showAllLog = !showAllLog; drawHistory(); });
+    $$('.insp-view', el).forEach((b) => (b.onclick = () => {
+      const i = Number(b.closest('.insp').dataset.i);
+      viewInspection(current, hist[i], allPhotos, async () => {
+        const h = hist[i];
+        queue({ history: hist.filter((_, j) => j !== i) });
+        await flushSave();
+        for (const p of allPhotos.filter((p) => photoInView(p, { ...h, _current: false }))) await db.remove('photos', p.id);
+        toast('Inspection record deleted');
+        await redraw();
+      });
+    }));
+  };
+  drawHistory();
+  afterSave = (id) => id === door.id && $('#history') && drawHistory();
+  $('#new-insp').onclick = async () => {
+    if (!(await confirmBox('Start a new inspection?', `The current inspection${current.inspectedOn ? ' (' + fmtDate(current.inspectedOn) + ')' : ''} is kept in this door's history with its photos. The new one starts today as "Not inspected" with a blank checklist; defects, actions and materials are carried over for you to update.`, 'Start new inspection', false))) return;
+    await archive({ inspectedOn: today(), status: 'not_inspected', checks: {}, inspectedBy: lists.inspector || current.inspectedBy || '' }, 'Previous inspection saved to history');
+  };
 
   // actions
   $('#sh-move')?.addEventListener('click', async () => {
@@ -997,9 +1179,10 @@ async function flushSave() {
   if (!pending) return;
   const rec = pending;
   pending = null;
-  await db.put('doors', rec);
+  await saveDoor(rec);
   const s = $('#saved');
   if (s) s.textContent = 'Saved';
+  afterSave?.(rec.id);
 }
 
 async function pickDefects(existing) {
@@ -1089,6 +1272,41 @@ async function pickMaterials() {
   return picked;
 }
 
+// Read-only view of an earlier inspection
+async function viewInspection(door, h, allPhotos, onDelete) {
+  const st = statusById[h.status || 'not_inspected'];
+  const photos = allPhotos.filter((p) => photoInView(p, { ...h, _current: false }));
+  const fails = Object.values(h.checks || {}).filter((c) => c?.answer === 'fail');
+  const answered = Object.values(h.checks || {}).filter((c) => c?.answer);
+  const urlsHere = [];
+  const thumb = (p) => {
+    const u = URL.createObjectURL(p.thumb || p.blob);
+    urlsHere.push(u);
+    return `<img alt="" src="${u}">`;
+  };
+  const r = await dialog({
+    title: `Inspection – ${h.inspectedOn ? fmtDate(h.inspectedOn) : 'no date'}`,
+    body: `
+      <div class="insp-detail">
+        <p><span class="status-pill" style="--c:${st.color}">${esc(st.label)}</span>
+          ${h.inspectedBy ? `<span class="muted"> · by ${esc(h.inspectedBy)}</span>` : ''}</p>
+        <dl>
+          ${h.ref ? `<dt>Door ref</dt><dd>${esc(h.ref)}</dd>` : ''}
+          ${h.location ? `<dt>Location</dt><dd>${esc(h.location)}</dd>` : ''}
+          ${h.doorType ? `<dt>Door type</dt><dd>${esc(h.doorType)}</dd>` : ''}
+          <dt>Checklist</dt><dd>${answered.length ? `${answered.length} answered${fails.length ? `, failed: ${fails.map((c) => esc(c.text)).join('; ')}` : ', none failed'}` : 'Not answered'}</dd>
+          <dt>Defects</dt><dd>${(h.defects || []).length ? h.defects.map((x) => `<b>${esc(x.label)}</b>${x.remedial ? ' – ' + esc(x.remedial) : ''}`).join('<br>') : 'None'}</dd>
+          <dt>Actions</dt><dd>${(h.actions || []).length ? h.actions.map(esc).join('<br>') : 'None'}</dd>
+          ${h.notes ? `<dt>Notes</dt><dd>${esc(h.notes)}</dd>` : ''}
+        </dl>
+        ${photos.length ? `<div class="photo-strip">${photos.map((p) => `<span class="photo">${thumb(p)}</span>`).join('')}</div>` : ''}
+      </div>`,
+    buttons: [{ label: 'Delete record', value: 'delete', kind: 'ghost danger-text' }, { label: 'Close', value: true, kind: 'primary' }],
+  });
+  urlsHere.forEach((u) => URL.revokeObjectURL(u));
+  if (r.value === 'delete' && (await confirmBox('Delete this inspection record?', `The inspection of ${h.inspectedOn ? fmtDate(h.inspectedOn) : '(no date)'} and its ${photos.length} photo(s) will be removed. This cannot be undone.`))) onDelete();
+}
+
 function openPhoto(photo, onChange) {
   const video = isVideo(photo);
   const wrap = document.createElement('div');
@@ -1132,6 +1350,8 @@ function openPhoto(photo, onChange) {
     const what = video ? 'video' : 'photo';
     if (await confirmBox(`Delete ${what}?`, `This ${what} will be removed from the door record.`)) {
       await db.remove('photos', photo.id);
+      await flushSave();
+      await logEvent(photo.doorId, `Deleted ${what}`);
       close();
       onChange();
     }

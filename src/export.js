@@ -5,14 +5,19 @@
 import * as db from './db.js';
 import { STATUSES, statusById, doorActions, materialsTotal, ANSWERS, useScheme } from './defaults.js';
 import { loadSheetJS, saveFile, safeName } from './files.js';
+import { photoInView } from './history.js';
+import { doorViews } from './filters.js';
+import { fmtDate } from './ui.js';
 
 const EURO = '"€"#,##0.00';
 
-export async function exportProjectXlsx(project, questions = []) {
+export async function exportProjectXlsx(project, questions = [], opts = {}) {
   const XLSX = await loadSheetJS();
   const scheme = useScheme(project);
   const answerLabel = Object.fromEntries(ANSWERS.map((a) => [a.id, a.label]));
-  const doors = await db.projectDoors(project.id);
+  // filtered doors (each as at the inspection being reported) or all, as now
+  const doors = opts.doors || (await db.projectDoors(project.id)).map((d) => ({ ...d, _current: true }));
+  const byId = Object.fromEntries(doors.map((d) => [d.id, d]));
   const plans = await db.projectPlans(project.id);
   const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
   const photos = await db.byIndex('photos', 'projectId', project.id);
@@ -20,6 +25,7 @@ export async function exportProjectXlsx(project, questions = []) {
   const videoCount = {};
   const videoLinks = {};
   for (const p of photos) {
+    if (!byId[p.doorId] || !photoInView(p, byId[p.doorId])) continue;
     if (p.kind === 'video') {
       videoCount[p.doorId] = (videoCount[p.doorId] || 0) + 1;
       if (p.link) (videoLinks[p.doorId] ||= []).push(p.link);
@@ -48,6 +54,7 @@ export async function exportProjectXlsx(project, questions = []) {
     ['Address', project.address || ''],
     ['Inspection date', project.date || ''],
     ['Status scheme', scheme.name],
+    ...(opts.filterText ? [['Report filter', opts.filterText]] : []),
     ['Exported', new Date().toLocaleString('en-IE')],
     [],
     ['Doors recorded', doors.length],
@@ -197,8 +204,24 @@ export async function exportProjectXlsx(project, questions = []) {
   ws6['!cols'] = [{ wch: 45 }, { wch: 14 }, { wch: 10 }, { wch: 60 }];
   XLSX.utils.book_append_sheet(wb, ws6, 'Defect totals');
 
+  // --- Inspection history: every inspection of every door in the report
+  const hRows = [];
+  for (const d of doors) {
+    const all = await db.get('doors', d.id);
+    for (const v of doorViews(all || d)) {
+      hRows.push([
+        d.pinNo ?? '', v.ref || '', v.location || '', v.doorType || '', v.inspectedOn || '', statusLabel(v),
+        (v.defects || []).length, (v.defects || []).map((x) => x.label).join('; '), doorActions(v).join('; '),
+        v.inspectedBy || '', v._current ? 'Current' : 'History',
+      ]);
+    }
+  }
+  const ws7 = XLSX.utils.aoa_to_sheet([['Pin', 'Door ref', 'Location / room', 'Door type', 'Inspection date', 'Status', 'No. of defects', 'Defects', 'Recommended actions', 'Inspected by', 'Record'], ...hRows]);
+  ws7['!cols'] = [6, 12, 22, 18, 14, 16, 8, 50, 40, 14, 10].map((wch) => ({ wch }));
+  XLSX.utils.book_append_sheet(wb, ws7, 'Inspection history');
+
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const filename = `FSCF_${safeName(project.site || project.client)}_${(project.date || new Date().toISOString().slice(0, 10))}.xlsx`;
+  const filename = `FSCF_${safeName(project.site || project.client)}_${(project.date || new Date().toISOString().slice(0, 10))}${opts.filterText ? '_filtered' : ''}.xlsx`;
   return saveFile(filename, blob);
 }

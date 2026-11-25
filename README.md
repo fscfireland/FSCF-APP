@@ -20,6 +20,8 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 - **Inspection questions**: a checklist set up in Settings, answered Pass / Fail / N/A for each door. "Mark rest Pass" fills in any unanswered questions as Pass. A Fail answer sets the door to Fail.
 - **Recommended actions**: each door can have several, picked from your list or typed in. Actions you type are saved to the list for next time.
 - **Materials**: a priced materials list in Settings. Each door shows quantity × unit cost per line and a door total (€ ex VAT).
+- **History**: every change to a door is logged with date, time and who made it. Changing the inspection date (choose "Keep in history"), or tapping **New inspection**, saves the earlier inspection with its photos. Past inspections can be opened from the door's History section.
+- **Report filters**: Excel and PDF can be limited to an inspection date or date range (each door as it was at that inspection), status, door type, plan, a specific defect or a failed check. A live count shows how many doors match.
 - **Door list**: all doors on a project, with status filter chips and counts, plus search.
 - **Excel export**: Summary, Doors, Checklist, Defects (pricing), Materials and Material totals (with formulas and totals), and Defect totals.
 - **PDF report**: a client report you can send as it is. It has a cover page with headline figures, summary charts (door status pie, failure rate by inspection check, most common defects), each plan marked up with numbered pins, a door schedule, and a page per door with its plan location, checklist, defects, actions and photos. Material costs are optional, so you can keep them out of the client copy.
@@ -46,6 +48,8 @@ npm run build    # builds dist/ for hosting
 | `src/files.js` | PDF and photo processing, file saving |
 | `src/export.js` | Excel workbook |
 | `src/report.js` | PDF report with charts, photos and video links |
+| `src/history.js` | Change log and inspection history |
+| `src/filters.js` | Report filters |
 | `src/media.js` | Video thumbnails, durations and links |
 | `src/backup.js` | Backup and restore |
 | `src/defaults.js` | Statuses, door types, default defect list |

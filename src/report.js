@@ -6,6 +6,7 @@ import * as db from './db.js';
 import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected } from './defaults.js';
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
 import { isVideo, fmtDuration } from './media.js';
+import { photoInView } from './history.js';
 import { fmtDate } from './ui.js';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -168,7 +169,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
   doc.setFont('helvetica', 'normal');
 
-  const doors = await db.projectDoors(project.id);
+  const doors = opts.doors || (await db.projectDoors(project.id)).map((d) => ({ ...d, _current: true }));
   const plans = await db.projectPlans(project.id);
   const planById = Object.fromEntries(plans.map((p) => [p.id, p]));
   const questions = (lists.questions || []).filter((q) => q.text?.trim());
@@ -284,6 +285,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     ['Inspection date', fmtDate(project.date)],
     ['Inspected by', inspector],
     ['Report date', reportDate],
+    ['Report covers', opts.filterText ? `${doors.length} doors: ${opts.filterText}` : ''],
   ].filter((r) => r[1]);
   for (const [k, v] of coverRows) {
     font('normal', 10, C.ink2);
@@ -535,6 +537,21 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
       text(v, M + 36, y + 4);
       y += 6.5;
     }
+    // earlier and later inspections of this door
+    const stored = await db.get('doors', d.id);
+    const visits = [
+      ...(stored?.inspectedOn ? [{ date: stored.inspectedOn, status: stored.status }] : []),
+      ...(stored?.history || []).filter((h) => h.inspectedOn).map((h) => ({ date: h.inspectedOn, status: h.status })),
+    ].sort((a, b) => a.date.localeCompare(b.date));
+    if (visits.length > 1) {
+      font('normal', 8.5, C.ink2);
+      text('Inspection history', M, y + 4);
+      font('normal', 8.5, C.ink);
+      const line = visits.map((v) => `${fmtDate(v.date)} (${statusById[v.status || 'not_inspected'].short})`).join('  ·  ');
+      const lines = doc.splitTextToSize(t(line), leftW - 36);
+      doc.text(lines, M + 36, y + 4);
+      y += lines.length * 4 + 3;
+    }
     const acts = doorActions(d);
     if (acts.length) {
       y += 2;
@@ -618,7 +635,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
     // Photos: 3 per row, aspect kept
     if (withPhotos) {
-      const photos = await db.doorPhotos(d.id);
+      const photos = (await db.doorPhotos(d.id)).filter((p) => photoInView(p, d));
       if (photos.length) {
         const firstRowH = ((CW - 8) / 3) * 0.75;
         ensure(firstRowH + 10); // keep the heading with the first row of photos
@@ -687,6 +704,6 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
   onProgress('Saving PDF…');
   const blob = doc.output('blob');
-  const filename = `FSCF_Report_${safeName(project.site || project.client)}_${project.date || new Date().toISOString().slice(0, 10)}.pdf`;
+  const filename = `FSCF_Report_${safeName(project.site || project.client)}_${project.date || new Date().toISOString().slice(0, 10)}${opts.filterText ? '_filtered' : ''}.pdf`;
   return saveFile(filename, blob);
 }
