@@ -623,3 +623,14 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .rep-title small { color: var(--ink-2); font-size: 12.5px; }
 .rep-count { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink-2); }
 .rep-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+
+/* door location map */
+.door-map { position: relative; display: block; width: 100%; padding: 0; border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: #fff; aspect-ratio: 14 / 9; max-width: 100%; }
+.door-map img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.door-map img:not([src]) { visibility: hidden; }
+.door-map > span { position: absolute; left: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 14px; background: rgba(21, 33, 44, 0.8); color: #fff; font-size: 12.5px; font-weight: 600; }
+.door-map > span .ico { width: 16px; height: 16px; }
+.rep-map { display: block; width: 100%; aspect-ratio: 64 / 30; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: #fff; max-width: 100%; }
+.rep-map:not([src]) { visibility: hidden; }
+.field-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.field-head .link-btn { font-size: 12.5px; }

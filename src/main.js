@@ -12,6 +12,7 @@ import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
 import { exportProjectPdf, exportRemedialPdf } from './report.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
+import { doorMapURL } from './minimap.js';
 import { DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
@@ -338,6 +339,7 @@ function renderRepairsTab(body, project, plans, doors) {
   const ack = project.remedialAck;
   const show = state.repShow || 'outstanding';
   const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
+  const planById = Object.fromEntries(plans.map((p) => [p.id, p]));
   const prog = projectProgress(doors);
   const withWork = doors.map((d) => ({ d, p: remedialProgress(d) })).filter(({ p }) => p.total);
   const shown = withWork.filter(({ p }) => (show === 'all' ? true : show === 'done' ? p.complete : !p.complete));
@@ -379,6 +381,7 @@ function renderRepairsTab(body, project, plans, doors) {
             <small>${esc([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planName[d.planId] || (d.planId ? '' : 'Not on a drawing')].filter(Boolean).join(' · '))}</small></span>
           <span class="rep-count">${p.done}/${p.total}</span>
         </div>
+        ${d.planId && planById[d.planId] ? `<img class="rep-map" alt="Location of pin ${d.pinNo} on ${esc(planName[d.planId] || 'the drawing')}" data-door="${d.id}">` : ''}
         <ul class="rep-items">
           ${p.items.map((it) => {
             const r = d.remedials?.[it.key];
@@ -438,6 +441,12 @@ function renderRepairsTab(body, project, plans, doors) {
       renderRepairsTab(body, project, plans, doors);
     });
   });
+  // fill in the location maps
+  for (const img of $$('.rep-map', body)) {
+    const d = doors.find((x) => x.id === img.dataset.door);
+    const pl = planById[d?.planId];
+    if (d && pl) doorMapURL(pl, d, doors.filter((x) => x.planId === pl.id), '#cc2a1f', { w: 640, h: 300 }).then((u) => (img.src = u)).catch(() => img.remove());
+  }
   $('#rep-pdf').onclick = async () => {
     const list = (state.repShow || 'outstanding') === 'all' ? withWork : shown;
     if (!list.length) return toast('No doors with remedial works to print.', 'error');
@@ -1710,6 +1719,7 @@ async function drawSheet(door) {
       <button class="icon-btn" id="sh-close" aria-label="Close">${icon('close')}</button>
     </header>
     <div class="sheet-body">
+      ${door.planId ? `<button type="button" class="door-map" id="door-map" aria-label="Show on the drawing"><img alt="Where this door is on ${esc(plan?.name || 'the drawing')}" id="door-map-img"><span>${icon('plan')} ${esc(plan?.name || 'Drawing')} · tap to view</span></button>` : ''}
       <fieldset class="status-set" aria-label="Status">
         ${STATUSES.map((st) => `<label class="status-opt" style="--c:${st.color}"><input type="radio" name="status" value="${st.id}" ${st.id === (door.status || 'not_inspected') ? 'checked' : ''}><span>${st.label}</span></label>`).join('')}
       </fieldset>
@@ -1726,8 +1736,8 @@ async function drawSheet(door) {
         <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
         <label class="field"><span>Fire alarm zone name</span><input id="f-zname" data-k="zoneName" value="${esc(door.zoneName)}" placeholder="e.g. East wing ground floor" autocomplete="off" list="zone-names"></label>
       </div>
-      <label class="field"><span>Category</span>
-        <select id="f-cat" data-k="category">${['', ...new Set([...(lists.categories || DEFAULT_CATEGORIES), door.category].filter(Boolean))].map((c) => `<option value="${esc(c)}" ${c === (door.category || '') ? 'selected' : ''}>${esc(c || 'No category')}</option>`).join('')}</select>
+      <label class="field"><span class="field-head">Category <button type="button" class="link-btn" id="cat-edit">Edit list</button></span>
+        <select id="f-cat" data-k="category">${['', ...new Set([...(lists.categories || DEFAULT_CATEGORIES), door.category].filter(Boolean))].map((c) => `<option value="${esc(c)}" ${c === (door.category || '') ? 'selected' : ''}>${esc(c || 'No category')}</option>`).join('')}<option value="__new">+ Add new category…</option></select>
       </label>
       <label class="field"><span>Risk rating</span>
         <select id="f-risk" data-k="risk">${['', ...new Set([...(lists.risks || DEFAULT_RISKS), door.risk].filter(Boolean))].map((r) => `<option value="${esc(r)}" ${r === (door.risk || '') ? 'selected' : ''}>${esc(r || NO_RISK)}</option>`).join('')}</select>
@@ -1879,6 +1889,7 @@ async function drawSheet(door) {
           return;
         }
       }
+      if (inp.value === '__new') return; // handled by the "Add new category" dialog
       queue({ [inp.dataset.k]: inp.value });
       if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || 'Door ' + door.pinNo;
       if (inp.dataset.k === 'zoneNo' || inp.dataset.k === 'zoneName') {
@@ -1893,6 +1904,48 @@ async function drawSheet(door) {
       if (inp.dataset.k === 'category') Object.assign(lastCategory, { planId: door.planId, value: inp.value });
     });
   });
+  // location map: tap to see the pin on the full drawing
+  if (door.planId && plan) {
+    const others = await db.byIndex('doors', 'planId', door.planId);
+    doorMapURL(plan, door, others, getComputedStyle(document.documentElement).getPropertyValue(statusById[door.status || 'not_inspected'].color.slice(4, -1)).trim() || '#cc2a1f')
+      .then((u) => { const img = $('#door-map-img'); if (img) img.src = u; })
+      .catch(() => $('#door-map')?.remove());
+    $('#door-map').onclick = async () => {
+      await flushSave();
+      if (state.view === 'plan' && state.planId === door.planId) {
+        back();
+        setTimeout(() => viewer?.focus(door.x, door.y), 80);
+      } else go({ view: 'plan', projectId: door.projectId, planId: door.planId, focusDoor: door.id }, { replace: true });
+    };
+  }
+  // category: add a new one from here, or open the list in Settings
+  $('#f-cat').addEventListener('change', async (e) => {
+    if (e.target.value !== '__new') return;
+    const r = await dialog({
+      title: 'New category',
+      body: `<label class="field"><span>Category name</span><input name="name" id="cat-new" required placeholder="e.g. Plant room"></label>
+        <p class="muted small">It's added to your category list for every door and project. Change the list any time in Settings → Door categories.</p>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, kind: 'primary' }],
+    });
+    const name = (r.data?.name || '').trim();
+    if (r.value !== true || !name) {
+      e.target.value = current.category || '';
+      return;
+    }
+    if (!(lists.categories || []).includes(name)) await saveLists({ categories: [...(lists.categories || DEFAULT_CATEGORIES), name] });
+    const opt = document.createElement('option');
+    opt.value = name;
+    opt.textContent = name;
+    e.target.insertBefore(opt, e.target.querySelector('option[value="__new"]'));
+    e.target.value = name;
+    queue({ category: name });
+    Object.assign(lastCategory, { planId: door.planId, value: name });
+  });
+  $('#cat-edit').onclick = async (e) => {
+    e.preventDefault();
+    await flushSave();
+    go({ view: 'settings', focus: 's-cats' });
+  };
 
   // defects
   const drawDefects = () => {
@@ -2585,6 +2638,7 @@ async function renderSettings() {
   };
   drawQs();
   if (state.focus === 's-qs') setTimeout(() => $('#s-qs')?.closest('.panel')?.scrollIntoView({ block: 'start' }), 50);
+  if (state.focus === 's-cats') setTimeout(() => { $('#s-cats')?.closest('.panel')?.scrollIntoView({ block: 'start' }); $('#s-cats')?.focus(); }, 50);
   $('#s-add-q').onclick = async () => {
     await saveLists({ questions: [...(lists.questions || []), { id: db.uid(), text: '' }] });
     drawQs();

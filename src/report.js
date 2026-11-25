@@ -819,6 +819,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   }
 
   // ---- tick list per door
+  const bmps = {};
   doc.addPage('a4', 'portrait');
   y = M;
   font('bold', 14);
@@ -837,9 +838,25 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     font('normal', 8.5, C.ink2);
     text([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planById[d.planId]?.name].filter(Boolean).join(' · '), A4.w - M - 3, y + 7, { align: 'right' });
     y += 13;
+    // where the door is: a close-up of its drawing beside the table
+    const pl = planById[d.planId];
+    let mapH = 0;
+    if (pl) {
+      if (y > A4.h - 50) {
+        doc.addPage('a4', 'portrait');
+        y = M;
+      }
+      bmps[pl.id] ||= await loadBitmap(pl.blob);
+      const crop = await planCrop(bmps[pl.id], pl, d);
+      doc.addImage(crop, 'JPEG', M, y, 44, 33, undefined, 'FAST');
+      doc.setDrawColor(...C.line);
+      doc.rect(M, y, 44, 33);
+      mapH = 33;
+    }
+    const startY = y;
     doc.autoTable({
       startY: y,
-      margin: { left: M, right: M, top: M },
+      margin: { left: pl ? M + 48 : M, right: M, top: M },
       head: [['Done', 'Work required', 'Defect / reason', 'Done by', 'Date']],
       body: items.map((it) => {
         const r = d.remedials?.[it.key];
@@ -847,15 +864,18 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
       }),
       styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: C.ink, lineColor: C.line, lineWidth: 0.15, minCellHeight: 8 },
       headStyles: { fillColor: C.ink, textColor: [255, 255, 255], fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 72, fontStyle: 'bold' }, 3: { cellWidth: 24 }, 4: { cellWidth: 20 } },
+      columnStyles: pl
+        ? { 0: { cellWidth: 11 }, 1: { cellWidth: 52, fontStyle: 'bold' }, 3: { cellWidth: 20 }, 4: { cellWidth: 18 } }
+        : { 0: { cellWidth: 12 }, 1: { cellWidth: 72, fontStyle: 'bold' }, 3: { cellWidth: 24 }, 4: { cellWidth: 20 } },
       didDrawCell: (h) => {
         if (h.section === 'body' && h.column.index === 0) {
           const it = items[h.row.index];
-          tickBox(h.cell.x + 3.5, h.cell.y + 1.8, 4.5, !!d.remedials?.[it.key]?.done);
+          tickBox(h.cell.x + 3.2, h.cell.y + 1.8, 4.5, !!d.remedials?.[it.key]?.done);
         }
       },
     });
-    y = doc.lastAutoTable.finalY + 7;
+    const sameTablePage = doc.lastAutoTable.finalY > startY;
+    y = Math.max(doc.lastAutoTable.finalY, sameTablePage ? startY + mapH : 0) + 7;
   }
 
   // footer

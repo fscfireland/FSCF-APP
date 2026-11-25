@@ -34,6 +34,8 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 - **Fire alarm zones**: each project has a zone list (number, name) in its details; typing a zone number on a door fills in the name. New zones typed on doors, or imported, join the list.
 - **Import doors from Excel/CSV** (Doors tab): headings are matched loosely (Door ref / No., Room, Floor, Rating / Type, Leaf, FA zone, Zone name, Risk, Notes); a template is available. Imported doors get pin numbers and show as "Not on a drawing" until placed, from the door (**Place on drawing**) or from a drawing (**Place**).
 - **Repairs tab** (remedial works for the repairer): editable instructions per project (default wording in Settings) with a tick box for the repairer to confirm they've read them and hold the competencies (name and date recorded); a tick list per door built from each defect's remedial work and recommended actions, recording who ticked and when (also in the change log); progress, Outstanding / Complete filters, "Set status to Repaired" when a door is done; and a printable **Remedial works sheet (PDF)** with the instructions, an acknowledgement box (name, signature, date), the drawings with pins and per-door tick tables.
+- **Location map on each door**: the door record, the Repairs tab and the remedial works sheet show a close-up of the drawing with the door's pin highlighted; tap it on the door record to jump to the pin.
+- **Categories** can be added straight from a door (**+ Add new category…**), and **Edit list** opens Settings → Door categories.
 - **Door list**: all doors on a project, with status filter chips and counts, plus search.
 - **Excel export**: Summary, Doors, Checklist, Defects (pricing), Materials and Material totals (with formulas and totals), and Defect totals.
 - **PDF report**: a client report you can send as it is. It has a cover page with headline figures, summary charts (door status pie, failure rate by inspection check, most common defects), each plan marked up with numbered pins, a door schedule, and a page per door with its plan location, checklist, defects, actions and photos. Material costs are optional, so you can keep them out of the client copy.
@@ -66,6 +68,7 @@ npm run build    # builds dist/ for hosting
 | `src/markup.js` | Drawing markups and measuring |
 | `src/importer.js` | Import doors from Excel / CSV |
 | `src/remedial.js` | Remedial works tick list |
+| `src/minimap.js` | Door location close-ups |
 | `src/media.js` | Video thumbnails, durations and links |
 | `src/backup.js` | Backup and restore |
 | `src/defaults.js` | Statuses, door types, default defect list |
