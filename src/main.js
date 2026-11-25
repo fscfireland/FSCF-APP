@@ -28,6 +28,7 @@ import {
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport.js';
+import { readFieldwire } from './fieldwire.js';
 import { BRAND_BANNER, BRAND_ROUND } from './brandlogo.js';
 import { LIB, DEFAULT_LIB_FOLDERS, fileFolders, guessFolder, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
 import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, sessionsOf, isRunning, elapsedMs, fmtDuration as fmtJobTime, pauseService, resumeService, saveSessions, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
@@ -283,6 +284,7 @@ async function renderProjects() {
         ${types.length > 1 ? `<div class="chips wrap">${['', ...types].map((t) => `<button class="chip type-chip ${(state.projType || '') === t ? 'is-on' : ''}" data-t="${esc(t)}">${esc(t || 'All types')} ${t ? `<b>${projects.filter((p) => (p.workType || '') === t).length}</b>` : ''}</button>`).join('')}</div>` : ''}
       </div>` : ''}
       <div id="project-groups">${groupedHtml}</div>
+      ${projects.length ? `<p class="fw-line"><label class="link-btn">${icon('upload')} New project from a Fieldwire report (PDF)<input type="file" class="fw-import" accept="application/pdf,.pdf" hidden></label></p>` : ''}
       ${projects.length ? '' : `
         <section class="empty">
           <div class="empty-ico">${icon('door')}</div>
@@ -291,6 +293,7 @@ async function renderProjects() {
           <div class="row-btns">
             <button class="btn primary" id="new-project-2">${icon('plus')} New project</button>
             <button class="btn" id="demo">Load demo project</button>
+            <label class="btn">${icon('upload')} From a Fieldwire report<input type="file" class="fw-import" accept="application/pdf,.pdf" hidden></label>
           </div>
         </section>`}
     </main>
@@ -314,6 +317,11 @@ async function renderProjects() {
   });
   $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'plan', projectId: c.dataset.pid, planId: c.dataset.plan })));
   $('#settings').onclick = () => go({ view: 'settings' });
+  $$('.fw-import').forEach((inp) => (inp.onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) importFieldwire(f);
+  }));
   $('#owner-lock')?.addEventListener('click', () => {
     if (priced()) { libUnlocked = false; toast('Locked: prices and time hidden'); refresh(); } else unlockOwner();
   });
@@ -387,6 +395,78 @@ function projectCard(p, doors, coll = '', nLive = 0) {
         ${c.not_inspected ? `<span class="dot is-hollow" style="--c:var(--st-todo)">${c.not_inspected} to do</span>` : ''}
       </div>
     </button>`;
+}
+
+// New project from a Fieldwire report PDF
+async function importFieldwire(file) {
+  const b = busy('Reading the Fieldwire report…');
+  let fw;
+  try { fw = await readFieldwire(file); } catch (err) { b.done(); return toast('Could not read that report: ' + err.message, 'error'); }
+  b.done();
+  if (!fw.doors.length) return toast('No tasks / doors found in that report.', 'error');
+  // does the checklist match one we already have?
+  const norm = (x) => x.toLowerCase().replace(/[^a-z0-9]+/g, '');
+  const want = fw.checklist.map(norm).sort().join('|');
+  const match = fw.checklist.length ? kindIds().find((k) => (kitOf(k).questions || []).filter((q) => q.text?.trim() && !q.hidden).map((q) => norm(q.text)).sort().join('|') === want) : null;
+  const plans = [...new Set(fw.doors.map((d) => d.plan).filter(Boolean))];
+  const withRecs = fw.doors.filter((d) => d.recommendations.length).length;
+  const r = await dialog({
+    title: 'New project from Fieldwire',
+    body: `<p>Found <b>${fw.doors.length} doors</b>${plans.length ? ` on ${plans.length} drawing${plans.length === 1 ? '' : 's'}` : ''}, ${withRecs} with recommendations${fw.checklist.length ? `, and a ${fw.checklist.length}-question checklist` : ''}.</p>
+      <label class="field"><span>Site</span><input name="site" required value="${esc(fw.site)}"></label>
+      <div class="grid2"><label class="field"><span>Client</span><input name="client" placeholder="e.g. HSE"></label>
+        <label class="field"><span>Inspection date</span><input type="date" name="date" value="${esc(fw.date)}"></label></div>
+      <label class="field"><span>Address / Eircode</span><input name="address" value="${esc(fw.eircode)}"></label>
+      ${fw.checklist.length ? `<label class="field"><span>Checklist</span><select name="kit">
+        ${match ? `<option value="${match}" selected>Use "${esc(kitOf(match).name)}" (same questions)</option>` : `<option value="__new" selected>Create "${esc(fw.checklist.length + ' point check')}" from the report</option>`}
+        ${kindIds().filter((k) => k !== match).map((k) => `<option value="${k}">${esc(kitOf(k).name)}</option>`).join('')}</select></label>` : ''}
+      <p class="muted small">Doors come in <b>not yet placed</b>. Add the drawing on the Plans tab, then use <b>Place</b> to tap each door onto it. Doors with recommendations come in as Fail, with each recommendation as a repair action; the others as Pass.</p>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Create project', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return;
+  const bz = busy('Creating the project…');
+  try {
+    let kind = r.data.kit || 'fd';
+    if (kind === '__new') {
+      kind = 'c-' + db.uid().slice(0, 8);
+      const name = `Fire doors – ${fw.checklist.length} point check`;
+      await saveLists({
+        customKits: [...(lists.customKits || []), { id: kind, base: 'fd', name }],
+        kits: { ...(lists.kits || {}), [kind]: { name, item: 'Door', report: `${fw.checklist.length} Point Fire Door Inspection Report`, questions: fw.checklist.map((text, i) => ({ id: `${kind}-${i + 1}`, text, defect: guessDefect(text, lists.defects || []) || undefined })) } },
+      });
+    }
+    const zones = [];
+    for (const d of fw.doors) if (d.zoneNo && !zones.some((z) => z.no === d.zoneNo)) zones.push({ no: d.zoneNo, name: d.zoneName });
+    const maxNo = Math.max(0, ...fw.doors.map((d) => d.no || 0));
+    const project = await db.put('projects', {
+      id: db.uid(), site: r.data.site.trim() || fw.site, client: r.data.client.trim(), address: r.data.address.trim(), date: r.data.date || today(),
+      workType: 'Fire door inspection', scheme: lists.lastScheme || DEFAULT_SCHEME, zones, nextPin: maxNo + 1, sourceReport: fw.title,
+    });
+    for (const d of [...fw.doors].sort((a, c) => a.no - c.no)) {
+      const notes = [
+        d.plan ? `Fieldwire plan: ${d.plan}` : '',
+        d.rating ? `Door rating: ${d.rating}` : '',
+        d.rfid ? `RFID tag: ${d.rfid}` : '',
+        d.tags.length ? `Tags: ${d.tags.join(', ')}` : '',
+        d.messages.length ? `Notes: ${d.messages.join(' · ')}` : '',
+      ].filter(Boolean).join('\n');
+      await saveDoor({
+        id: db.uid(), projectId: project.id, planId: null, collection: '', pinNo: d.no, x: null, y: null, kind,
+        ref: d.ref, location: d.location, doorType: d.doorType, leaf: '', zoneNo: d.zoneNo, zoneName: d.zoneName, risk: '', category: '',
+        status: d.recommendations.length ? 'fail' : 'pass', defects: [], actions: d.recommendations, checks: {}, materials: [],
+        notes, inspectedOn: r.data.date || fw.date || '', inspectedBy: lists.inspector || '',
+      }, [`Imported from Fieldwire report "${fw.title}"`]);
+    }
+    // keep the original report with the project
+    await addBlob(project.id, file, file.name, 'Reports', { notes: 'Original Fieldwire report this project was created from' });
+    bz.done();
+    toast(`${fw.doors.length} doors imported. Add the drawing, then tap Place`);
+    go({ view: 'project', projectId: project.id, tab: 'plans' });
+  } catch (err) {
+    bz.done();
+    console.error(err);
+    toast('Import failed: ' + err.message, 'error');
+  }
 }
 
 async function editProject(existing) {

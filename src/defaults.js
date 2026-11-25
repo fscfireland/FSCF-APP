@@ -660,6 +660,40 @@ export function kindForWork(workType) {
 // unless edited. More can be made in Settings ("New checklist from this one").
 const tq = (prefix, rows) => rows.map(([text, defect], i) => ({ id: `${prefix}-${i + 1}`, text, ...(defect ? { defect } : {}) }));
 export const DEFAULT_TEMPLATES = {
+  fd29: {
+    base: 'fd', name: 'Fire doors – 29 point check (BS 8214)', item: 'Door', report: '29 Point Fire Door Inspection Report',
+    questions: tq('fd29', [
+      ['Door leaf: sits against the door stop and is free from distortion', 'Door leaf damaged'],
+      ['Door leaf: veneer / lipping glue still holding firmly', 'Door leaf damaged'],
+      ['Door leaf: free from damage, including dents and holes', 'Door leaf damaged'],
+      ['Door frame: firmly attached to the wall', 'Frame damaged or loose'],
+      ['Door frame: planted door stop (if present) firmly attached', 'Frame damaged or loose'],
+      ['Door frame: frame-to-leaf gap consistently 3 mm (± 1 mm)', 'Leaf-to-frame gaps outside 2–4 mm'],
+      ['Closer: opened to 5° or 75 mm, the door closes and engages the latch', 'Self-closer defective / not adjusted'],
+      ['Closer: correctly attached to the door and frame', 'Self-closer defective / not adjusted'],
+      ['Closer: free from damage and not leaking', 'Self-closer defective / not adjusted'],
+      ['Closer: if unlatched, holds the door in line with the frame and intumescent seal', 'Self-closer defective / not adjusted'],
+      ['Closer: pairs close in line when both are opened and released together', 'Self-closer defective / not adjusted'],
+      ['Hold-open device (electronically powered only) releases the door when required', 'Hold-open device not linked to fire alarm'],
+      ['Lock and latch: latch holds the door firmly in place without rattling', 'Lock or latch defective'],
+      ['Glazing: intumescent seal continuous and attached to the glass and bead', 'Glazing not fire-rated or beads defective'],
+      ['Glazing: beads well attached to the frame and free from damage', 'Glazing not fire-rated or beads defective'],
+      ['Glazing: glass free from damage and cracking', 'Glazing not fire-rated or beads defective'],
+      ['Glazing: replaced glass is fire rated', 'Glazing not fire-rated or beads defective'],
+      ['Glazing: glass below 1500 mm from the bottom of the door is safety glass', 'Glazing not fire-rated or beads defective'],
+      ['Threshold: consistent gap, the door swings without touching the floor covering', 'Threshold gap excessive (over 10 mm / over 3 mm for smoke doors)'],
+      ['Threshold: door-to-floor-covering gap 10 mm or less when closed', 'Threshold gap excessive (over 10 mm / over 3 mm for smoke doors)'],
+      ['Seals: intumescent seals in place', 'Intumescent strips missing or damaged'],
+      ['Seals: well attached inside the groove in the frame or leaf', 'Intumescent strips missing or damaged'],
+      ['Seals: continuous around the frame', 'Intumescent strips missing or damaged'],
+      ['Seals: free from damage', 'Intumescent strips missing or damaged'],
+      ['Seals: brush or fin smoke seal (if fitted) free from damage', 'Smoke seals missing or damaged'],
+      ['Hinges: minimum of 3 hinges with all screws fitted', 'Hinges: fewer than 3, missing screws or worn'],
+      ['Hinges: all screws the correct size', 'Hinges: fewer than 3, missing screws or worn'],
+      ['Hinges: free from metal fragments and oil leakage (signs of wear)', 'Hinges: fewer than 3, missing screws or worn'],
+      ['Hinges: free from packing', 'Hinges: fewer than 3, missing screws or worn'],
+    ]),
+  },
   fd6: {
     base: 'fd', name: 'Fire doors – 6 point check', item: 'Door', report: '6 Point Fire Door Inspection Report',
     questions: tq('fd6', [
