@@ -5,11 +5,13 @@ import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
+  DEFAULT_RISKS, NO_RISK, parseZones, zonesToText,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
 import { exportProjectPdf } from './report.js';
+import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
 import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView } from './history.js';
@@ -83,7 +85,7 @@ async function loadLists() {
   const s = await db.get('settings', 'lists');
   lists = {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
-    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, inspector: '', ...(s || {}),
+    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, inspector: '', ...(s || {}),
   };
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
@@ -134,7 +136,7 @@ async function renderProjects() {
     const pls = plansBy[p.id] || [];
     const coll = activeCollection(p, pls);
     const ids = new Set(plansIn(pls, coll).map((x) => x.id));
-    byProject[p.id] = allDoors.filter((d) => d.projectId === p.id && ids.has(d.planId));
+    byProject[p.id] = allDoors.filter((d) => d.projectId === p.id && (ids.has(d.planId) || (!d.planId && (d.collection || '') === coll)));
     collOf[p.id] = listCollections(pls).length > 1 || coll ? collLabel(coll) : '';
   }
 
@@ -216,6 +218,9 @@ async function editProject(existing) {
       <label class="field"><span>Client</span><input name="client" id="pf-client" value="${esc(p.client)}" placeholder="e.g. HSE Estates"></label>
       <label class="field"><span>Address</span><input name="address" id="pf-address" value="${esc(p.address)}" placeholder="Town, county / Eircode"></label>
       <label class="field"><span>Inspection date</span><input type="date" name="date" id="pf-date" value="${esc(p.date)}"></label>
+      <label class="field"><span>Fire alarm zones (one per line: number, name)</span>
+        <textarea name="zones" id="pf-zones" rows="4" placeholder="1, Main entrance\n2, East wing ground floor\n3, Stair core">${esc(zonesToText(p.zones))}</textarea>
+        <small class="muted">Typing a zone number on a door fills in its name. New zones typed on doors are added here.</small></label>
       <fieldset class="scheme-set">
         <legend>Status scheme</legend>
         ${allSchemes().map((sc) => `
@@ -228,7 +233,8 @@ async function editProject(existing) {
     buttons: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Create project', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return null;
-  const rec = await db.put('projects', { ...p, ...r.data, id: p.id || db.uid(), nextPin: p.nextPin || 1 });
+  const { zones: zonesRaw, ...form } = r.data;
+  const rec = await db.put('projects', { ...p, ...form, zones: parseZones(zonesRaw), id: p.id || db.uid(), nextPin: p.nextPin || 1 });
   if (r.data.scheme && r.data.scheme !== lists.lastScheme) await saveLists({ lastScheme: r.data.scheme });
   if (!existing) go({ view: 'project', projectId: rec.id, tab: 'plans' });
   else refresh();
@@ -288,7 +294,7 @@ async function renderProject() {
   const coll = activeCollection(project, allPlans, state.coll);
   const plans = plansIn(allPlans, coll);
   const planIds = new Set(plans.map((p) => p.id));
-  const doors = allDoors.filter((d) => planIds.has(d.planId));
+  const doors = allDoors.filter((d) => planIds.has(d.planId) || (!d.planId && (coll === '*' || (d.collection || '') === coll)));
   state.collText = colls.length > 1 ? (coll === '*' ? 'All collections' : collLabel(coll)) : '';
 
   app.innerHTML = `
@@ -517,6 +523,10 @@ function renderDoorsTab(body, project, plans, doors) {
   const shown = doors.filter((d) => (filter === 'all' || (d.status || 'not_inspected') === filter) &&
     (!q || [d.ref, d.location, d.doorType, String(d.pinNo), planName[d.planId], d.zoneNo && 'zone ' + d.zoneNo, d.zoneName].join(' ').toLowerCase().includes(q)));
   body.innerHTML = `
+    <div class="row-btns import-row">
+      <label class="btn sm">${icon('upload')} Import doors from Excel<input type="file" id="imp-file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" hidden></label>
+      <button class="btn ghost sm" id="imp-template">${icon('download')} Template</button>
+    </div>
     <div class="chips" role="group" aria-label="Filter by status">
       <button class="chip ${filter === 'all' ? 'is-on' : ''}" data-f="all">All <b>${doors.length}</b></button>
       ${statusesInUse(doors).map((s) => `<button class="chip ${filter === s.id ? 'is-on' : ''}" data-f="${s.id}" style="--c:${s.color}"><i></i>${s.label} <b>${counts[s.id] || 0}</b></button>`).join('')}
@@ -529,6 +539,14 @@ function renderDoorsTab(body, project, plans, doors) {
     ${doors.length && !shown.length ? '<p class="muted pad">No doors match this filter.</p>' : ''}
   `;
   $$('.chip', body).forEach((c) => (c.onclick = () => { state.filter = c.dataset.f; renderDoorsTab(body, project, plans, doors); }));
+  $('#imp-template').onclick = () => downloadTemplate().catch((e) => toast(e.message, 'error'));
+  $('#imp-file').onchange = (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    const coll = state.coll && state.coll !== '*' ? state.coll : project.activeCollection ?? (plans[0]?.collection || '');
+    importDoors(project, f, coll);
+  };
   const qi = $('#door-q');
   qi.oninput = () => {
     state.q = qi.value;
@@ -549,7 +567,7 @@ function doorRow(d, planName) {
       <span class="pin-badge ${s.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${s.color}">${d.pinNo ?? ''}</span>
       <span class="dr-main">
         <b>${esc(d.ref || 'No ref')}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
-        <small>${esc([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}</small>
+        <small>${esc([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', d.risk ? 'Risk: ' + d.risk : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}${d.planId ? '' : ' <span class="unplaced">Not on a drawing</span>'}</small>
       </span>
       <span class="dr-side">
         <span class="status-pill" style="--c:${s.color}">${s.short}</span>
@@ -595,6 +613,8 @@ function renderExportTab(body, project, plans, allDoors) {
         <div class="chips wrap">${opts.types.map((t) => chip('types', t, t, f.types.includes(t))).join('')}</div></div>
       ${opts.zones.length > 1 || (opts.zones[0] && opts.zones[0].key !== '(no zone)') ? `<div class="rf-group"><span class="rf-label">Fire alarm zone</span>
         <div class="chips wrap">${opts.zones.map((z) => chip('zones', z.key, z.label, (f.zones || []).includes(z.key))).join('')}</div></div>` : ''}
+      ${opts.risks.length > 1 || (opts.risks[0] ?? '') !== '' ? `<div class="rf-group"><span class="rf-label">Risk rating</span>
+        <div class="chips wrap">${opts.risks.map((r) => chip('risks', r, r || NO_RISK, (f.risks || []).includes(r))).join('')}</div></div>` : ''}
       ${plans.length > 1 ? `<div class="rf-group"><span class="rf-label">Plan / level</span>
         <div class="chips wrap">${plans.map((pl) => chip('plans', pl.id, pl.name, f.plans.includes(pl.id))).join('')}</div></div>` : ''}
       <div class="grid2">
@@ -725,6 +745,8 @@ let mode = null; // null | 'add' | 'move'
 // The fire alarm zone last entered on a plan, so neighbouring doors get it too
 const lastZone = { planId: '', no: '', name: '' };
 let planColl = ''; // collection of the plan on screen
+let placingId = null; // an imported door waiting to be placed as a pin
+let placingLabel = '';
 let selectedPin = null;
 
 async function renderPlan() {
@@ -751,6 +773,7 @@ async function renderPlan() {
       <div class="plan-toolbar">
         <button class="btn big" id="mk-toggle">${icon('pencil')} Markup</button>
         <button class="btn primary big" id="add-door">${icon('pin')} Add door</button>
+        <button class="btn big" id="place-list" hidden>${icon('list')} Place <span id="place-n"></span></button>
       </div>
       <div class="mk-panel" id="mk-panel" hidden></div>
     </div>`;
@@ -776,6 +799,8 @@ async function renderPlan() {
   mk.draft = null;
   drawMarkups();
   $('#mk-toggle').onclick = () => setMarkup(true);
+  $('#place-list').onclick = pickDoorToPlace;
+  updatePlaceButton();
   $('#zin').onclick = () => viewer.zoomBy(1.6);
   $('#zout').onclick = () => viewer.zoomBy(1 / 1.6);
   $('#zfit').onclick = () => viewer.fit();
@@ -791,6 +816,11 @@ async function renderPlan() {
   } catch {
     /* storage blocked: skip the tip */
   }
+  if (state.placeDoor) {
+    const d = await db.get('doors', state.placeDoor);
+    delete state.placeDoor;
+    if (d && !d.planId) startPlacing(d);
+  }
   if (state.focusDoor) {
     const d = await db.get('doors', state.focusDoor);
     if (d) viewer.focus(d.x, d.y);
@@ -798,6 +828,108 @@ async function renderPlan() {
     delete state.focusDoor;
     await refreshPins();
   }
+}
+
+// ---------- Imported doors: placing them as pins ----------
+async function unplacedDoors() {
+  const all = await db.byIndex('doors', 'projectId', state.projectId);
+  return all.filter((d) => !d.planId && (d.collection || '') === planColl).sort((a, b) => a.pinNo - b.pinNo);
+}
+
+async function updatePlaceButton() {
+  const btn = $('#place-list');
+  if (!btn) return;
+  const n = (await unplacedDoors()).length;
+  btn.hidden = !n;
+  $('#place-n').textContent = n ? `(${n})` : '';
+}
+
+function startPlacing(d) {
+  placingId = d.id;
+  placingLabel = `pin ${d.pinNo}${d.ref ? ' (' + d.ref + ')' : ''}`;
+  setMode('place');
+}
+
+async function pickDoorToPlace() {
+  const list = await unplacedDoors();
+  if (!list.length) return;
+  const r = await dialog({
+    title: 'Place a door on this drawing',
+    body: `<p>Doors imported from Excel that aren't on a drawing yet. Pick one, then tap where it is.</p>
+      <div class="pick-list">${list.map((d) => `
+        <label class="pick"><input type="radio" name="door" value="${d.id}">
+          <span><b>${esc(d.pinNo + ' · ' + (d.ref || 'No ref'))}</b><small>${esc([d.location, d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : ''].filter(Boolean).join(' · '))}</small></span></label>`).join('')}</div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Place', value: true, kind: 'primary' }],
+  });
+  const d = list.find((x) => x.id === r.data?.door);
+  if (r.value === true && d) startPlacing(d);
+}
+
+// From a door record: choose the drawing (if more than one) and place it
+async function placeDoor(door) {
+  const project = await db.get('projects', door.projectId);
+  const allPlans = await db.projectPlans(door.projectId);
+  const plans = plansIn(allPlans, door.collection || '');
+  const choices = plans.length ? plans : allPlans;
+  if (!choices.length) return toast('Upload a drawing first, then place the door on it.', 'error');
+  let planId = choices[0].id;
+  if (choices.length > 1) {
+    const r = await dialog({
+      title: 'Which drawing?',
+      body: `<label class="field"><span>Drawing</span><select name="plan" id="place-plan">${choices.map((p) => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Open drawing', value: true, kind: 'primary' }],
+    });
+    if (r.value !== true) return;
+    planId = r.data.plan;
+  }
+  if (project) state.coll = choices.find((p) => p.id === planId)?.collection || '';
+  go({ view: 'plan', projectId: door.projectId, planId, placeDoor: door.id }, { replace: true });
+}
+
+// ---------- Import doors from Excel ----------
+async function importDoors(project, file, coll) {
+  const b = busy('Reading spreadsheet…');
+  let parsed;
+  try {
+    parsed = await parseDoorFile(file);
+    b.done();
+  } catch (e) {
+    b.done();
+    return toast(e.message, 'error');
+  }
+  const existing = await db.projectDoors(project.id);
+  const have = new Set(existing.filter((d) => (d.planId ? true : (d.collection || '') === coll) && d.ref).map((d) => d.ref.trim().toLowerCase()));
+  const fresh = parsed.doors.filter((d) => !d.ref || !have.has(d.ref.trim().toLowerCase()));
+  const dupes = parsed.doors.length - fresh.length;
+  const r = await dialog({
+    title: 'Import doors',
+    body: `<p><b>${parsed.doors.length}</b> door${parsed.doors.length === 1 ? '' : 's'} found on sheet "${esc(parsed.sheet)}"${dupes ? `; <b>${dupes}</b> already on this site (same door ref) will be skipped` : ''}.</p>
+      <p class="muted small">Columns used:</p>
+      <ul class="sheet-list small">${parsed.columns.map((c) => `<li>${esc(c)}</li>`).join('')}</ul>
+      <p class="muted small">Imported doors get pin numbers and appear in the door list as "Not on a drawing". Open a door and tap <b>Place on drawing</b>, or use <b>Place</b> on a drawing, to pin them.</p>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: `Import ${fresh.length} door${fresh.length === 1 ? '' : 's'}`, value: true, kind: 'primary' }],
+  });
+  if (r.value !== true || !fresh.length) return;
+  const bz = busy('Importing doors…');
+  const zones = [...(project.zones || [])];
+  for (const row of fresh) {
+    const pinNo = await db.nextPinNo(project.id);
+    const location = [row.floor, row.location].filter(Boolean).join(' · ');
+    await saveDoor({
+      id: db.uid(), projectId: project.id, planId: null, collection: coll, pinNo, x: null, y: null,
+      ref: row.ref, location, doorType: matchListValue(row.doorType, lists.doorTypes || []), leaf: matchListValue(row.leaf, LEAF_CONFIGS.filter(Boolean)),
+      zoneNo: row.zoneNo.replace(/^zone\s*/i, ''), zoneName: row.zoneName, risk: matchListValue(row.risk, lists.risks || DEFAULT_RISKS),
+      status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: row.notes, inspectedOn: '', inspectedBy: '',
+    }, [`Imported from ${file.name}`]);
+    const no = row.zoneNo.replace(/^zone\s*/i, '');
+    if (no && row.zoneName && !zones.some((z) => String(z.no) === no)) zones.push({ no, name: row.zoneName });
+  }
+  const p = await db.get('projects', project.id);
+  zones.sort((a, b) => String(a.no).localeCompare(String(b.no), undefined, { numeric: true }));
+  await db.put('projects', { ...p, zones });
+  bz.done();
+  toast(`${fresh.length} door${fresh.length === 1 ? '' : 's'} imported`);
+  refresh();
 }
 
 // ---------- Markup tools ----------
@@ -1060,6 +1192,9 @@ function setMode(m, doorId = null) {
   } else if (m === 'move') {
     banner.hidden = false;
     banner.innerHTML = `<span>Drag the pin, or tap its new position</span><button class="btn sm" id="cancel-mode">Done</button>`;
+  } else if (m === 'place') {
+    banner.hidden = false;
+    banner.innerHTML = `<span>Tap where ${esc(placingLabel)} is</span><button class="btn sm" id="cancel-mode">Cancel</button>`;
   } else if (m === 'hint') {
     banner.hidden = false;
     banner.innerHTML = `<span>Tip: press and hold a pin to drag it</span><button class="btn sm" id="cancel-mode">OK</button>`;
@@ -1075,6 +1210,18 @@ function setMode(m, doorId = null) {
 
 async function onPlanTap(x, y) {
   if (mode === 'hint') return setMode(null);
+  if (mode === 'place' && placingId) {
+    const d = await db.get('doors', placingId);
+    placingId = null;
+    setMode(null);
+    if (d) {
+      await saveDoor({ ...d, planId: state.planId, x, y });
+      toast(`Pin ${d.pinNo} placed`);
+      await refreshPins();
+      updatePlaceButton();
+    }
+    return;
+  }
   if (mode === 'add') {
     const pinNo = await db.nextPinNo(state.projectId);
     const door = await saveDoor({
@@ -1149,7 +1296,8 @@ async function drawSheet(door) {
   const s = statusById[door.status || 'not_inspected'];
   const types = [...new Set([...(lists.doorTypes || []), door.doorType].filter(Boolean))];
   // fire alarm zones already used on this project: number → name
-  const zoneMap = new Map();
+  const project = await db.get('projects', door.projectId);
+  const zoneMap = new Map((project?.zones || []).filter((z) => z.no).map((z) => [String(z.no), z.name || '']));
   for (const x of await db.byIndex('doors', 'projectId', door.projectId)) {
     if (x.zoneNo && !zoneMap.get(x.zoneNo)) zoneMap.set(x.zoneNo, x.zoneName || '');
   }
@@ -1178,6 +1326,9 @@ async function drawSheet(door) {
         <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
         <label class="field"><span>Fire alarm zone name</span><input id="f-zname" data-k="zoneName" value="${esc(door.zoneName)}" placeholder="e.g. East wing ground floor" autocomplete="off" list="zone-names"></label>
       </div>
+      <label class="field"><span>Risk rating</span>
+        <select id="f-risk" data-k="risk">${['', ...new Set([...(lists.risks || DEFAULT_RISKS), door.risk].filter(Boolean))].map((r) => `<option value="${esc(r)}" ${r === (door.risk || '') ? 'selected' : ''}>${esc(r || NO_RISK)}</option>`).join('')}</select>
+      </label>
       <datalist id="zone-nos">${zones.map(([n, nm]) => `<option value="${esc(n)}">${esc(nm)}</option>`).join('')}</datalist>
       <datalist id="zone-names">${[...new Set(zones.map(([, nm]) => nm).filter(Boolean))].map((nm) => `<option value="${esc(nm)}"></option>`).join('')}</datalist>
 
@@ -1237,7 +1388,8 @@ async function drawSheet(door) {
       </section>
 
       <div class="sheet-actions">
-        ${state.view === 'plan' ? `<button class="btn" id="sh-move">${icon('move')} Move pin</button>` : `<button class="btn" id="sh-show">${icon('plan')} Show on plan</button>`}
+        ${!door.planId ? `<button class="btn primary" id="sh-place">${icon('pin')} Place on drawing</button>`
+          : state.view === 'plan' ? `<button class="btn" id="sh-move">${icon('move')} Move pin</button>` : `<button class="btn" id="sh-show">${icon('plan')} Show on plan</button>`}
         <button class="btn ghost danger-text" id="sh-del">${icon('trash')} Delete door</button>
       </div>
     </div>`;
@@ -1326,10 +1478,11 @@ async function drawSheet(door) {
       queue({ [inp.dataset.k]: inp.value });
       if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || 'Door ' + door.pinNo;
       if (inp.dataset.k === 'zoneNo' || inp.dataset.k === 'zoneName') {
-        // typing a known zone number fills in its name
-        if (inp.dataset.k === 'zoneNo' && zoneMap.get(inp.value.trim()) && !$('#f-zname').value) {
-          $('#f-zname').value = zoneMap.get(inp.value.trim());
-          queue({ zoneName: $('#f-zname').value });
+        // a zone number from the project's zone list fills in its name
+        const known = zoneMap.get(inp.value.trim().replace(/^zone\s*/i, ''));
+        if (inp.dataset.k === 'zoneNo' && known) {
+          $('#f-zname').value = known;
+          queue({ zoneName: known });
         }
         Object.assign(lastZone, { planId: door.planId, no: $('#f-zone').value, name: $('#f-zname').value });
       }
@@ -1620,6 +1773,27 @@ async function drawSheet(door) {
     await flushSave();
     go({ view: 'plan', projectId: door.projectId, planId: door.planId, focusDoor: door.id }, { replace: true });
   });
+  $('#sh-place')?.addEventListener('click', async () => {
+    await flushSave();
+    placeDoor(door);
+  });
+  // learn new zones: a number and name typed on a door join the project's list
+  const learnZone = async () => {
+    const no = ($('#f-zone')?.value || '').trim();
+    const name = ($('#f-zname')?.value || '').trim();
+    if (!no || !name) return;
+    const p = await db.get('projects', door.projectId);
+    const zones = [...(p.zones || [])];
+    const i = zones.findIndex((z) => String(z.no) === no);
+    if (i >= 0 && zones[i].name) return; // keep the list's name
+    if (i >= 0) zones[i] = { no, name };
+    else zones.push({ no, name });
+    zones.sort((a, b) => String(a.no).localeCompare(String(b.no), undefined, { numeric: true }));
+    await db.put('projects', { ...p, zones });
+    zoneMap.set(no, name);
+  };
+  $('#f-zone')?.addEventListener('change', learnZone);
+  $('#f-zname')?.addEventListener('change', learnZone);
   $('#sh-del').onclick = async () => {
     if (await confirmBox('Delete door?', `Delete pin ${door.pinNo}${door.ref ? ' (' + door.ref + ')' : ''} and its photos? This cannot be undone.`)) {
       clearTimeout(saveTimer);
@@ -1888,6 +2062,10 @@ async function renderSettings() {
         <div id="s-qs"></div>
       </section>
       <section class="panel">
+        <h2 class="h2">Risk ratings</h2>
+        <label class="field"><span>One per line. Doors start with "${esc(NO_RISK)}" until a rating is picked.</span><textarea id="s-risks" rows="4">${esc((lists.risks || DEFAULT_RISKS).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel">
         <h2 class="h2">Recommended actions</h2>
         <label class="field"><span>One per line (each door can have several)</span><textarea id="s-actions" rows="8">${esc((lists.actions || []).join('\n'))}</textarea></label>
       </section>
@@ -1956,6 +2134,7 @@ async function renderSettings() {
     toast('Scheme saved. Choose it in a project\'s details.');
   };
 
+  $('#s-risks').onchange = (e) => saveLists({ risks: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
 
   const drawQs = () => {

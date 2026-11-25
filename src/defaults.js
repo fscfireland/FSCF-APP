@@ -175,6 +175,21 @@ export function doorActions(d) {
   return d.action ? [d.action] : [];
 }
 
+// Risk ratings offered on each door (editable in Settings). A door with no
+// rating shows "No risk assessment".
+export const DEFAULT_RISKS = ['Low', 'Medium', 'High'];
+export const NO_RISK = 'No risk assessment';
+export const riskText = (d) => d.risk || NO_RISK;
+
+// A project's fire alarm zone list: [{ no, name }]. Lines like "4, East wing".
+export function parseZones(text) {
+  return String(text || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const m = l.match(/^([^,\t–-]+?)\s*[,\t–-]\s*(.+)$/);
+    return m ? { no: m[1].trim().replace(/^zone\s*/i, ''), name: m[2].trim() } : { no: l.replace(/^zone\s*/i, ''), name: '' };
+  });
+}
+export const zonesToText = (zones) => (zones || []).map((z) => (z.name ? `${z.no}, ${z.name}` : z.no)).join('\n');
+
 // A material as it appears in lists and reports, with its size / type
 export const matLabel = (m) => (m.spec ? `${m.name} – ${m.spec}` : m.name || '');
 export const MATERIALS_VERSION = 2;

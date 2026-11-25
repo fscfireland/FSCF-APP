@@ -66,13 +66,27 @@ export async function copyCollection(project, plans, from, name, mode, actor = '
       pins++;
     }
   }
+  // doors imported but not yet placed on a drawing
+  for (const d of await db.byIndex('doors', 'projectId', project.id)) {
+    if (d.planId || (d.collection || '') !== from) continue;
+    const { id: did, createdAt: c2, updatedAt: u2, dirty: d2, history, log, ...door } = d;
+    const fresh = mode === 'reset'
+      ? { status: 'not_inspected', checks: {}, defects: [], actions: [], materials: [], notes: '', inspectedOn: '', inspectedBy: '' }
+      : { inspectedOn: '', inspectedBy: '' };
+    await db.put('doors', { ...door, ...fresh, id: db.uid(), collection: name, sourceDoorId: did, history: [], log: [{ at, by: actor, text: `Copied from "${collLabel(from)}"` }] });
+    pins++;
+  }
   return { drawings: src.length, pins };
 }
 
 export async function renameCollection(plans, from, to) {
   for (const p of plansIn(plans, from)) await db.put('plans', { ...p, collection: to });
+  const projectId = plans[0]?.projectId;
+  if (projectId) for (const d of await db.byIndex('doors', 'projectId', projectId)) if (!d.planId && (d.collection || '') === from) await db.put('doors', { ...d, collection: to });
 }
 
 export async function deleteCollection(plans, coll) {
   for (const p of plansIn(plans, coll)) await db.deletePlan(p.id);
+  const projectId = plans[0]?.projectId;
+  if (projectId) for (const d of await db.byIndex('doors', 'projectId', projectId)) if (!d.planId && (d.collection || '') === coll) await db.deleteDoor(d.id);
 }

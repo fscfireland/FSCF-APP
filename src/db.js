@@ -57,6 +57,7 @@ export function uid() {
 export const now = () => new Date().toISOString();
 
 export async function get(store, id) {
+  if (id == null || id === '') return null; // e.g. a door not yet placed on a drawing
   const s = await tx(store);
   const rec = await wrap(s.get(id));
   return rec && !rec.deleted ? rec : null;

@@ -6,10 +6,10 @@
 import { statusById } from './defaults.js';
 import { fmtDate } from './ui.js';
 
-export const emptyFilter = () => ({ dateMode: 'all', from: '', to: '', statuses: [], types: [], zones: [], plans: [], defect: '', check: '' });
+export const emptyFilter = () => ({ dateMode: 'all', from: '', to: '', statuses: [], types: [], zones: [], risks: [], plans: [], defect: '', check: '' });
 
 export const isFiltered = (f) =>
-  !!f && (f.dateMode !== 'all' || f.statuses.length || f.types.length || (f.zones || []).length || f.plans.length || f.defect || f.check);
+  !!f && (f.dateMode !== 'all' || f.statuses.length || f.types.length || (f.zones || []).length || (f.risks || []).length || f.plans.length || f.defect || f.check);
 
 // Every inspection of a door: the current record first, then history
 export function doorViews(d) {
@@ -38,6 +38,7 @@ export function applyFilter(doors, f) {
     if (f.statuses.length && !f.statuses.includes(v.status || 'not_inspected')) continue;
     if (f.types.length && !f.types.includes(v.doorType || '(no type)')) continue;
     if ((f.zones || []).length && !f.zones.includes(zoneKey(v))) continue;
+    if ((f.risks || []).length && !f.risks.includes(v.risk || '')) continue;
     if (f.plans.length && !f.plans.includes(v.planId)) continue;
     if (f.defect && !(v.defects || []).some((x) => x.label === f.defect)) continue;
     if (f.check && v.checks?.[f.check]?.answer !== 'fail') continue;
@@ -56,9 +57,11 @@ export function filterOptions(doors, questions) {
   const checks = new Map(questions.map((q) => [q.id, q.text]));
   const dates = new Set();
   const zones = new Map();
+  const risks = new Set();
   for (const d of doors) {
     for (const v of doorViews(d)) {
       types.add(v.doorType || '(no type)');
+      risks.add(v.risk || '');
       const zk = zoneKey(v);
       if (!zones.has(zk) || (!zones.get(zk) && v.zoneName)) zones.set(zk, v.zoneNo ? `Zone ${v.zoneNo}${v.zoneName ? ' – ' + v.zoneName : ''}` : v.zoneName || 'No zone');
       for (const x of v.defects || []) defects.add(x.label);
@@ -68,6 +71,7 @@ export function filterOptions(doors, questions) {
   }
   return {
     types: [...types].sort(),
+    risks: [...risks],
     zones: [...zones.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true })).map(([key, label]) => ({ key, label })),
     defects: [...defects].sort(),
     checks: [...checks.entries()].map(([id, text]) => ({ id, text })),
@@ -84,6 +88,7 @@ export function describeFilter(f, plans, questions) {
   if (f.statuses.length) parts.push(f.statuses.map((s) => statusById[s]?.label || s).join(' / '));
   if (f.types.length) parts.push(f.types.join(' / '));
   if ((f.zones || []).length) parts.push(f.zones.map((z) => (z === '(no zone)' ? 'No zone' : /^\d/.test(z) ? `Zone ${z}` : z)).join(' / '));
+  if ((f.risks || []).length) parts.push('Risk: ' + f.risks.map((r) => r || 'No risk assessment').join(' / '));
   if (f.plans.length) parts.push(f.plans.map((id) => plans.find((p) => p.id === id)?.name || 'plan').join(' / '));
   if (f.defect) parts.push(`Defect: ${f.defect}`);
   if (f.check) parts.push(`Failed: ${questions.find((q) => q.id === f.check)?.text || 'check'}`);

@@ -3,7 +3,7 @@
 // Built entirely on the phone (works offline once the library is cached).
 
 import * as db from './db.js';
-import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected, statusesInUse, matLabel, zoneText } from './defaults.js';
+import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected, statusesInUse, matLabel, zoneText, riskText } from './defaults.js';
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
 import { isVideo, fmtDuration } from './media.js';
 import { photoInView } from './history.js';
@@ -464,9 +464,9 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   y = M + 10;
   heading('Door schedule', 'Every door recorded, in pin order. Pin numbers match the marked-up plans.');
   const showCosts = costs;
-  const head = [['Pin', 'Door ref', 'Location', 'Plan', 'Door type', 'FA zone', 'Status', 'Defects', 'Recommended actions', ...(showCosts ? ['Materials'] : [])]];
+  const head = [['Pin', 'Door ref', 'Location', 'Plan', 'Door type', 'FA zone', 'Risk', 'Status', 'Defects', 'Recommended actions', ...(showCosts ? ['Materials'] : [])]];
   const body = doors.map((d) => [
-    String(d.pinNo ?? ''), t(d.ref), t(d.location), t(planById[d.planId]?.name), t(d.doorType), t(zoneText(d).replace(/^Zone /, '')),
+    String(d.pinNo ?? ''), t(d.ref), t(d.location), t(planById[d.planId]?.name), t(d.doorType), t(zoneText(d).replace(/^Zone /, '')), t(d.risk || '–'),
     statusById[d.status || 'not_inspected'].label, String((d.defects || []).length || ''), t(doorActions(d).join('; ')),
     ...(showCosts ? [materialsTotal(d) ? t(euro(materialsTotal(d))) : ''] : []),
   ]);
@@ -475,9 +475,9 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     styles: { font: 'helvetica', fontSize: 8, cellPadding: 1.6, textColor: C.ink, lineColor: C.line, lineWidth: 0.15 },
     headStyles: { fillColor: C.ink, textColor: [255, 255, 255], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: C.soft },
-    columnStyles: { 0: { cellWidth: 9, halign: 'center', fontStyle: 'bold' }, 6: { fontStyle: 'bold' }, 7: { halign: 'center', cellWidth: 13 } },
+    columnStyles: { 0: { cellWidth: 9, halign: 'center', fontStyle: 'bold' }, 7: { fontStyle: 'bold' }, 8: { halign: 'center', cellWidth: 13 } },
     didParseCell: (h) => {
-      if (h.section === 'body' && h.column.index === 6) {
+      if (h.section === 'body' && h.column.index === 7) {
         const st = doors[h.row.index].status || 'not_inspected';
         h.cell.styles.textColor = STATUS_RGB[st];
       }
@@ -517,7 +517,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
     // details + plan close-up side by side
     const detailRows = [
-      ['Door type', d.doorType], ['Leaf configuration', d.leaf], ['Fire alarm zone', zoneText(d)],
+      ['Door type', d.doorType], ['Leaf configuration', d.leaf], ['Fire alarm zone', zoneText(d)], ['Risk rating', riskText(d)],
       ['Inspected on', fmtDate(d.inspectedOn)], ['Inspected by', d.inspectedBy],
     ].filter((r) => r[1]);
     const cropW = 70;

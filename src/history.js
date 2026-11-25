@@ -15,7 +15,7 @@ let actor = '';
 export const setActor = (name) => (actor = name || '');
 
 // Fields that belong to one inspection visit
-const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'notes', 'doorType', 'leaf', 'zoneNo', 'zoneName', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
+const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'notes', 'doorType', 'leaf', 'zoneNo', 'zoneName', 'risk', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
 
 export function snapshotOf(d) {
   const snap = { id: db.uid(), savedAt: new Date().toISOString() };
@@ -34,6 +34,7 @@ const TEXT_FIELDS = {
   leaf: 'Leaf configuration',
   zoneNo: 'Fire alarm zone no.',
   zoneName: 'Fire alarm zone name',
+  risk: 'Risk rating',
   inspectedBy: 'Inspected by',
 };
 
@@ -67,7 +68,8 @@ export function diffDoor(prev, next) {
     add('inspectedOn', `Inspection date: ${prev.inspectedOn ? fmtDate(prev.inspectedOn) : '(blank)'} → ${next.inspectedOn ? fmtDate(next.inspectedOn) : '(blank)'}`);
   }
   if ((prev.notes || '') !== (next.notes || '')) add('notes', 'Notes edited');
-  if (prev.x !== next.x || prev.y !== next.y) add('pin', 'Pin moved');
+  if (!prev.planId && next.planId) add('', 'Placed on drawing');
+  else if (prev.x !== next.x || prev.y !== next.y) add('pin', 'Pin moved');
 
   const labels = (list) => (list || []).map((x) => x.label);
   const added = (a, b) => b.filter((x) => !a.includes(x));

@@ -25,6 +25,10 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 - **Materials**: a priced materials list in Settings. Each door shows quantity × unit cost per line and a door total (€ ex VAT). Each line has a **Size / type** box, and **+ size** adds another line of the same material (e.g. two seal sizes on one door); Excel totals are split by size. The default list includes common seal sizes (10/15/20/25 × 4 mm intumescent, combined intumescent + smoke, brush/fin smoke seals).
 - **History**: every change to a door is logged with date, time and who made it. Changing the inspection date (choose "Keep in history"), or tapping **New inspection**, saves the earlier inspection with its photos and carries all its details forward to the new date, ready to update. Past inspections can be opened from the door's History section.
 - **Report filters**: Excel and PDF can be limited to an inspection date or date range (each door as it was at that inspection), status, door type, plan, a specific defect or a failed check. A live count shows how many doors match.
+- **Markup** (on any drawing): line, arrow, freehand pen, text bubbles (with a pointer line), shaded boxes and areas, and measuring. The first measure line is the guide: type its real length and every later line and shaded area is measured (m, mm, m²). Select to recolour, edit or delete; undo. Markups print on the PDF plan pages and copy with collections.
+- **Risk rating** on each door, from a list you edit in Settings; doors start as "No risk assessment".
+- **Fire alarm zones**: each project has a zone list (number, name) in its details; typing a zone number on a door fills in the name. New zones typed on doors, or imported, join the list.
+- **Import doors from Excel/CSV** (Doors tab): headings are matched loosely (Door ref / No., Room, Floor, Rating / Type, Leaf, FA zone, Zone name, Risk, Notes); a template is available. Imported doors get pin numbers and show as "Not on a drawing" until placed, from the door (**Place on drawing**) or from a drawing (**Place**).
 - **Door list**: all doors on a project, with status filter chips and counts, plus search.
 - **Excel export**: Summary, Doors, Checklist, Defects (pricing), Materials and Material totals (with formulas and totals), and Defect totals.
 - **PDF report**: a client report you can send as it is. It has a cover page with headline figures, summary charts (door status pie, failure rate by inspection check, most common defects), each plan marked up with numbered pins, a door schedule, and a page per door with its plan location, checklist, defects, actions and photos. Material costs are optional, so you can keep them out of the client copy.
@@ -54,6 +58,8 @@ npm run build    # builds dist/ for hosting
 | `src/history.js` | Change log and inspection history |
 | `src/filters.js` | Report filters |
 | `src/collections.js` | Collections: list, copy, rename, delete |
+| `src/markup.js` | Drawing markups and measuring |
+| `src/importer.js` | Import doors from Excel / CSV |
 | `src/media.js` | Video thumbnails, durations and links |
 | `src/backup.js` | Backup and restore |
 | `src/defaults.js` | Statuses, door types, default defect list |
