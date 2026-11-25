@@ -2735,7 +2735,7 @@ async function drawSheet(door) {
         <div id="actions"></div>
       </section>
 
-      <section class="block">
+      <section class="block" ${(door.signs || []).length ? '' : 'hidden'}>
         <div class="block-head"><h3>Signs <span class="muted" id="sign-n"></span></h3></div>
         <div class="sign-add" id="sign-add"></div>
         <div id="signs"></div>
@@ -2964,58 +2964,85 @@ async function drawSheet(door) {
   };
 
   // defects
+  // Each defect has its own list of products that fix it, each with a quantity
+  // (e.g. 3 × 10 mm seal + 4 × 20 mm seal). They are stored as the door's
+  // materials, tagged with the defect, so they are costed with everything else.
+  const prodOptions = (d) => {
+    const cat = defectCat(d);
+    return { cat, opts: (lists.materials || []).filter((m) => m.name?.trim() && (!cat || matCat(m) === cat)) };
+  };
   const drawDefects = () => {
     const list = current.defects || [];
     $('#def-n').textContent = list.length ? `(${list.length})` : '';
     $('#defects').innerHTML = list.length
-      ? list.map((d, i) => `
+      ? list.map((d, i) => {
+        const key = 'd:' + d.label;
+        const linked = (current.materials || []).filter((m) => m.forKey === key);
+        const { cat, opts } = prodOptions(d);
+        return `
         <div class="defect" data-i="${i}">
           <div class="defect-top"><b>${esc(d.label)}</b><button class="icon-btn sm def-del" aria-label="Remove defect">${icon('close')}</button></div>
-          <div class="defect-fields">
+          <div class="defect-fields ${linked.length ? 'no-qty' : ''}">
             <label class="field"><span>Remedial work</span><textarea rows="2" class="def-rem" id="def-rem-${i}">${esc(d.remedial)}</textarea></label>
-            <label class="field qty"><span>Qty</span><input type="number" inputmode="numeric" min="1" class="def-qty" id="def-qty-${i}" value="${esc(d.qty ?? 1)}"></label>
+            ${linked.length ? '' : `<label class="field qty"><span>Qty</span><input type="number" inputmode="numeric" min="1" class="def-qty" id="def-qty-${i}" value="${esc(d.qty ?? 1)}"></label>`}
           </div>
-          ${(() => {
-            const cat = defectCat(d);
-            const opts = (lists.materials || []).filter((m) => m.name?.trim() && (!cat || matCat(m) === cat));
-            if (!opts.length && !d.product) return '';
-            return `<label class="field def-prod"><span>Product${cat ? ' · ' + esc(cat) : ''}</span><select class="def-product">
-              <option value="">Choose product…</option>
-              ${opts.map((m) => `<option value="${esc(m.id)}" ${m.name === d.product ? 'selected' : ''}>${esc(m.name)}${m.cost ? ' – ' + euro(m.cost) : ''}</option>`).join('')}
-              ${d.product && !opts.some((m) => m.name === d.product) ? `<option selected>${esc(d.product)}</option>` : ''}
-            </select></label>`;
-          })()}
-        </div>`).join('')
+          <div class="def-prods">
+            ${linked.length ? `<span class="def-prods-h">Products${cat ? ' · ' + esc(cat) : ''}</span>` : ''}
+            ${linked.map((m) => `
+              <div class="def-prod-row" data-id="${esc(m.id)}">
+                <select class="dp-name" aria-label="Product">
+                  ${opts.map((o) => `<option value="${esc(o.id)}" ${o.name === m.name ? 'selected' : ''}>${esc(o.name)}${o.cost ? ' – ' + euro(o.cost) : ''}</option>`).join('')}
+                  ${!opts.some((o) => o.name === m.name) ? `<option value="" selected>${esc(m.name)}</option>` : ''}
+                </select>
+                <span class="stepper"><button type="button" class="dp-minus" aria-label="One fewer">−</button><input class="dp-qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(m.qty ?? 1)}" aria-label="Quantity"><button type="button" class="dp-plus" aria-label="One more">+</button></span>
+                <input class="dp-spec" value="${esc(m.spec || '')}" placeholder="${cat === 'Signs' ? 'e.g. push side' : 'note, e.g. head + hinge side'}" aria-label="Note">
+                <button class="icon-btn sm dp-del" aria-label="Remove product">${icon('close')}</button>
+              </div>`).join('')}
+            ${opts.length ? `<button type="button" class="btn ghost sm dp-add">${icon('plus')} ${linked.length ? 'Add another product' : 'Add product' + (cat ? ' (' + esc(cat.toLowerCase()) + ')' : '')}</button>` : ''}
+          </div>
+        </div>`;
+      }).join('')
       : '<p class="muted small">No defects recorded.</p>';
+    const setMat = (id, patch) => queue({ materials: current.materials.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
     $$('.defect', el).forEach((row) => {
       const i = Number(row.dataset.i);
+      const d = current.defects[i];
+      const key = 'd:' + d.label;
       $('.def-del', row).onclick = () => {
         const defects = [...current.defects];
-        const [gone] = defects.splice(i, 1);
-        queue(autoFail({ defects, materials: (current.materials || []).filter((m) => m.forKey !== 'd:' + gone.label) }));
+        defects.splice(i, 1);
+        queue(autoFail({ defects, materials: (current.materials || []).filter((m) => m.forKey !== key) }));
         drawDefects();
         drawMaterials();
       };
       $('.def-rem', row).oninput = (e) => {
-        const defects = current.defects.map((d, j) => (j === i ? { ...d, remedial: e.target.value } : d));
-        queue({ defects });
+        queue({ defects: current.defects.map((x, j) => (j === i ? { ...x, remedial: e.target.value } : x)) });
       };
-      $('.def-qty', row).oninput = (e) => {
-        const q = Number(e.target.value) || 1;
-        const defects = current.defects.map((d, j) => (j === i ? { ...d, qty: q } : d));
-        const key = 'd:' + current.defects[i].label;
-        // the product picked for this defect follows its quantity
-        queue({ defects, materials: (current.materials || []).map((m) => (m.forKey === key ? { ...m, qty: q } : m)) });
-      };
-      $('.def-product', row)?.addEventListener('change', (e) => {
-        const d = current.defects[i];
-        const key = 'd:' + d.label;
-        const m = (lists.materials || []).find((x) => x.id === e.target.value);
-        const others = (current.materials || []).filter((x) => x.forKey !== key);
-        const materials = m ? [...others, { id: db.uid(), name: m.name, unit: m.unit || 'each', cost: Number(m.cost) || 0, qty: Number(d.qty) || 1, cat: matCat(m), forKey: key }] : others;
-        const defects = current.defects.map((x, j) => (j === i ? { ...x, product: m ? m.name : '' } : x));
-        queue({ defects, materials });
+      $('.def-qty', row)?.addEventListener('input', (e) => {
+        queue({ defects: current.defects.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) || 1 } : x)) });
+      });
+      $('.dp-add', row)?.addEventListener('click', () => {
+        const { opts } = prodOptions(d);
+        const used = new Set((current.materials || []).filter((m) => m.forKey === key).map((m) => m.name));
+        const o = opts.find((x) => !used.has(x.name)) || opts[0];
+        queue({ materials: [...(current.materials || []), { id: db.uid(), name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, qty: 1, cat: matCat(o), forKey: key, spec: '' }] });
+        drawDefects();
         drawMaterials();
+        $$('.dp-name', $$('.defect', el)[i]).at(-1)?.focus();
+      });
+      $$('.def-prod-row', row).forEach((pr) => {
+        const id = pr.dataset.id;
+        const qty = $('.dp-qty', pr);
+        const setQty = (n) => { qty.value = Math.max(0, Math.round(n * 100) / 100); setMat(id, { qty: Number(qty.value) }); drawMaterials(); };
+        qty.oninput = () => { setMat(id, { qty: Number(qty.value) || 0 }); drawMaterials(); };
+        $('.dp-minus', pr).onclick = () => setQty((Number(qty.value) || 0) - 1);
+        $('.dp-plus', pr).onclick = () => setQty((Number(qty.value) || 0) + 1);
+        $('.dp-name', pr).onchange = (e) => {
+          const o = (lists.materials || []).find((x) => x.id === e.target.value);
+          if (o) { setMat(id, { name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, cat: matCat(o) }); drawMaterials(); }
+        };
+        $('.dp-spec', pr).oninput = (e) => setMat(id, { spec: e.target.value });
+        $('.dp-del', pr).onclick = () => { queue({ materials: current.materials.filter((m) => m.id !== id) }); drawDefects(); drawMaterials(); };
       });
     });
   };

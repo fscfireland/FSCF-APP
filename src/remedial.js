@@ -4,7 +4,7 @@
 // `remedials: { [key]: { done, by, at } }`, so they sync, show in the change
 // log and carry forward with a new inspection.
 
-import { doorActions, signsNeeded } from './defaults.js';
+import { doorActions, signsNeeded, matLabel } from './defaults.js';
 
 export const DEFAULT_REMEDIAL_TEXT = `All remedial works are to be carried out by a competent person with demonstrable training and experience in the installation and maintenance of fire door sets (for example, an operative of a third-party certified installer).
 
@@ -18,7 +18,15 @@ const NOT_WORK = /^(no action required|refer to client|further investigation)/i;
 export function remedialItems(d) {
   const items = [];
   for (const x of d.defects || []) {
-    items.push({ key: 'd:' + x.label, text: (x.remedial || x.label) + (x.product ? ' – ' + x.product : ''), sub: x.remedial ? x.label : '', qty: Number(x.qty) > 1 ? Number(x.qty) : 0, part: x.product || '' });
+    const prods = (d.materials || []).filter((m) => m.forKey === 'd:' + x.label && m.name && Number(m.qty) > 0);
+    if (prods.length) {
+      // one line per product, so each size / make is priced and ticked on its own
+      for (const m of prods) {
+        items.push({ key: 'd:' + x.label + '|' + matLabel(m), text: (x.remedial || x.label) + ' – ' + matLabel(m), sub: x.label, qty: Number(m.qty) || 1, part: matLabel(m) });
+      }
+    } else {
+      items.push({ key: 'd:' + x.label, text: x.remedial || x.label, sub: x.remedial ? x.label : '', qty: Number(x.qty) > 1 ? Number(x.qty) : 0 });
+    }
   }
   for (const a of doorActions(d)) {
     if (NOT_WORK.test(a)) continue;

@@ -320,7 +320,7 @@ export const DEFAULT_DEFECTS = [
   { label: 'Gap between frame and wall not fire stopped', remedial: 'Fire stop frame-to-wall gap with tested intumescent sealant / system' },
   { label: 'Unauthorised holes or modifications', remedial: 'Fill holes with tested repair; remove non-compliant fittings' },
   { label: 'Air transfer grille / letter plate not rated', remedial: 'Replace with fire-rated (and smoke-rated where needed) intumescent unit' },
-  { label: 'Fire door signage missing', remedial: 'Fit "Fire Door Keep Shut" sign (I.S. 3217 / ISO 7010) both faces' },
+  { label: 'Fire door signage missing', remedial: 'Supply and fit fire safety signage (I.S. 3217 / ISO 7010)' },
   { label: 'No certification label or plug', remedial: 'Record as unverified; recommend replacement or evidence from manufacturer' },
 ];
 
