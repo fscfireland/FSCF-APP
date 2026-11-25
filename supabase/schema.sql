@@ -61,7 +61,9 @@ create table if not exists photos (
 create table if not exists files (
   id uuid primary key,
   owner uuid not null default auth.uid() references auth.users(id),
-  project_id uuid not null references projects(id),
+  project_id uuid references projects(id),   -- null = the owner's private 'My files'
+  plan_id uuid references plans(id),         -- attached to one drawing
+  attach_collection text,                    -- or attached to a collection
   name text not null,
   folder text,
   mime_type text,

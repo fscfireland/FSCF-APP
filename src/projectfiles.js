@@ -5,6 +5,8 @@
 import * as db from './db.js';
 import { compressImage, pdfThumb, saveFile } from './files.js';
 
+export const LIB = 'library'; // projectId of the private 'My files' library
+export const DEFAULT_LIB_FOLDERS = ['General', 'Certificates', 'Product data', 'Templates', 'RAMS', 'Reports', 'Other'];
 export const DEFAULT_FILE_FOLDERS = ['Certificates', 'O&M manuals', 'Reports', 'Drawings', 'Quotes & orders', 'Photos', 'Other'];
 
 export function fileFolders(project, files = []) {
@@ -19,6 +21,7 @@ export function guessFolder(name, type, folders) {
   const rules = [
     [/cert|certificate|\bcoc\b|declaration|dop\b|test/, 'Certificates'],
     [/o&m|o ?and ?m|manual|datasheet|data sheet|spec/, 'O&M manuals'],
+    [/\brams\b|method statement|risk assessment/, 'RAMS'],
     [/report|inspection|survey|audit/, 'Reports'],
     [/drawing|plan|layout|\bdwg\b|elevation|fire ?cert/, 'Drawings'],
     [/quote|quotation|order|\bpo\b|invoice|price|tender/, 'Quotes & orders'],
@@ -48,7 +51,7 @@ export async function projectFiles(projectId) {
 }
 
 // Save uploaded files to a project. `folder` null means sort automatically.
-export async function addFiles(project, fileList, folder, onProgress = () => {}) {
+export async function addFiles(project, fileList, folder, onProgress = () => {}, extra = {}) {
   const folders = fileFolders(project);
   const out = [];
   let i = 0;
@@ -65,6 +68,7 @@ export async function addFiles(project, fileList, folder, onProgress = () => {})
       size: file.size,
       blob: file,
       notes: '',
+      ...extra,
     };
     const kind = fileKind(rec);
     try {

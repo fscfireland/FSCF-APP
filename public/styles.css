@@ -845,3 +845,22 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .lc-plan .ico { width: 15px; height: 15px; flex: none; }
 .project-card.is-live { border-left: 4px solid var(--st-pass); }
 .pc-live { display: inline-flex; align-items: center; gap: 7px; justify-self: start; width: fit-content; font-size: 13px; font-weight: 650; padding: 3px 10px 3px 8px; border-radius: 12px; background: color-mix(in srgb, var(--st-pass) 14%, var(--surface)); }
+
+/* ---------- My files ---------- */
+.lib-card { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px 14px; margin-bottom: 18px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); text-align: left; font: inherit; color: inherit; }
+.lib-card > .ico:first-child { width: 28px; height: 28px; color: var(--accent); flex: none; }
+.lib-card > span { flex: 1; display: grid; gap: 2px; min-width: 0; }
+.lib-card small { color: var(--ink-2); }
+.lib-card > .ico:last-child { color: var(--ink-2); }
+.lib-card:active { background: var(--surface-2); }
+.lib-note { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--surface-2); color: var(--ink-2); font-size: 14px; }
+.lib-note .ico { flex: none; width: 18px; height: 18px; margin-top: 1px; }
+.lib-lockbox { max-width: 320px; margin: 40px auto; display: grid; gap: 14px; justify-items: center; text-align: center; }
+.lib-lockbox .field { width: 100%; text-align: left; }
+.lib-lockbox .field input { text-align: center; font-size: 24px; letter-spacing: .4em; }
+.lib-lock-ico .ico { width: 48px; height: 48px; color: var(--accent); }
+.file-attach { display: flex; align-items: center; gap: 4px; color: var(--ink) !important; font-weight: 600; }
+.file-attach .ico { width: 14px; height: 14px; flex: none; }
+.badge-btn { position: relative; }
+.ib-badge { position: absolute; top: 4px; right: 2px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font: 700 11px/18px var(--font); text-align: center; }
+.ib-badge[hidden] { display: none; }

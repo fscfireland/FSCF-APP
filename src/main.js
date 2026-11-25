@@ -26,7 +26,7 @@ import {
   splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
-import { fileFolders, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
+import { LIB, DEFAULT_LIB_FOLDERS, fileFolders, guessFolder, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
 import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
 import { fmtSize as fmtBytes } from './media.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
@@ -125,6 +125,7 @@ async function render() {
     else if (state.view === 'project') await renderProject();
     else if (state.view === 'plan') await renderPlan();
     else if (state.view === 'settings') await renderSettings();
+    else if (state.view === 'library') await renderLibrary();
   } else if (state.view === 'plan') {
     await refreshPins();
   }
@@ -160,6 +161,7 @@ async function renderProjects() {
     }
   }
   live.sort((a, b) => b.sv.startedAt.localeCompare(a.sv.startedAt));
+  const libCount = (await projectFiles(LIB)).length;
   const liveN = {};
   for (const l of live) liveN[l.p.id] = (liveN[l.p.id] || 0) + 1;
   const liveHtml = live.length ? `<section class="live-list">
@@ -210,6 +212,7 @@ async function renderProjects() {
     <main class="page">
       <div class="offline-note">${icon('check')} Saved on this phone — works with no signal</div>
       ${liveHtml}
+      <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
         <label class="search">${icon('search')}<input id="proj-q" type="search" placeholder="Search site, client or group…" value="${esc(state.projQ || '')}"></label>
@@ -232,6 +235,7 @@ async function renderProjects() {
     </main>
     ${projects.length ? `<button class="fab" id="new-project">${icon('plus')} New project</button>` : ''}
   `;
+  $('#my-files').onclick = () => go({ view: 'library' });
   $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'plan', projectId: c.dataset.pid, planId: c.dataset.plan })));
   $('#settings').onclick = () => go({ view: 'settings' });
   $$('#new-project, #new-project-2').forEach((b) => (b.onclick = () => editProject()));
@@ -427,7 +431,7 @@ async function renderProject() {
   $$('.tab').forEach((t) => (t.onclick = () => go({ ...state, tab: t.dataset.tab }, { replace: true })));
   const body = $('#tab-body');
   if (tab === 'plans') return renderPlansTab(body, project, allPlans, allDoors, coll);
-  if (tab === 'files') return renderFilesTab(body, project, files);
+  if (tab === 'files') return renderFilesTab(body, project, files, { plans: allPlans });
   // Doors and Export work on one collection at a time (or all)
   body.innerHTML = '<div id="coll-bar"></div><div id="tab-inner"></div>';
   if (colls.length > 1) {
@@ -688,15 +692,71 @@ async function closeService(project, plan, doors) {
 }
 
 // ---------- Files: certificates, manuals, quotes and other documents ----------
+// The same list serves a project's Files tab and "My files", the private
+// library (files kept under projectId 'library', never in reports or shared).
 const KIND_ICON = { pdf: 'report', image: 'image', video: 'video', sheet: 'sheet', doc: 'file', cad: 'plan', other: 'file' };
+const libProject = () => ({ id: LIB, fileFolders: lists.libFolders?.length ? lists.libFolders : DEFAULT_LIB_FOLDERS });
 
-function renderFilesTab(body, project, files) {
+// Where in the project a file is attached: a drawing, a collection, or the whole project
+function attachText(x, plans) {
+  if (x.planId) {
+    const pl = plans.find((p) => p.id === x.planId);
+    return pl ? planSvcName(pl) : '';
+  }
+  if (x.attachColl != null) return collLabel(x.attachColl);
+  return '';
+}
+function attachMatches(x, a, plans) {
+  if (!a) return true;
+  if (a === 'none') return !x.planId && x.attachColl == null;
+  if (a.startsWith('p:')) return x.planId === a.slice(2);
+  const c = a.slice(2);
+  return x.attachColl === c || (!!x.planId && plans.find((p) => p.id === x.planId)?.collection === c);
+}
+function attachOptions(plans, cur) {
+  const colls = listCollections(plans);
+  const named = colls.length > 1 || (colls[0] ?? '') !== '';
+  return `<option value="none" ${cur === 'none' ? 'selected' : ''}>Whole project</option>
+    ${named ? `<optgroup label="Collection">${colls.map((c) => `<option value="c:${esc(c)}" ${cur === 'c:' + c ? 'selected' : ''}>${esc(collLabel(c))}</option>`).join('')}</optgroup>` : ''}
+    ${plans.length ? `<optgroup label="Drawing">${plans.map((p) => `<option value="p:${p.id}" ${cur === 'p:' + p.id ? 'selected' : ''}>${esc(planSvcName(p))}</option>`).join('')}</optgroup>` : ''}`;
+}
+const attachValue = (x) => (x.planId ? 'p:' + x.planId : x.attachColl != null ? 'c:' + x.attachColl : 'none');
+const attachFields = (v) => (v.startsWith('p:') ? { planId: v.slice(2), attachColl: undefined } : v.startsWith('c:') ? { planId: null, attachColl: v.slice(2) } : { planId: null, attachColl: undefined });
+
+function fileRowHtml(x, { showFolder = true, plans = [] } = {}) {
+  const k = fileKind(x);
+  const at = attachText(x, plans);
+  return `<button class="file-row" data-id="${x.id}">
+    <span class="file-thumb">${x.thumb ? `<img data-thumb="${x.id}" alt="">` : `<span class="file-ico k-${k}">${icon(KIND_ICON[k])}<small>${esc((x.name.split('.').pop() || '').slice(0, 4).toUpperCase())}</small></span>`}</span>
+    <span class="dr-main"><b>${esc(x.name)}</b>
+      <small>${esc([showFolder ? x.folder : '', KIND_LABEL[k] + (x.pages > 1 ? ` · ${x.pages} pages` : ''), fmtBytes(x.size), fmtDate(x.createdAt.slice(0, 10))].filter(Boolean).join(' · '))}</small>
+      ${at ? `<small class="file-attach">${icon('plan')} ${esc(at)}</small>` : ''}
+      ${x.notes ? `<small class="file-note">${esc(x.notes)}</small>` : ''}
+    </span>
+    <span class="file-more" aria-hidden="true">${icon('more')}</span>
+  </button>`;
+}
+function fillThumbs(root, files) {
+  for (const x of files) {
+    const img = $(`img[data-thumb="${x.id}"]`, root);
+    if (img && x.thumb) { const u = URL.createObjectURL(x.thumb); urls.add(u); img.src = u; }
+  }
+}
+
+// ctx: { lib, plans, rerender }
+function renderFilesTab(body, project, files, ctx = {}) {
+  const lib = !!ctx.lib;
+  const plans = ctx.plans || [];
+  const rerender = ctx.rerender || (() => renderProject());
   const folders = fileFolders(project, files);
   const f = state.fileF || '';
+  const a = lib ? '' : state.fileA || '';
   const q = (state.fq || '').toLowerCase();
-  const shown = files.filter((x) => (!f || x.folder === f) && (!q || [x.name, x.folder, x.notes].join(' ').toLowerCase().includes(q)));
+  const shown = files.filter((x) => (!f || x.folder === f) && attachMatches(x, a, plans) && (!q || [x.name, x.folder, x.notes, attachText(x, plans)].join(' ').toLowerCase().includes(q)));
   const count = (name) => files.filter((x) => x.folder === name).length;
+  const anyAttached = files.some((x) => x.planId || x.attachColl != null);
   body.innerHTML = `
+    ${lib ? `<p class="lib-note">${icon('shield')}<span>Private to you. Files here never go into reports or to clients. Tap a file and choose <b>Send to a project</b> to put it on a drawing or collection.</span></p>` : ''}
     <div class="row-btns import-row">
       <label class="btn primary sm">${icon('upload')} Add files<input type="file" id="file-add" multiple hidden></label>
       <button class="btn ghost sm" id="file-folders">${icon('folder')} Folders</button>
@@ -705,34 +765,24 @@ function renderFilesTab(body, project, files) {
       <button class="chip ${!f ? 'is-on' : ''}" data-ff="">All <b>${files.length}</b></button>
       ${folders.map((n) => `<button class="chip ${f === n ? 'is-on' : ''}" data-ff="${esc(n)}">${esc(n)} <b>${count(n)}</b></button>`).join('')}
     </div>
+    ${!lib && (anyAttached || a) && plans.length ? `<label class="coll-bar">${icon('plan')}<span>Attached to</span>
+      <select id="file-attach"><option value="">Anything</option>${attachOptions(plans, a)}</select></label>` : ''}
     ${files.length > 4 ? `<label class="search">${icon('search')}<input id="file-q" type="search" placeholder="Search file names and notes…" value="${esc(state.fq || '')}"></label>` : ''}
-    ${files.length ? '' : `<div class="empty-files">${icon('folder')}<p><b>Keep the project's documents here</b><br>Fire door certificates, O&amp;M manuals, fire cert drawings, quotes, previous reports. They're saved on this phone and open with no signal.</p></div>`}
-    <div class="file-list">
-      ${shown.map((x) => {
-        const k = fileKind(x);
-        return `<button class="file-row" data-id="${x.id}">
-          <span class="file-thumb">${x.thumb ? `<img data-thumb="${x.id}" alt="">` : `<span class="file-ico k-${k}">${icon(KIND_ICON[k])}<small>${esc((x.name.split('.').pop() || '').slice(0, 4).toUpperCase())}</small></span>`}</span>
-          <span class="dr-main"><b>${esc(x.name)}</b>
-            <small>${esc([f ? '' : x.folder, KIND_LABEL[k] + (x.pages > 1 ? ` · ${x.pages} pages` : ''), fmtBytes(x.size), fmtDate(x.createdAt.slice(0, 10))].filter(Boolean).join(' · '))}</small>
-            ${x.notes ? `<small class="file-note">${esc(x.notes)}</small>` : ''}
-          </span>
-          <span class="file-more" aria-hidden="true">${icon('more')}</span>
-        </button>`;
-      }).join('')}
-    </div>
+    ${files.length ? '' : lib
+      ? `<div class="empty-files">${icon('folder')}<p><b>Your own files</b><br>Templates, product data sheets, certificates you reuse, anything you want on hand. Send any of them to a project's drawing or collection when you need it there.</p></div>`
+      : `<div class="empty-files">${icon('folder')}<p><b>Keep the project's documents here</b><br>Fire door certificates, O&amp;M manuals, fire cert drawings, quotes, previous reports. They're saved on this phone and open with no signal.</p></div>`}
+    <div class="file-list">${shown.map((x) => fileRowHtml(x, { showFolder: !f, plans })).join('')}</div>
     ${files.length && !shown.length ? '<p class="muted pad">No files match.</p>' : ''}
   `;
-  for (const x of shown) {
-    const img = $(`img[data-thumb="${x.id}"]`, body);
-    if (img && x.thumb) { const u = URL.createObjectURL(x.thumb); urls.add(u); img.src = u; }
-  }
-  const rerender = () => renderProject();
-  $$('.chip', body).forEach((c) => (c.onclick = () => { state.fileF = c.dataset.ff; renderFilesTab(body, project, files); }));
+  fillThumbs(body, shown);
+  const again = () => renderFilesTab(body, project, files, ctx);
+  $$('.chip', body).forEach((c) => (c.onclick = () => { state.fileF = c.dataset.ff; again(); }));
+  $('#file-attach')?.addEventListener('change', (e) => { state.fileA = e.target.value; again(); });
   const qi = $('#file-q');
   if (qi) qi.oninput = () => {
     state.fq = qi.value;
     const pos = qi.selectionStart;
-    renderFilesTab(body, project, files);
+    again();
     const n = $('#file-q');
     n.focus();
     n.setSelectionRange(pos, pos);
@@ -743,9 +793,10 @@ function renderFilesTab(body, project, files) {
     if (!list.length) return;
     const b = busy('Saving files…');
     try {
-      const added = await addFiles(project, list, f || null, (m) => b.update(m));
+      const extra = a && a !== 'none' ? attachFields(a) : {};
+      const added = await addFiles(project, list, f || null, (m) => b.update(m), extra);
       b.done();
-      const where = [...new Set(added.map((a) => a.folder))];
+      const where = [...new Set(added.map((x) => x.folder))];
       toast(`${added.length} file${added.length > 1 ? 's' : ''} added to ${where.join(', ')}`);
     } catch (err) {
       b.done();
@@ -755,7 +806,7 @@ function renderFilesTab(body, project, files) {
   };
   $('#file-folders').onclick = async () => {
     const r = await dialog({
-      title: 'File folders',
+      title: lib ? 'My file folders' : 'File folders',
       body: `<label class="field"><span>One folder per line</span>
         <textarea name="folders" rows="9">${esc(fileFolders(project).join('\n'))}</textarea>
         <small class="muted">Rename a folder here and its files move with it (keep it on the same line).</small></label>`,
@@ -773,48 +824,241 @@ function renderFilesTab(body, project, files) {
         if (state.fileF === old[i]) state.fileF = next[i];
       }
     }
-    await db.put('projects', { ...project, fileFolders: next });
+    if (lib) await saveLists({ libFolders: next });
+    else await db.put('projects', { ...(await db.get('projects', project.id)), fileFolders: next });
     rerender();
   };
-  $$('.file-row', body).forEach((row) => (row.onclick = () => fileDetails(project, files.find((x) => x.id === row.dataset.id), rerender)));
+  $$('.file-row', body).forEach((row) => (row.onclick = () => fileDetails(project, files.find((x) => x.id === row.dataset.id), { ...ctx, rerender })));
 }
 
-async function fileDetails(project, rec, rerender) {
+async function fileDetails(project, rec, ctx = {}) {
+  const lib = !!ctx.lib;
+  const plans = ctx.plans || [];
+  const rerender = ctx.rerender || (() => renderProject());
   const folders = fileFolders(project, [rec]);
   const k = fileKind(rec);
   let thumbUrl = '';
   if (rec.thumb) thumbUrl = URL.createObjectURL(rec.thumb);
+  let sent = false;
   const r = await dialog({
-    title: 'File',
+    title: lib ? 'My file' : 'File',
     body: `
       ${thumbUrl ? `<img class="file-preview" src="${thumbUrl}" alt="">` : ''}
       <button type="button" class="btn wide" id="fd-open">${icon('eye')} Open ${esc(KIND_LABEL[k].toLowerCase())}</button>
+      ${lib ? `<button type="button" class="btn primary wide" id="fd-send">${icon('plan')} Send to a project</button>` : ''}
       <label class="field"><span>Name</span><input name="name" value="${esc(rec.name)}" required></label>
       <label class="field"><span>Folder</span><select name="folder">${folders.map((n) => `<option ${n === rec.folder ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label>
+      ${!lib && plans.length ? `<label class="field"><span>Attached to</span><select name="attach">${attachOptions(plans, attachValue(rec))}</select>
+        <small class="muted">Files on a drawing also show on that drawing's screen.</small></label>` : ''}
       <label class="field"><span>Notes</span><textarea name="notes" rows="2" placeholder="e.g. Valid until Nov 2027 · Door set 3 to 9">${esc(rec.notes || '')}</textarea></label>
       <p class="muted small">${esc([KIND_LABEL[k], rec.pages > 1 ? rec.pages + ' pages' : '', fmtBytes(rec.size), 'added ' + fmtDate(rec.createdAt.slice(0, 10))].filter(Boolean).join(' · '))}</p>
       <div class="row-btns"><button type="button" class="btn ghost sm" id="fd-dl">${icon('download')} Save a copy</button>
+      ${!lib ? `<button type="button" class="btn ghost sm" id="fd-tolib">${icon('folder')} Copy to My files</button>` : ''}
       <button type="button" class="btn ghost sm danger-text" id="fd-del">${icon('trash')} Delete</button></div>`,
     buttons: [{ label: 'Close', value: false }, { label: 'Save', value: true, kind: 'primary' }],
     onOpen: (form) => {
+      const closeMe = () => { form.parentElement.remove(); if (thumbUrl) URL.revokeObjectURL(thumbUrl); };
       $('#fd-open', form).onclick = () => openFile(rec).catch((e) => toast(e.message, 'error'));
       $('#fd-dl', form).onclick = () => downloadFile(rec).catch((e) => toast(e.message, 'error'));
+      $('#fd-send', form)?.addEventListener('click', async () => {
+        const fresh = { ...rec, name: $('[name=name]', form).value.trim() || rec.name, notes: $('[name=notes]', form).value.trim() };
+        if (await sendToProject(fresh)) { sent = true; closeMe(); rerender(); }
+      });
+      $('#fd-tolib', form)?.addEventListener('click', async () => {
+        const lp = libProject();
+        const folder = fileFolders(lp).includes(rec.folder) ? rec.folder : guessFolder(rec.name, rec.type || '', fileFolders(lp)) || fileFolders(lp)[0];
+        const { createdAt, updatedAt, ...rest } = rec;
+        await db.put('files', { ...rest, id: db.uid(), projectId: LIB, folder, planId: null, attachColl: undefined });
+        toast('Copied to My files');
+      });
       $('#fd-del', form).onclick = async () => {
-        if (!(await confirmBox('Delete file?', `${rec.name} will be removed from this project.`))) return;
+        if (!(await confirmBox('Delete file?', `${rec.name} will be removed from ${lib ? 'My files' : 'this project'}.`))) return;
         await db.remove('files', rec.id);
-        form.parentElement.remove();
-        if (thumbUrl) URL.revokeObjectURL(thumbUrl);
+        closeMe();
         toast('File deleted');
         rerender();
       };
     },
   });
   if (thumbUrl) URL.revokeObjectURL(thumbUrl);
-  if (r.value !== true) return;
+  if (sent || r.value !== true) return;
   const name = r.data.name.trim() || rec.name;
-  await db.put('files', { ...rec, name, folder: r.data.folder, notes: r.data.notes.trim() });
+  await db.put('files', { ...rec, name, folder: r.data.folder, notes: r.data.notes.trim(), ...(r.data.attach ? attachFields(r.data.attach) : {}) });
   toast('Saved');
   rerender();
+}
+
+// Move (or copy) a file from My files to a project's drawing, collection or the whole project
+async function sendToProject(rec) {
+  const projects = (await db.all('projects')).sort((a, b) => (a.site || '').localeCompare(b.site || ''));
+  if (!projects.length) return toast('Make a project first', 'error'), false;
+  const plansOf = async (pid) => db.projectPlans(pid);
+  let tPlans = await plansOf(state.projectId && projects.some((p) => p.id === state.projectId) ? state.projectId : projects[0].id);
+  const r = await dialog({
+    title: 'Send to a project',
+    body: `
+      <p><b>${esc(rec.name)}</b></p>
+      <label class="field"><span>Project</span><select name="pid" id="sp-pid">${projects.map((p) => `<option value="${p.id}" ${tPlans[0]?.projectId === p.id ? 'selected' : ''}>${esc(p.site || 'Untitled site')}${p.client ? ' – ' + esc(p.client) : ''}</option>`).join('')}</select></label>
+      <label class="field"><span>Put it on</span><select name="target" id="sp-target"></select></label>
+      <label class="field"><span>Folder in the project</span><select name="folder" id="sp-folder"></select></label>
+      <label class="check-line"><input type="checkbox" name="keep"> Keep a copy in My files</label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Send', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      const fill = async () => {
+        const pid = $('#sp-pid', form).value;
+        tPlans = await plansOf(pid);
+        const proj = projects.find((p) => p.id === pid);
+        $('#sp-target', form).innerHTML = attachOptions(tPlans, tPlans.length === 1 ? 'p:' + tPlans[0].id : 'none');
+        const fl = fileFolders(proj);
+        const pick = fl.includes(rec.folder) ? rec.folder : guessFolder(rec.name, rec.type || '', fl) || 'Other';
+        $('#sp-folder', form).innerHTML = fl.map((n) => `<option ${n === pick ? 'selected' : ''}>${esc(n)}</option>`).join('');
+      };
+      $('#sp-pid', form).onchange = fill;
+      fill();
+    },
+  });
+  if (r.value !== true) return false;
+  const moved = { ...rec, projectId: r.data.pid, folder: r.data.folder || 'Other', ...attachFields(r.data.target || 'none') };
+  if (r.data.keep) {
+    const { createdAt, updatedAt, ...rest } = moved;
+    await db.put('files', { ...rest, id: db.uid() });
+  } else {
+    await db.put('files', moved);
+  }
+  const proj = projects.find((p) => p.id === r.data.pid);
+  const pl = tPlans.find((p) => 'p:' + p.id === r.data.target);
+  toast(`${r.data.keep ? 'Copied' : 'Moved'} to ${proj.site || 'project'}${pl ? ' › ' + pl.name : r.data.target?.startsWith('c:') ? ' › ' + collLabel(r.data.target.slice(2)) : ''}`);
+  return true;
+}
+
+// ---------- My files: private library with an optional PIN ----------
+let libUnlocked = false;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && lists?.libPin) {
+    libUnlocked = false;
+    if (state.view === 'library') refresh();
+  }
+});
+async function pinHash(pin) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('fscf-files:' + pin));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function renderLibrary() {
+  const locked = lists.libPin && !libUnlocked;
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>My files</b><small>Private · only on this phone${lists.libPin ? ' · PIN locked' : ''}</small></div>
+      <button class="icon-btn" id="lib-lock" aria-label="PIN lock">${icon('shield')}</button>
+    </header>
+    <main class="page" id="lib-body"></main>`;
+  $('#back').onclick = back;
+  $('#lib-lock').onclick = libPinMenu;
+  const body = $('#lib-body');
+  if (locked) {
+    body.innerHTML = `
+      <form class="lib-lockbox" id="lib-unlock">
+        <span class="lib-lock-ico">${icon('shield')}</span>
+        <h2 class="h2">My files are locked</h2>
+        <label class="field"><span>PIN</span><input id="lib-pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" required></label>
+        <button class="btn primary" type="submit">Unlock</button>
+      </form>`;
+    setTimeout(() => $('#lib-pin')?.focus(), 50);
+    $('#lib-unlock').onsubmit = async (e) => {
+      e.preventDefault();
+      if ((await pinHash($('#lib-pin').value)) === lists.libPin) {
+        libUnlocked = true;
+        renderLibrary();
+      } else {
+        toast('Wrong PIN', 'error');
+        $('#lib-pin').value = '';
+      }
+    };
+    return;
+  }
+  const files = await projectFiles(LIB);
+  renderFilesTab(body, libProject(), files, { lib: true, rerender: renderLibrary });
+}
+
+async function libPinMenu() {
+  const has = !!lists.libPin;
+  if (has && !libUnlocked) return toast('Unlock with your PIN first');
+  const r = await dialog({
+    title: has ? 'PIN lock' : 'Lock My files with a PIN',
+    body: `
+      <p>${has ? 'My files asks for this PIN each time the app is opened or switched back to.' : 'Ask for a PIN before showing My files, e.g. if someone else uses this phone.'}</p>
+      <label class="field"><span>${has ? 'New PIN (to change it)' : 'PIN (4 to 8 digits)'}</span><input name="pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" pattern="[0-9]{4,8}" ${has ? '' : 'required'}></label>
+      <label class="field"><span>Type it again</span><input name="pin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" ${has ? '' : 'required'}></label>
+      <p class="muted small">If you forget it, the files can't be shown. Keep a backup (Settings › Backup).</p>`,
+    buttons: has
+      ? [{ label: 'Close', value: false }, { label: 'Remove PIN', value: 'remove' }, { label: 'Lock now', value: 'lock' }, { label: 'Change PIN', value: true, kind: 'primary' }]
+      : [{ label: 'Cancel', value: false }, { label: 'Set PIN', value: true, kind: 'primary' }],
+  });
+  if (r.value === 'lock') { libUnlocked = false; return renderLibrary(); }
+  if (r.value === 'remove') {
+    if (!(await confirmBox('Remove the PIN?', 'My files will open without a PIN.', 'Remove', false))) return;
+    await saveLists({ libPin: '' });
+    toast('PIN removed');
+    return renderLibrary();
+  }
+  if (r.value !== true) return;
+  const { pin, pin2 } = r.data;
+  if (!/^\d{4,8}$/.test(pin || '')) return toast('Use 4 to 8 digits', 'error');
+  if (pin !== pin2) return toast("The two PINs don't match", 'error');
+  await saveLists({ libPin: await pinHash(pin) });
+  libUnlocked = true;
+  toast('PIN set');
+  renderLibrary();
+}
+
+// Files attached to one drawing (or its collection), shown on the drawing screen
+async function drawingFiles(project, plan) {
+  const all = await projectFiles(project.id);
+  const mine = all.filter((x) => x.planId === plan.id || (x.attachColl != null && !x.planId && x.attachColl === (plan.collection || '')));
+  const plans = await db.projectPlans(project.id);
+  let wrapEl = null;
+  const r = await dialog({
+    title: `Files · ${plan.name}`,
+    body: `
+      ${mine.length ? `<div class="file-list">${mine.map((x) => fileRowHtml(x, { plans })).join('')}</div>`
+        : '<p>No files on this drawing yet. Add them here, or send them from <b>My files</b> or the project\'s Files tab.</p>'}
+      <label class="btn sm">${icon('upload')} Add files to this drawing<input type="file" id="df-add" multiple hidden></label>`,
+    buttons: [{ label: 'Close', value: false }],
+    onOpen: (form) => {
+      wrapEl = form.parentElement;
+      fillThumbs(form, mine);
+      const reopen = () => { wrapEl.remove(); drawingFiles(project, plan); refreshPlanFiles(project, plan); };
+      $$('.file-row', form).forEach((row) => (row.onclick = () => {
+        wrapEl.remove();
+        fileDetails(project, mine.find((x) => x.id === row.dataset.id), { plans, rerender: () => { drawingFiles(project, plan); refreshPlanFiles(project, plan); } });
+      }));
+      $('#df-add', form).onchange = async (e) => {
+        const list = [...e.target.files];
+        e.target.value = '';
+        if (!list.length) return;
+        const b = busy('Saving files…');
+        try {
+          await addFiles(project, list, null, (m) => b.update(m), { planId: plan.id });
+          b.done();
+          toast(`${list.length} file${list.length > 1 ? 's' : ''} added to ${plan.name}`);
+        } catch (err) {
+          b.done();
+          toast('Could not save: ' + err.message, 'error');
+        }
+        reopen();
+      };
+    },
+  });
+  return r;
+}
+async function refreshPlanFiles(project, plan) {
+  const el = $('#plan-files-n');
+  if (!el) return;
+  const all = await projectFiles(project.id);
+  const n = all.filter((x) => x.planId === plan.id || (x.attachColl != null && !x.planId && x.attachColl === (plan.collection || ''))).length;
+  el.textContent = n || '';
+  el.hidden = !n;
 }
 
 // ---------- Repairs: remedial works list for the repairer ----------
@@ -1576,6 +1820,7 @@ async function renderPlan() {
         <div class="bar-title"><b>${esc(plan.name)}</b><small id="plan-counts"></small></div>
         <span class="bar-btns">
           <button class="icon-btn" id="plan-undo" aria-label="Undo" disabled>${icon('undo')}</button>
+          <button class="icon-btn badge-btn" id="plan-files" aria-label="Drawing files">${icon('file')}<span class="ib-badge" id="plan-files-n" hidden></span></button>
           <button class="icon-btn" id="plan-filter" aria-label="Filter pins">${icon('filter')}</button>
           <button class="icon-btn" id="to-list" aria-label="Door list">${icon('list')}</button>
         </span>
@@ -1606,6 +1851,11 @@ async function renderPlan() {
     bindSvc(el, pr, [plan], drawSvc);
   };
   drawSvc();
+  db.get('projects', state.projectId).then((pr) => {
+    if (!pr) return;
+    refreshPlanFiles(pr, plan);
+    $('#plan-files').onclick = () => drawingFiles(pr, plan);
+  });
   viewer = new PlanViewer($('#viewer'), {
     onTap: onPlanTap,
     onPinTap: (id) => {
@@ -3694,7 +3944,7 @@ async function renderSettings() {
   $('#s-backup').onclick = async () => {
     const b = busy('Preparing backup…');
     try {
-      const { result, videosLeftOut } = await backupProjects(projects);
+      const { result, videosLeftOut } = await backupProjects(projects, { library: true });
       b.done();
       if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
     } catch (e) {

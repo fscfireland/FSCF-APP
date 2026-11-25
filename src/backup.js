@@ -23,7 +23,7 @@ function deserialise(rec) {
   return out;
 }
 
-export async function backupProjects(projects) {
+export async function backupProjects(projects, { library = false } = {}) {
   const data = { format: FORMAT, version: 1, exportedAt: new Date().toISOString(), projects: [], plans: [], doors: [], photos: [], files: [] };
   let videosLeftOut = 0;
   for (const p of projects) {
@@ -37,6 +37,12 @@ export async function backupProjects(projects) {
         }
         data[store].push(await serialise(r));
       }
+    }
+  }
+  if (library) {
+    for (const r of await db.byIndex('files', 'projectId', 'library')) {
+      if (r.size > 50 * 1048576) { videosLeftOut++; continue; }
+      data.files.push(await serialise(r));
     }
   }
   data.settings = await db.all('settings');
