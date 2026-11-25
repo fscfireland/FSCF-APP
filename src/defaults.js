@@ -148,7 +148,14 @@ export const DEFAULT_QUESTIONS = [
 // (ex VAT) in Settings; they then pre-fill each door.
 export const DEFAULT_MATERIALS = [
   { id: 'm-int10', name: 'Intumescent strip 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int15', name: 'Intumescent strip 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int20', name: 'Intumescent strip 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int25', name: 'Intumescent strip 25 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int10s', name: 'Intumescent + smoke seal 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
   { id: 'm-int15s', name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int20s', name: 'Intumescent + smoke seal 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-smoke', name: 'Smoke seal only, brush or fin (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-glaze', name: 'Intumescent glazing tape / seal', unit: 'roll', cost: 0 },
   { id: 'm-closer', name: 'Overhead door closer EN 1154', unit: 'each', cost: 0 },
   { id: 'm-hinge', name: 'Fire-rated hinge EN 1935 (Grade 13)', unit: 'each', cost: 0 },
   { id: 'm-hpad', name: 'Intumescent hinge pads', unit: 'pack', cost: 0 },
@@ -167,6 +174,13 @@ export function doorActions(d) {
   if (Array.isArray(d.actions)) return d.actions;
   return d.action ? [d.action] : [];
 }
+
+// A material as it appears in lists and reports, with its size / type
+export const matLabel = (m) => (m.spec ? `${m.name} – ${m.spec}` : m.name || '');
+export const MATERIALS_VERSION = 2;
+
+// A door's fire alarm zone as one line, e.g. "Zone 4 – East wing"
+export const zoneText = (d) => [d.zoneNo ? `Zone ${d.zoneNo}` : '', d.zoneName || ''].filter(Boolean).join(' – ');
 
 export function materialsTotal(d) {
   return (d.materials || []).reduce((t, m) => t + (Number(m.qty) || 0) * (Number(m.cost) || 0), 0);

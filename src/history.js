@@ -15,7 +15,7 @@ let actor = '';
 export const setActor = (name) => (actor = name || '');
 
 // Fields that belong to one inspection visit
-const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'notes', 'doorType', 'leaf', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
+const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'notes', 'doorType', 'leaf', 'zoneNo', 'zoneName', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
 
 export function snapshotOf(d) {
   const snap = { id: db.uid(), savedAt: new Date().toISOString() };
@@ -32,6 +32,8 @@ const TEXT_FIELDS = {
   location: 'Location',
   doorType: 'Door type',
   leaf: 'Leaf configuration',
+  zoneNo: 'Fire alarm zone no.',
+  zoneName: 'Fire alarm zone name',
   inspectedBy: 'Inspected by',
 };
 
@@ -93,11 +95,11 @@ export function diffDoor(prev, next) {
     }
   }
 
-  const mats = (list) => (list || []).map((m) => m.name);
+  const mats = (list) => (list || []).map((m) => (m.spec ? `${m.name} – ${m.spec}` : m.name));
   for (const m of added(mats(prev.materials), mats(next.materials))) add('', `Added material: ${short(m)}`);
   for (const m of added(mats(next.materials), mats(prev.materials))) add('', `Removed material: ${short(m)}`);
-  const sig = (list) => JSON.stringify((list || []).map((m) => [m.name, m.qty, m.cost]));
-  if (!out.some((e) => e.text.includes('material')) && sig(prev.materials) !== sig(next.materials)) add('materials', 'Material quantities or prices changed');
+  const sig = (list) => JSON.stringify((list || []).map((m) => [m.name, m.spec, m.qty, m.cost]));
+  if (!out.some((e) => e.text.includes('material')) && sig(prev.materials) !== sig(next.materials)) add('materials', 'Material quantities, sizes or prices changed');
 
   if ((prev.history || []).length > (next.history || []).length) add('', 'Inspection record deleted');
   return out;

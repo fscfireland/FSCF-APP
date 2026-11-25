@@ -4,7 +4,7 @@ import * as db from './db.js';
 import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
-  setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse,
+  setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -86,6 +86,10 @@ async function loadLists() {
   };
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
+  if (s?.materials && (s.matVersion || 1) < MATERIALS_VERSION) {
+    const have = new Set(s.materials.map((m) => m.id));
+    await saveLists({ materials: [...s.materials, ...DEFAULT_MATERIALS.filter((m) => !have.has(m.id))], matVersion: MATERIALS_VERSION });
+  }
   return lists;
 }
 
@@ -510,13 +514,13 @@ function renderDoorsTab(body, project, plans, doors) {
   const counts = countStatuses(doors);
   const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
   const shown = doors.filter((d) => (filter === 'all' || (d.status || 'not_inspected') === filter) &&
-    (!q || [d.ref, d.location, d.doorType, String(d.pinNo), planName[d.planId]].join(' ').toLowerCase().includes(q)));
+    (!q || [d.ref, d.location, d.doorType, String(d.pinNo), planName[d.planId], d.zoneNo && 'zone ' + d.zoneNo, d.zoneName].join(' ').toLowerCase().includes(q)));
   body.innerHTML = `
     <div class="chips" role="group" aria-label="Filter by status">
       <button class="chip ${filter === 'all' ? 'is-on' : ''}" data-f="all">All <b>${doors.length}</b></button>
       ${statusesInUse(doors).map((s) => `<button class="chip ${filter === s.id ? 'is-on' : ''}" data-f="${s.id}" style="--c:${s.color}"><i></i>${s.label} <b>${counts[s.id] || 0}</b></button>`).join('')}
     </div>
-    <label class="search">${icon('search')}<input id="door-q" type="search" placeholder="Search door ref, room, type…" value="${esc(state.q || '')}"></label>
+    <label class="search">${icon('search')}<input id="door-q" type="search" placeholder="Search door ref, room, type, zone…" value="${esc(state.q || '')}"></label>
     ${doors.length ? '' : `<p class="muted pad">No doors yet. Open a plan and tap <b>Add door</b> to drop a pin.</p>`}
     <div class="door-table" role="table">
       ${shown.map((d) => doorRow(d, planName)).join('')}
@@ -544,7 +548,7 @@ function doorRow(d, planName) {
       <span class="pin-badge ${s.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${s.color}">${d.pinNo ?? ''}</span>
       <span class="dr-main">
         <b>${esc(d.ref || 'No ref')}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
-        <small>${esc([d.doorType, planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}</small>
+        <small>${esc([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}</small>
       </span>
       <span class="dr-side">
         <span class="status-pill" style="--c:${s.color}">${s.short}</span>
@@ -588,6 +592,8 @@ function renderExportTab(body, project, plans, allDoors) {
         <div class="chips wrap">${STATUSES.map((st) => chip('statuses', st.id, st.label, f.statuses.includes(st.id), st.color)).join('')}</div></div>
       <div class="rf-group"><span class="rf-label">Door type</span>
         <div class="chips wrap">${opts.types.map((t) => chip('types', t, t, f.types.includes(t))).join('')}</div></div>
+      ${opts.zones.length > 1 || (opts.zones[0] && opts.zones[0].key !== '(no zone)') ? `<div class="rf-group"><span class="rf-label">Fire alarm zone</span>
+        <div class="chips wrap">${opts.zones.map((z) => chip('zones', z.key, z.label, (f.zones || []).includes(z.key))).join('')}</div></div>` : ''}
       ${plans.length > 1 ? `<div class="rf-group"><span class="rf-label">Plan / level</span>
         <div class="chips wrap">${plans.map((pl) => chip('plans', pl.id, pl.name, f.plans.includes(pl.id))).join('')}</div></div>` : ''}
       <div class="grid2">
@@ -647,7 +653,7 @@ function renderExportTab(body, project, plans, allDoors) {
     window.scrollTo(0, y);
   };
   $$('.filter-panel .chip', body).forEach((c) => (c.onclick = () => {
-    const list = f[c.dataset.g];
+    const list = (f[c.dataset.g] ||= []);
     const i = list.indexOf(c.dataset.v);
     if (i >= 0) list.splice(i, 1);
     else list.push(c.dataset.v);
@@ -715,6 +721,8 @@ function renderExportTab(body, project, plans, allDoors) {
 
 // ---------- Plan viewer screen ----------
 let mode = null; // null | 'add' | 'move'
+// The fire alarm zone last entered on a plan, so neighbouring doors get it too
+const lastZone = { planId: '', no: '', name: '' };
 let planColl = ''; // collection of the plan on screen
 let selectedPin = null;
 
@@ -818,6 +826,7 @@ async function onPlanTap(x, y) {
     const door = await saveDoor({
       id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y,
       ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
+      zoneNo: lastZone.planId === state.planId ? lastZone.no : '', zoneName: lastZone.planId === state.planId ? lastZone.name : '',
       inspectedOn: '', inspectedBy: lists.inspector || '',
     });
     setMode(null);
@@ -885,6 +894,12 @@ async function drawSheet(door) {
   useScheme(await db.get('projects', door.projectId));
   const s = statusById[door.status || 'not_inspected'];
   const types = [...new Set([...(lists.doorTypes || []), door.doorType].filter(Boolean))];
+  // fire alarm zones already used on this project: number → name
+  const zoneMap = new Map();
+  for (const x of await db.byIndex('doors', 'projectId', door.projectId)) {
+    if (x.zoneNo && !zoneMap.get(x.zoneNo)) zoneMap.set(x.zoneNo, x.zoneName || '');
+  }
+  const zones = [...zoneMap.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }));
   el.innerHTML = `
     <div class="sheet-grip" aria-hidden="true"></div>
     <header class="sheet-head">
@@ -906,11 +921,18 @@ async function drawSheet(door) {
         <label class="field"><span>Leaf configuration</span>
           <select id="f-leaf" data-k="leaf">${LEAF_CONFIGS.map((t) => `<option value="${esc(t)}" ${t === (door.leaf || '') ? 'selected' : ''}>${esc(t || 'Select…')}</option>`).join('')}</select>
         </label>
+        <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
+        <label class="field"><span>Fire alarm zone name</span><input id="f-zname" data-k="zoneName" value="${esc(door.zoneName)}" placeholder="e.g. East wing ground floor" autocomplete="off" list="zone-names"></label>
       </div>
+      <datalist id="zone-nos">${zones.map(([n, nm]) => `<option value="${esc(n)}">${esc(nm)}</option>`).join('')}</datalist>
+      <datalist id="zone-names">${[...new Set(zones.map(([, nm]) => nm).filter(Boolean))].map((nm) => `<option value="${esc(nm)}"></option>`).join('')}</datalist>
 
       <section class="block">
         <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
-          <button class="btn sm" id="q-rest">${icon('check')} Mark rest Pass</button>
+          <span class="row-btns">
+            <button class="btn sm" id="q-rest">${icon('check')} Mark rest Pass</button>
+            <button class="btn ghost sm" id="q-edit">${icon('gear')} Edit questions</button>
+          </span>
         </div>
         <div class="q-list" id="questions"></div>
       </section>
@@ -1049,6 +1071,14 @@ async function drawSheet(door) {
       }
       queue({ [inp.dataset.k]: inp.value });
       if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || 'Door ' + door.pinNo;
+      if (inp.dataset.k === 'zoneNo' || inp.dataset.k === 'zoneName') {
+        // typing a known zone number fills in its name
+        if (inp.dataset.k === 'zoneNo' && zoneMap.get(inp.value.trim()) && !$('#f-zname').value) {
+          $('#f-zname').value = zoneMap.get(inp.value.trim());
+          queue({ zoneName: $('#f-zname').value });
+        }
+        Object.assign(lastZone, { planId: door.planId, no: $('#f-zone').value, name: $('#f-zname').value });
+      }
     });
   });
 
@@ -1131,6 +1161,10 @@ async function drawSheet(door) {
     });
   };
   drawQuestions();
+  $('#q-edit').onclick = async () => {
+    await flushSave();
+    go({ view: 'settings', focus: 's-qs' });
+  };
   $('#q-rest').onclick = () => {
     const checks = { ...(current.checks || {}) };
     for (const q of questionsFor(current, lists.questions || [])) {
@@ -1169,7 +1203,10 @@ async function drawSheet(door) {
     $('#materials').innerHTML = list.length
       ? list.map((m, i) => `
         <div class="mat" data-i="${i}">
-          <div class="defect-top"><b>${esc(m.name)}</b><button class="icon-btn sm mat-del" aria-label="Remove material">${icon('close')}</button></div>
+          <div class="defect-top"><b>${esc(m.name)}</b>
+            <span class="row-btns"><button class="btn ghost sm mat-dup" title="Add another size or type of this material">${icon('plus')} size</button>
+            <button class="icon-btn sm mat-del" aria-label="Remove material">${icon('close')}</button></span></div>
+          <label class="field"><span>Size / type</span><input class="mat-spec" id="mat-spec-${i}" value="${esc(m.spec || '')}" placeholder="e.g. 15 × 4 mm, white, combined" autocomplete="off"></label>
           <div class="mat-fields">
             <label class="field"><span>Qty${m.unit ? ' (' + esc(m.unit) + ')' : ''}</span><input type="number" inputmode="decimal" min="0" step="any" class="mat-qty" id="mat-qty-${i}" value="${esc(m.qty ?? 1)}"></label>
             <label class="field"><span>Unit cost €</span><input type="number" inputmode="decimal" min="0" step="0.01" class="mat-cost" id="mat-cost-${i}" value="${esc(m.cost ?? 0)}"></label>
@@ -1188,6 +1225,17 @@ async function drawSheet(door) {
       };
       $('.mat-qty', row).oninput = upd;
       $('.mat-cost', row).oninput = upd;
+      $('.mat-spec', row).oninput = (e) => {
+        queue({ materials: current.materials.map((m, j) => (j === i ? { ...m, spec: e.target.value } : m)) });
+      };
+      $('.mat-dup', row).onclick = () => {
+        const m = current.materials[i];
+        const materials = [...current.materials];
+        materials.splice(i + 1, 0, { ...m, id: db.uid(), spec: '', qty: 1 });
+        queue({ materials });
+        drawMaterials();
+        $(`#mat-spec-${i + 1}`)?.focus();
+      };
       $('.mat-del', row).onclick = () => {
         queue({ materials: current.materials.filter((_, j) => j !== i) });
         drawMaterials();
@@ -1679,6 +1727,7 @@ async function renderSettings() {
     });
   };
   drawQs();
+  if (state.focus === 's-qs') setTimeout(() => $('#s-qs')?.closest('.panel')?.scrollIntoView({ block: 'start' }), 50);
   $('#s-add-q').onclick = async () => {
     await saveLists({ questions: [...(lists.questions || []), { id: db.uid(), text: '' }] });
     drawQs();

@@ -6,10 +6,10 @@
 import { statusById } from './defaults.js';
 import { fmtDate } from './ui.js';
 
-export const emptyFilter = () => ({ dateMode: 'all', from: '', to: '', statuses: [], types: [], plans: [], defect: '', check: '' });
+export const emptyFilter = () => ({ dateMode: 'all', from: '', to: '', statuses: [], types: [], zones: [], plans: [], defect: '', check: '' });
 
 export const isFiltered = (f) =>
-  !!f && (f.dateMode !== 'all' || f.statuses.length || f.types.length || f.plans.length || f.defect || f.check);
+  !!f && (f.dateMode !== 'all' || f.statuses.length || f.types.length || (f.zones || []).length || f.plans.length || f.defect || f.check);
 
 // Every inspection of a door: the current record first, then history
 export function doorViews(d) {
@@ -37,6 +37,7 @@ export function applyFilter(doors, f) {
     if (!v) continue;
     if (f.statuses.length && !f.statuses.includes(v.status || 'not_inspected')) continue;
     if (f.types.length && !f.types.includes(v.doorType || '(no type)')) continue;
+    if ((f.zones || []).length && !f.zones.includes(zoneKey(v))) continue;
     if (f.plans.length && !f.plans.includes(v.planId)) continue;
     if (f.defect && !(v.defects || []).some((x) => x.label === f.defect)) continue;
     if (f.check && v.checks?.[f.check]?.answer !== 'fail') continue;
@@ -45,15 +46,21 @@ export function applyFilter(doors, f) {
   return out;
 }
 
+// A door's zone as a filter value: the zone number, or its name if no number
+export const zoneKey = (d) => String(d.zoneNo || d.zoneName || '(no zone)');
+
 // Values to offer in the filter controls, from current records and history
 export function filterOptions(doors, questions) {
   const types = new Set();
   const defects = new Set();
   const checks = new Map(questions.map((q) => [q.id, q.text]));
   const dates = new Set();
+  const zones = new Map();
   for (const d of doors) {
     for (const v of doorViews(d)) {
       types.add(v.doorType || '(no type)');
+      const zk = zoneKey(v);
+      if (!zones.has(zk) || (!zones.get(zk) && v.zoneName)) zones.set(zk, v.zoneNo ? `Zone ${v.zoneNo}${v.zoneName ? ' – ' + v.zoneName : ''}` : v.zoneName || 'No zone');
       for (const x of v.defects || []) defects.add(x.label);
       for (const [id, c] of Object.entries(v.checks || {})) if (!checks.has(id) && c?.text) checks.set(id, c.text);
       if (v.inspectedOn) dates.add(v.inspectedOn);
@@ -61,6 +68,7 @@ export function filterOptions(doors, questions) {
   }
   return {
     types: [...types].sort(),
+    zones: [...zones.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true })).map(([key, label]) => ({ key, label })),
     defects: [...defects].sort(),
     checks: [...checks.entries()].map(([id, text]) => ({ id, text })),
     dates: [...dates].sort(),
@@ -75,6 +83,7 @@ export function describeFilter(f, plans, questions) {
   if (f.dateMode === 'range') parts.push(`Inspected ${f.from ? fmtDate(f.from) : 'any time'} to ${f.to ? fmtDate(f.to) : 'today'}`);
   if (f.statuses.length) parts.push(f.statuses.map((s) => statusById[s]?.label || s).join(' / '));
   if (f.types.length) parts.push(f.types.join(' / '));
+  if ((f.zones || []).length) parts.push(f.zones.map((z) => (z === '(no zone)' ? 'No zone' : /^\d/.test(z) ? `Zone ${z}` : z)).join(' / '));
   if (f.plans.length) parts.push(f.plans.map((id) => plans.find((p) => p.id === id)?.name || 'plan').join(' / '));
   if (f.defect) parts.push(`Defect: ${f.defect}`);
   if (f.check) parts.push(`Failed: ${questions.find((q) => q.id === f.check)?.text || 'check'}`);

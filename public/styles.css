@@ -550,3 +550,8 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 }
 .coll-bar .ico { color: var(--accent); }
 .coll-bar select { flex: 1; min-width: 0; min-height: 40px; border: 0; background: var(--surface-2); border-radius: 8px; padding: 0 10px; font-weight: 650; color: var(--ink); font-size: 16px; }
+
+/* material header: name on the left, "+ size" and remove kept on one line */
+.mat .defect-top .row-btns { flex-wrap: nowrap; flex: none; gap: 0; align-items: center; }
+.mat .defect-top .mat-dup { padding: 0 8px; }
+.block-head .row-btns { gap: 4px; }
