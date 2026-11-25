@@ -28,7 +28,7 @@ function structuredCloneSafe(v) {
 }
 
 const TEXT_FIELDS = {
-  ref: 'Door ref',
+  ref: 'Pin ref',
   location: 'Location',
   doorType: 'Door type',
   leaf: 'Leaf configuration',

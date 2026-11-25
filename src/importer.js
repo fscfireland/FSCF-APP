@@ -7,7 +7,7 @@
 import { loadSheetJS, saveFile } from './files.js';
 
 const FIELDS = [
-  { key: 'ref', label: 'Door ref', re: /^(door\s*)?(ref(erence)?|no\.?|number|id|tag|code)\b|^door$/i },
+  { key: 'ref', label: 'Pin ref', re: /^((door|pin)\s*)?(ref(erence)?|no\.?|number|id|tag|code)\b|^door$/i },
   { key: 'zoneName', label: 'Fire alarm zone name', re: /zone\s*(name|desc|description|location)/i },
   { key: 'zoneNo', label: 'Fire alarm zone no.', re: /(^|\b)(f\.?a\.?\s*)?zone(\s*(no\.?|number|#|ref))?$|fire\s*alarm\s*zone/i },
   { key: 'floor', label: 'Floor / level', re: /^(floor|level|storey|building\s*level)/i },
@@ -19,7 +19,7 @@ const FIELDS = [
   { key: 'notes', label: 'Notes', re: /note|comment|remark/i },
 ];
 
-const TEMPLATE_HEADERS = ['Door ref', 'Location / room', 'Floor / level', 'Door type', 'Leaf configuration', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'Category', 'Notes'];
+const TEMPLATE_HEADERS = ['Pin ref', 'Location / room', 'Floor / level', 'Door type', 'Leaf configuration', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'Category', 'Notes'];
 
 export async function downloadTemplate() {
   const XLSX = await loadSheetJS();
@@ -66,7 +66,7 @@ export async function parseDoorFile(file) {
       break;
     }
   }
-  if (headIdx < 0) throw new Error('No heading row found. Use headings such as "Door ref" and "Location" (download the template to see the layout).');
+  if (headIdx < 0) throw new Error('No heading row found. Use headings such as "Pin ref" and "Location" (download the template to see the layout).');
   const doors = [];
   for (const r of rows.slice(headIdx + 1)) {
     const get = (k) => (cols[k] != null ? String(r[cols[k]] ?? '').trim() : '');

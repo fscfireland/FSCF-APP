@@ -75,7 +75,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
 
   // --- Doors (one row per door)
   const doorHeader = [
-    'Pin', 'Door ref', 'Plan / level', 'Location / room', 'Door type', 'Leaf config', 'Status',
+    'Pin', 'Pin ref', 'Plan / level', 'Location / room', 'Door type', 'Leaf config', 'Status',
     'Recommended actions', `Questions: ${ANSWERS[1].label}`, 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Videos', 'Video links', 'Notes', 'Inspected on', 'Inspected by', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'On a drawing', 'Category', 'Next inspection due', 'GPS latitude', 'GPS longitude', 'GPS accuracy (m)', 'GPS recorded',
   ];
   const doorRows = doors.map((d) => [
@@ -126,7 +126,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
       }
     }
   }
-  const cHeader = ['Pin', 'Door ref', 'Location / room', 'Status', ...qCols.map((q, i) => `Q${i + 1}. ${q.text}`), ...ANSWERS.map((a) => a.label), 'Checklist notes'];
+  const cHeader = ['Pin', 'Pin ref', 'Location / room', 'Status', ...qCols.map((q, i) => `Q${i + 1}. ${q.text}`), ...ANSWERS.map((a) => a.label), 'Checklist notes'];
   const cRows = doors.map((d) => {
     const ans = qCols.map((q) => answerLabel[d.checks?.[q.id]?.answer] || '');
     return [d.pinNo ?? '', d.ref || '', d.location || '', statusLabel(d), ...ans,
@@ -138,7 +138,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   XLSX.utils.book_append_sheet(wb, ws2, 'Checklist');
 
   // --- Defects (pricing): one row per defect, with Qty × Rate formula
-  const pHeader = ['Pin', 'Door ref', 'Plan / level', 'Location / room', 'Door type', 'Status', 'Defect', 'Remedial work', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Door notes'];
+  const pHeader = ['Pin', 'Pin ref', 'Plan / level', 'Location / room', 'Door type', 'Status', 'Defect', 'Remedial work', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Door notes'];
   const pRows = [];
   for (const d of doors) {
     for (const x of d.defects || []) {
@@ -162,7 +162,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   XLSX.utils.book_append_sheet(wb, ws3, 'Defects (pricing)');
 
   // --- Materials: one row per material per door, Qty × Unit cost formula
-  const mHeader = ['Pin', 'Door ref', 'Location / room', 'Material', 'Unit', 'Qty', 'Unit cost (€)', 'Line total (€)'];
+  const mHeader = ['Pin', 'Pin ref', 'Location / room', 'Material', 'Unit', 'Qty', 'Unit cost (€)', 'Line total (€)'];
   const mRows = [];
   for (const d of doors) {
     for (const m of d.materials || []) {
@@ -190,7 +190,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
     }
   }
   if (sRows.length) {
-    const wsS = XLSX.utils.aoa_to_sheet([['Pin', 'Door ref', 'Location / room', 'Sign', 'Face', 'Qty', 'Status'], ...sRows]);
+    const wsS = XLSX.utils.aoa_to_sheet([['Pin', 'Pin ref', 'Location / room', 'Sign', 'Face', 'Qty', 'Status'], ...sRows]);
     wsS['!cols'] = [6, 12, 22, 34, 12, 6, 9].map((wch) => ({ wch }));
     XLSX.utils.book_append_sheet(wb, wsS, 'Signs');
     const st = new Map();
@@ -259,7 +259,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
       ]);
     }
   }
-  const ws7 = XLSX.utils.aoa_to_sheet([['Pin', 'Door ref', 'Location / room', 'Door type', 'Inspection date', 'Status', 'No. of defects', 'Defects', 'Recommended actions', 'Inspected by', 'Record'], ...hRows]);
+  const ws7 = XLSX.utils.aoa_to_sheet([['Pin', 'Pin ref', 'Location / room', 'Door type', 'Inspection date', 'Status', 'No. of defects', 'Defects', 'Recommended actions', 'Inspected by', 'Record'], ...hRows]);
   ws7['!cols'] = [6, 12, 22, 18, 14, 16, 8, 50, 40, 14, 10].map((wch) => ({ wch }));
   XLSX.utils.book_append_sheet(wb, ws7, 'Inspection history');
 
@@ -322,12 +322,12 @@ export async function exportRemedialXlsx(project, opts = {}) {
   const ws0 = XLSX.utils.aoa_to_sheet(summary);
   ws0['!cols'] = [{ wch: 24 }, { wch: 100 }];
   XLSX.utils.book_append_sheet(wb, ws0, 'Summary');
-  const head = ['Pin', 'Door ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Category', 'Work required', 'Defect / reason', 'Qty', 'Done', 'Done by', 'Date done', 'Door status', 'Verified', 'Verified by', 'Date verified'];
+  const head = ['Pin', 'Pin ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Category', 'Work required', 'Defect / reason', 'Qty', 'Done', 'Done by', 'Date done', 'Door status', 'Verified', 'Verified by', 'Date verified'];
   const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows]);
   ws1['!cols'] = [6, 12, 22, 16, 16, 8, 16, 55, 40, 6, 7, 16, 12, 14, 9, 16, 12].map((wch) => ({ wch }));
   ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, rows.length), c: head.length - 1 } }) };
   XLSX.utils.book_append_sheet(wb, ws1, 'Repair items');
-  const ws2 = XLSX.utils.aoa_to_sheet([['Pin', 'Door ref', 'Location / room', 'Plan / level', 'Items', 'Done', 'Outstanding', '% complete', 'Progress'], ...byDoor]);
+  const ws2 = XLSX.utils.aoa_to_sheet([['Pin', 'Pin ref', 'Location / room', 'Plan / level', 'Items', 'Done', 'Outstanding', '% complete', 'Progress'], ...byDoor]);
   ws2['!cols'] = [6, 12, 22, 16, 7, 7, 11, 11, 12].map((wch) => ({ wch }));
   XLSX.utils.book_append_sheet(wb, ws2, 'By door');
   const types = new Map();
@@ -378,7 +378,7 @@ export async function exportPricingXlsx(project, opts = {}) {
   ws0['!cols'] = [{ wch: 20 }, { wch: 110 }];
   XLSX.utils.book_append_sheet(wb, ws0, 'Read me');
 
-  const head = ['Item', 'Pin', 'Door ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Work required', 'Defect / reason', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Comments'];
+  const head = ['Item', 'Pin', 'Pin ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Work required', 'Defect / reason', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Comments'];
   const rows = [];
   let n = 0;
   for (const d of doors) {

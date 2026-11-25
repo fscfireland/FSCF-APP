@@ -1695,7 +1695,7 @@ async function copyCollectionDialog(project, plans, from) {
       <fieldset class="scheme-set">
         <legend>What to copy for each door</legend>
         <label class="scheme-opt"><input type="radio" name="mode" value="reset" checked>
-          <span><b>Pins and door details</b><small>Door ref, room, door type and leaf. Every door starts as Not inspected with a blank checklist. Best for a repeat service.</small></span></label>
+          <span><b>Pins and door details</b><small>Pin ref, room, door type and leaf. Every door starts as Not inspected with a blank checklist. Best for a repeat service.</small></span></label>
         <label class="scheme-opt"><input type="radio" name="mode" value="all">
           <span><b>Everything</b><small>Also status, checklist answers, defects, actions, materials and notes, ready to update.</small></span></label>
         <label class="scheme-opt"><input type="radio" name="mode" value="none">
@@ -3028,7 +3028,7 @@ async function drawSheet(door) {
       <button type="button" class="btn dup-top" id="sh-dup">${icon('plus')} Duplicate this ${esc(K.item.toLowerCase())}</button>
 
       <div class="grid2">
-        <label class="field"><span>${esc(K.item)} ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. GF-012" autocomplete="off"></label>
+        <label class="field"><span>Pin ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. 001" autocomplete="off"></label>
         <label class="field"><span>Location / room</span><input id="f-location" data-k="location" value="${esc(door.location)}" placeholder="e.g. Bedroom 4" autocomplete="off"></label>
         <label class="field"><span>${esc(K.item)} type</span>
           <select id="f-type" data-k="doorType"><option value="">Select…</option>${types.map((t) => `<option ${t === door.doorType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
@@ -3949,16 +3949,16 @@ function nextRef(ref) {
   return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0') + m[3];
 }
 // New pin's ref: carry on the numbering used on this drawing (GF-012 → GF-013),
-// skipping any ref already used in the project; no refs yet → the pin number.
+// skipping any ref already used in the project; a new project starts at 001.
 function nextFreeRef(all, planId, pinNo) {
   const used = new Set(all.map((d) => (d.ref || '').trim().toUpperCase()).filter(Boolean));
   const numbered = (list) => list.filter((d) => /\d/.test(d.ref || ''));
   const pool = numbered(all.filter((d) => d.planId === planId));
   const src = pool.length ? pool : numbered(all);
   if (!src.length) {
-    let n = pinNo;
-    while (used.has(String(n))) n++;
-    return String(n);
+    let n = 1;
+    while (used.has(String(n).padStart(3, '0'))) n++;
+    return String(n).padStart(3, '0');
   }
   // the highest number in the most common prefix style
   const parse = (r) => { const m = /^(.*?)(\d+)(\D*)$/.exec(r.trim()); return m ? { pre: m[1], n: Number(m[2]), w: m[2].length, post: m[3] } : null; };
@@ -3974,12 +3974,12 @@ async function duplicateDoor(src) {
   await flushSave();
   const d0 = (await db.get('doors', src.id)) || src;
   const all = await db.projectDoors(d0.projectId);
-  let suggest = d0.ref ? nextFreeRef(all, d0.planId, 0) : '';
+  let suggest = nextFreeRef(all, d0.planId, 0);
   if (suggest && !/\d/.test(d0.ref)) suggest = nextRef(d0.ref);
   const r = await dialog({
     title: `Duplicate ${kitOf(kindOfDoor(d0, await db.get('plans', d0.planId))).item.toLowerCase()}`,
     body: `<p>Makes a new pin next to pin ${d0.pinNo} with the same details: status, checklist, defects and products, actions, signs and notes. Photos are not copied.</p>
-      <label class="field"><span>New door ref / ID</span><input name="ref" value="${esc(suggest)}" required autocomplete="off"></label>
+      <label class="field"><span>New pin ref / ID</span><input name="ref" value="${esc(suggest)}" required autocomplete="off"></label>
       <label class="field"><span>Location / room</span><input name="location" value="${esc(d0.location || '')}" autocomplete="off"></label>`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Duplicate', value: true, kind: 'primary' }],
   });
@@ -4184,7 +4184,7 @@ async function viewInspection(door, h, allPhotos, onDelete) {
         <p><span class="status-pill" style="--c:${st.color}">${esc(st.label)}</span>
           ${h.inspectedBy ? `<span class="muted"> · by ${esc(h.inspectedBy)}</span>` : ''}</p>
         <dl>
-          ${h.ref ? `<dt>Door ref</dt><dd>${esc(h.ref)}</dd>` : ''}
+          ${h.ref ? `<dt>Pin ref</dt><dd>${esc(h.ref)}</dd>` : ''}
           ${h.location ? `<dt>Location</dt><dd>${esc(h.location)}</dd>` : ''}
           ${h.doorType ? `<dt>Door type</dt><dd>${esc(h.doorType)}</dd>` : ''}
           <dt>Checklist</dt><dd>${answered.length ? `${answered.length} answered${fails.length ? `, failed: ${fails.map((c) => esc(c.text)).join('; ')}` : ', none failed'}` : 'Not answered'}</dd>

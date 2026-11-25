@@ -558,7 +558,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   y = M + 10;
   heading('Door schedule', 'Every door recorded, in pin order. Pin numbers match the marked-up plans.');
   const showCosts = costs;
-  const head = [['Pin', 'Door ref', 'Location', 'Plan', 'Door type', 'FA zone', 'Risk', 'Status', 'Defects', 'Recommended actions', ...(showCosts ? ['Materials'] : [])]];
+  const head = [['Pin', 'Pin ref', 'Location', 'Plan', 'Door type', 'FA zone', 'Risk', 'Status', 'Defects', 'Recommended actions', ...(showCosts ? ['Materials'] : [])]];
   const body = doors.map((d) => [
     String(d.pinNo ?? ''), t(d.ref), t(d.location), t(planById[d.planId]?.name), t(d.doorType), t(zoneText(d).replace(/^Zone /, '')), t(d.risk || '–'),
     statusById[d.status || 'not_inspected'].label, String((d.defects || []).length || ''), t(doorActions(d).join('; ')),
