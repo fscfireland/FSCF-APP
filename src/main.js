@@ -29,7 +29,7 @@ import {
 import { backupProjects, restoreBackup } from './backup.js';
 import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport.js';
 import { readFieldwire, ratingToType } from './fieldwire.js';
-import { textDoors } from './drawingtext.js';
+import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript } from './files.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
 const reader = async () => { await loadScript('reader.js'); return window.FSCFReader; };
@@ -411,6 +411,39 @@ function projectCard(p, doors, coll = '', nLive = 0) {
 
 // New project from a Fieldwire report PDF
 // ---------- Find fire doors on a compartment drawing ----------
+// Keep the screen on while the drawing reader works (phones stop pages when they sleep)
+async function keepAwake() {
+  try {
+    const lock = await navigator.wakeLock?.request('screen');
+    return () => lock?.release().catch(() => {});
+  } catch {
+    return () => {};
+  }
+}
+const usd = (n) => 'US$' + (n < 0.1 ? n.toFixed(2) : n.toFixed(2));
+// estimated cost of reading a plan, less any sections already paid for
+const readerCost = (plan) => {
+  const W = plan.width || 4000;
+  const H = plan.height || 2800;
+  const { cols, rows, sig } = readerGrid(W, H);
+  const c = plan.readerCache?.sig === sig ? plan.readerCache : null;
+  const done = c ? Object.keys(c.tiles || {}).length + (c.legend ? 1 : 0) : 0;
+  return readerEstimate(W, H) * (1 - done / (cols * rows + 1));
+};
+
+// Run the drawing reader on one plan, saving each finished section on the plan
+// so an interrupted run carries on later without paying twice.
+async function readPlan(plan, onProgress) {
+  const p = await db.get('plans', plan.id);
+  const res = await aiDoors(p.blob, lists.aiKey, onProgress, p.readerCache || null, async (cache) => {
+    const cur = await db.get('plans', plan.id);
+    if (cur) await db.put('plans', { ...cur, readerCache: cache });
+  });
+  const cur = await db.get('plans', plan.id);
+  if (cur) { delete cur.readerCache; await db.put('plans', cur); }
+  return res;
+}
+
 // Pins are added at each door found, numbered on from the project's refs,
 // with the rating as the door type and the room as the location.
 async function addFoundDoors(projectId, plan, found, kind, how) {
@@ -447,17 +480,20 @@ async function findDoorsOnPlan(plan) {
   const existing = await db.byIndex('doors', 'planId', plan.id);
   const r = await dialog({
     title: `Find fire doors on "${plan.name}"`,
-    body: `<p>Claude looks over the drawing and adds a pin at each fire door it finds, with the rating as the door type and the room as the location. Takes 1–4 minutes${priced() ? '; costs roughly US$0.30–0.80' : ''}.</p>
+    body: `<p>Claude looks over the drawing and adds a pin at each fire door it finds, with the rating as the door type and the room as the location. Takes 1–4 minutes; keep the app open on this screen.</p>
+      ${priced() ? `<p class="small">Estimated cost: about <b>${usd(readerCost(plan))}</b>${plan.readerCache ? ' (part of it was read last time and is not charged again)' : ''}.</p>` : plan.readerCache ? '<p class="small">Part of this drawing was read last time; it carries on from there.</p>' : ''}
       ${existing.length ? `<p class="small">This drawing already has ${existing.length} pin${existing.length === 1 ? '' : 's'}. Doors found right next to one of them are skipped.</p>` : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Find doors', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return;
   const bz = busy('Starting the drawing reader…');
+  const release = await keepAwake();
   try {
+    const res = await readPlan(plan, bz.update);
     const p = await db.get('plans', plan.id);
-    const res = await aiDoors(p.blob, lists.aiKey, bz.update);
     const fresh = res.doors.filter((f) => !existing.some((d) => d.x != null && Math.hypot(d.x - f.x, d.y - f.y) < 0.015));
     const n = await addFoundDoors(plan.projectId, p, fresh, kindOfPlan(p), 'ai');
+    release();
     bz.done();
     await dialog({
       title: n ? `${n} door${n === 1 ? '' : 's'} added` : 'No new doors found',
@@ -466,6 +502,7 @@ async function findDoorsOnPlan(plan) {
     });
     go({ view: 'plan', projectId: plan.projectId, planId: plan.id });
   } catch (err) {
+    release();
     bz.done();
     console.error(err);
     toast('Drawing reader: ' + (err.status === 401 ? 'the API key was not accepted. Check it in Settings.' : err.message), 'error');
@@ -502,6 +539,7 @@ async function importFromDrawing(file) {
     });
     let first = null;
     let needAi = 0;
+    const scanned = [];
     for (const [i, pg] of pages.entries()) {
       const plan = await db.put('plans', { id: db.uid(), projectId: project.id, order: i, sourceName: file.name, collection: '', inspType: kind, ...pg });
       first ||= plan;
@@ -509,25 +547,56 @@ async function importFromDrawing(file) {
       if (t?.doors.length) {
         total += await addFoundDoors(project.id, plan, t.doors, kind, 'text');
         notes.push(`${plan.name}: ${t.doors.length} from the drawing's text`);
-      } else if (useAi) {
-        bz.update(`Page ${i + 1} of ${pages.length}: starting the drawing reader…`);
-        const res = await aiDoors(pg.blob, lists.aiKey, (m) => bz.update(`Page ${i + 1} of ${pages.length}: ${m}`));
+      } else scanned.push(plan);
+    }
+    // scanned pages: choose which to read (cover sheets and notes pages cost money too)
+    let toRead = useAi ? scanned : [];
+    if (useAi && scanned.length) {
+      bz.done();
+      const thumbs = scanned.map((pl) => (pl.thumb ? URL.createObjectURL(pl.thumb) : ''));
+      const pick = await dialog({
+        title: `Read ${scanned.length === 1 ? 'this drawing' : 'which drawings'}?`,
+        body: `<p class="small">${scanned.length === 1 ? 'It has' : 'These have'} no readable text, so the drawing reader (Claude) will look for the doors. Untick cover sheets, notes and legend pages. Each takes 1–4 minutes; keep the app open.</p>
+          <div class="pick-list">${scanned.map((pl, i) => `<label class="pick pick-page"><input type="checkbox" name="pg_${i}" checked>
+            ${thumbs[i] ? `<img alt="" src="${thumbs[i]}">` : ''}<span><b>${esc(pl.name)}</b>${priced() ? `<small>about ${usd(readerCost(pl))}</small>` : ''}</span></label>`).join('')}</div>
+          ${priced() && scanned.length > 1 ? `<p class="small">All ticked: about <b>${usd(scanned.reduce((a, pl) => a + readerCost(pl), 0))}</b></p>` : ''}`,
+        buttons: [{ label: 'Skip for now', value: false }, { label: 'Read ticked drawings', value: true, kind: 'primary' }],
+      });
+      thumbs.forEach((u) => u && URL.revokeObjectURL(u));
+      toRead = pick.value === true ? scanned.filter((_, i) => pick.data['pg_' + i]) : [];
+    }
+    const release = toRead.length ? await keepAwake() : () => {};
+    const bz2 = toRead.length ? busy('Starting the drawing reader…') : { update() {}, done() {} };
+    let stopped = null;
+    for (const plan of scanned) {
+      const n = toRead.indexOf(plan);
+      if (n < 0 || stopped) {
+        needAi++;
+        notes.push(`${plan.name}: ${stopped ? 'not read (stopped)' : useAi ? 'skipped' : 'no readable text, pins not added'}`);
+        continue;
+      }
+      try {
+        const res = await readPlan(plan, (m) => bz2.update(`Drawing ${n + 1} of ${toRead.length}: ${m}`));
         cost += res.costUsd;
         total += await addFoundDoors(project.id, plan, res.doors, kind, 'ai');
         notes.push(`${plan.name}: ${res.doors.length} found by the drawing reader`);
-        if (i === 0 && res.site && !r.data.site.trim()) await db.put('projects', { ...(await db.get('projects', project.id)), site: res.site });
-      } else {
+        if (plan === scanned[0] && res.site && !r.data.site.trim()) await db.put('projects', { ...(await db.get('projects', project.id)), site: res.site });
+      } catch (err) {
+        console.error(err);
+        notes.push(`${plan.name}: ${err.status === 401 ? 'stopped. The API key was not accepted.' : err.message}`);
         needAi++;
-        notes.push(`${plan.name}: no readable text, pins not added`);
+        if (err.status === 401) stopped = err;
       }
     }
+    release();
+    bz2.done();
     await addBlob(project.id, file, file.name, 'Drawings', { notes: 'Drawing this project was created from' }).catch(() => {});
     bz.done();
     await dialog({
       title: total ? `${total} door${total === 1 ? '' : 's'} found` : 'Project created',
       body: `<ul class="sheet-list small">${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
         ${total ? '<p>Each door has a pin, numbered from 001, with the rating as its door type and the room as its location. <b>Check each one</b>: press and hold a pin to drag it into place, and delete any that are not fire doors.</p>' : ''}
-        ${needAi && !lists.aiKey ? '<p class="small">Scanned pages need the drawing reader. Set it up in <b>Settings › Drawing reader</b>, then open the drawing\'s menu (⋯ on the Plans tab) and tap <b>Find doors</b>.</p>' : ''}
+        ${needAi ? `<p class="small">${lists.aiKey ? 'To read the others later' : 'Scanned pages need the drawing reader. Set it up in <b>Settings › Drawing reader</b>, then'}: open the drawing's menu on the Plans tab and tap <b>Find doors…</b>. Anything already read is not charged again.</p>` : ''}
         ${cost && priced() ? `<p class="muted small">Drawing reader cost about US$${cost.toFixed(2)}.</p>` : ''}`,
       buttons: [{ label: 'Open the drawing', value: true, kind: 'primary' }],
     });

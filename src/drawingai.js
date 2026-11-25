@@ -15,6 +15,7 @@
 // with the rating, room and any door ref found next to it.
 
 import Anthropic from '@anthropic-ai/sdk';
+import { readerGrid } from './drawingtext.js';
 
 export const AI_MODEL = 'claude-opus-5-5';
 const PRICE_IN = 4 / 1e6; // US$ per input token
@@ -115,22 +116,28 @@ export async function testKey(apiKey) {
 
 // Find the doors on one drawing image (a plan's stored JPEG).
 // Returns { doors, site, drawingTitle, costUsd }
-export async function aiDoors(planBlob, apiKey, onProgress = () => {}) {
+// `saved` holds work already paid for on this drawing (the legend and each
+// finished section); `onSave` is called after every section so an interrupted
+// run can carry on later without paying for those sections again.
+export async function aiDoors(planBlob, apiKey, onProgress = () => {}, saved = null, onSave = async () => {}) {
   const api = client(apiKey);
   const usage = { in: 0, out: 0 };
   const bmp = await createImageBitmap(planBlob);
   const W = bmp.width;
   const H = bmp.height;
 
-  onProgress('Reading the legend and title block…');
-  const overview = await crop(bmp, 0, 0, W, H, 1568);
-  const key = await ask(api, overview,
-    'This is a whole fire safety drawing. Read its title block and legend/key. Describe exactly how fire doors and their ratings are shown on it, so someone looking at a zoomed-in part of the drawing can recognise them.',
-    LEGEND_SCHEMA, usage, 'medium');
+  const { cols, rows, sig } = readerGrid(W, H);
+  const cache = saved && saved.sig === sig ? saved : { sig, legend: null, tiles: {} };
+  if (!cache.legend) {
+    onProgress('Reading the legend and title block…');
+    const overview = await crop(bmp, 0, 0, W, H, 1568);
+    cache.legend = await ask(api, overview,
+      'This is a whole fire safety drawing. Read its title block and legend/key. Describe exactly how fire doors and their ratings are shown on it, so someone looking at a zoomed-in part of the drawing can recognise them.',
+      LEGEND_SCHEMA, usage, 'medium');
+    await onSave(cache);
+  }
+  const key = cache.legend;
 
-  // tiles about 1000px of the source drawing, overlapping by 15%
-  const cols = Math.max(1, Math.round(W / 1000));
-  const rows = Math.max(1, Math.round(H / 1000));
   const tw = W / cols;
   const th = H / rows;
   const ox = tw * 0.15;
@@ -144,23 +151,42 @@ export async function aiDoors(planBlob, apiKey, onProgress = () => {}) {
     }
   }
   const found = [];
-  let done = 0;
+  let done = Object.keys(cache.tiles).length;
   const prompt = `This is one part of a larger fire safety drawing${key.drawingTitle ? ` (${key.drawingTitle})` : ''}.
 How this drawing shows fire doors, from its legend: ${key.doorKey || 'not stated - use the usual conventions.'}
 List every fire door you can see in this part. Give the centre of each door opening in this image's coordinates (0-1000 across, 0-1000 down). Skip the legend, title block, and doors cut off at the image edge that you cannot identify. If this part has no fire doors (for example it is the title block or blank), return an empty list.`;
-  const run = async (t) => {
-    const img = await crop(bmp, t.sx, t.sy, t.sw, t.sh, 1568);
-    const r = await ask(api, img, prompt, DOOR_SCHEMA, usage, 'medium');
-    for (const d of r.doors || []) {
+  const run = async (t, i) => {
+    if (!cache.tiles[i]) {
+      const img = await crop(bmp, t.sx, t.sy, t.sw, t.sh, 1568);
+      cache.tiles[i] = (await ask(api, img, prompt, DOOR_SCHEMA, usage, 'medium')).doors || [];
+      done++;
+      await onSave(cache);
+      onProgress(`Looking for doors… ${done} of ${tiles.length} parts done`);
+    }
+  };
+  const collect = (t, i) => {
+    for (const d of cache.tiles[i] || []) {
       if (d.confidence === 'low') continue;
       found.push({ ...d, x: (t.sx + (d.x / 1000) * t.sw) / W, y: (t.sy + (d.y / 1000) * t.sh) / H, conf: d.confidence === 'high' ? 2 : 1 });
     }
-    done++;
-    onProgress(`Looking for doors… ${done} of ${tiles.length} parts done`);
   };
-  onProgress(`Looking for doors… 0 of ${tiles.length} parts done`);
-  for (let i = 0; i < tiles.length; i += 3) await Promise.all(tiles.slice(i, i + 3).map(run));
+  onProgress(`Looking for doors… ${done} of ${tiles.length} parts done${done ? ' (carrying on from last time)' : ''}`);
+  // three at a time; one failing doesn't throw away the others
+  let failed = null;
+  for (let i = 0; i < tiles.length; i += 3) {
+    const rs = await Promise.allSettled(tiles.slice(i, i + 3).map((t, j) => run(t, i + j)));
+    failed ||= rs.find((x) => x.status === 'rejected')?.reason;
+    if (failed && failed.status === 401) break;
+  }
   bmp.close?.();
+  if (failed) {
+    const left = tiles.length - Object.keys(cache.tiles).length;
+    const why = failed.error?.error?.message || failed.message || String(failed);
+    const e = new Error(`Stopped: ${why}. ${tiles.length - left} of ${tiles.length} parts are saved; run Find doors again to finish the other ${left} without paying again for those done.`);
+    e.status = failed.status;
+    throw e;
+  }
+  tiles.forEach(collect);
 
   // join doors seen twice where tiles overlap
   const minGap = 0.012;

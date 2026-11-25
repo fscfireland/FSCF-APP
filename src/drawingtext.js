@@ -46,3 +46,17 @@ export async function textDoors(file, maxPages = 30) {
   return pages;
 }
 
+
+// ---------- Drawing reader sizing (shared with drawingai.js) ----------
+// The drawing is read in sections of about 1000px, overlapping by 15%.
+export function readerGrid(W, H) {
+  const cols = Math.max(1, Math.round(W / 1000));
+  const rows = Math.max(1, Math.round(H / 1000));
+  return { cols, rows, sig: `${W}x${H}:${cols}x${rows}` };
+}
+// Rough cost in US$ (Claude Opus 5.5: $4 in / $20 out per million tokens):
+// each section is ~2,000 tokens in and up to ~1,800 out with its reasoning.
+export function readerEstimate(W, H) {
+  const { cols, rows } = readerGrid(W, H);
+  return (cols * rows + 1) * (2000 * 4 + 1800 * 20) / 1e6;
+}
