@@ -146,7 +146,7 @@ export const DEFAULT_QUESTIONS = [
 
 // Materials catalogue. Prices are left at 0 for you to enter your own
 // (ex VAT) in Settings; they then pre-fill each door.
-export const MAT_CATEGORIES = ['Seals', 'Closers', 'Hinges', 'Ironmongery', 'Hold-open', 'Signs', 'Glazing', 'Fire stopping', 'Timber & repairs', 'Labour', 'Other'];
+export const MAT_CATEGORIES = ['Seals', 'Closers', 'Hinges', 'Ironmongery', 'Hold-open', 'Signs', 'Glazing', 'Fire stopping', 'Timber & repairs', 'Dampers', 'Fire alarm', 'Emergency lighting', 'Extinguishers', 'Labour', 'Other'];
 
 // One price list for everything: each product has a category, so a defect
 // can offer only the products that fix it (e.g. Closers → Arrone or Dorma).
@@ -180,12 +180,41 @@ export const DEFAULT_MATERIALS = [
   { id: 'm-sg-push', cat: 'Signs', name: 'Push bar to open', unit: 'each', cost: 4.0 },
   { id: 'm-sg-right', cat: 'Signs', name: 'Turn to the right', unit: 'each', cost: 3.5 },
   { id: 'm-sg-left', cat: 'Signs', name: 'Turn to the left', unit: 'each', cost: 3.5 },
+  { id: 'm-dp-link', cat: 'Dampers', name: 'Fusible link 72 °C', unit: 'each', cost: 8 },
+  { id: 'm-dp-panel', cat: 'Dampers', name: 'Damper access panel', unit: 'each', cost: 45 },
+  { id: 'm-dp-act', cat: 'Dampers', name: 'Damper actuator 230 V', unit: 'each', cost: 180 },
+  { id: 'm-dp-dmp', cat: 'Dampers', name: 'Fire damper EN 15650 (up to 300 × 300)', unit: 'each', cost: 160 },
+  { id: 'm-dp-label', cat: 'Dampers', name: 'Damper ID label', unit: 'each', cost: 3 },
+  { id: 'm-fa-opt', cat: 'Fire alarm', name: 'Optical smoke detector', unit: 'each', cost: 35 },
+  { id: 'm-fa-heat', cat: 'Fire alarm', name: 'Heat detector', unit: 'each', cost: 30 },
+  { id: 'm-fa-mcp', cat: 'Fire alarm', name: 'Manual call point', unit: 'each', cost: 28 },
+  { id: 'm-fa-snd', cat: 'Fire alarm', name: 'Sounder / beacon', unit: 'each', cost: 45 },
+  { id: 'm-fa-bat', cat: 'Fire alarm', name: 'Standby battery 12 V 7 Ah', unit: 'each', cost: 22 },
+  { id: 'm-fa-log', cat: 'Fire alarm', name: 'Zone chart and logbook', unit: 'each', cost: 25 },
+  { id: 'm-el-bulk', cat: 'Emergency lighting', name: 'LED emergency bulkhead 3 h non-maintained', unit: 'each', cost: 45 },
+  { id: 'm-el-exit', cat: 'Emergency lighting', name: 'LED exit sign with legend', unit: 'each', cost: 60 },
+  { id: 'm-el-bat', cat: 'Emergency lighting', name: 'Replacement battery pack', unit: 'each', cost: 25 },
+  { id: 'm-el-key', cat: 'Emergency lighting', name: 'Test key switch', unit: 'each', cost: 18 },
+  { id: 'm-el-log', cat: 'Emergency lighting', name: 'Emergency lighting logbook', unit: 'each', cost: 15 },
+  { id: 'm-ex-pow', cat: 'Extinguishers', name: '6 kg ABC powder extinguisher', unit: 'each', cost: 45 },
+  { id: 'm-ex-co2', cat: 'Extinguishers', name: '2 kg CO2 extinguisher', unit: 'each', cost: 55 },
+  { id: 'm-ex-foam', cat: 'Extinguishers', name: '6 L foam extinguisher', unit: 'each', cost: 45 },
+  { id: 'm-ex-refill', cat: 'Extinguishers', name: 'Recharge / refill', unit: 'each', cost: 25 },
+  { id: 'm-ex-pin', cat: 'Extinguishers', name: 'Safety pin and tamper seal', unit: 'each', cost: 3 },
+  { id: 'm-ex-hose', cat: 'Extinguishers', name: 'Replacement hose / horn', unit: 'each', cost: 15 },
+  { id: 'm-ex-ext', cat: 'Extinguishers', name: 'Extended service / discharge test', unit: 'each', cost: 35 },
+  { id: 'm-ex-brk', cat: 'Extinguishers', name: 'Wall bracket', unit: 'each', cost: 6 },
+  { id: 'm-ex-sign', cat: 'Extinguishers', name: 'Extinguisher ID sign', unit: 'each', cost: 4 },
 ];
 
 // Category of a price-list item (older lists had none: work it out from the name)
 export function matCat(m) {
   if (m.cat) return m.cat;
   const n = (m.name || '').toLowerCase();
+  if (/damper|fusible/.test(n)) return 'Dampers';
+  if (/detector|call point|sounder|beacon/.test(n)) return 'Fire alarm';
+  if (/emergency|exit sign|luminaire/.test(n)) return 'Emergency lighting';
+  if (/extinguisher|refill|recharge/.test(n)) return 'Extinguishers';
   if (/sign/.test(n)) return 'Signs';
   if (/closer/.test(n)) return 'Closers';
   if (/hinge/.test(n)) return 'Hinges';
@@ -202,6 +231,10 @@ export function matCat(m) {
 export function defectCat(d) {
   if (d.cat) return d.cat;
   const n = ((d.label || '') + ' ' + (d.remedial || '')).toLowerCase();
+  if (/damper|fusible/.test(n)) return 'Dampers';
+  if (/detector|call point|sounder|beacon|alarm panel|standby batter|zone chart|door release|device missing|device obstructed/.test(n)) return 'Fire alarm';
+  if (/luminaire|emergency light|exit sign|test key|charge indicator|coverage/.test(n)) return 'Emergency lighting';
+  if (/extinguisher|tamper seal|discharge test|hose or horn/.test(n)) return 'Extinguishers';
   if (/sign/.test(n)) return 'Signs';
   if (/closer/.test(n)) return 'Closers';
   if (/hinge/.test(n)) return 'Hinges';
@@ -235,6 +268,7 @@ export const DEFAULT_WORK_TYPES = [
   'Fire stopping survey',
   'Compartmentation survey',
   'Emergency lighting check',
+  'Fire extinguisher service',
   'Remedial works',
 ];
 
@@ -255,7 +289,7 @@ export const zonesToText = (zones) => (zones || []).map((z) => (z.name ? `${z.no
 
 // A material as it appears in lists and reports, with its size / type
 export const matLabel = (m) => (m.spec ? `${m.name} – ${m.spec}` : m.name || '');
-export const MATERIALS_VERSION = 4;
+export const MATERIALS_VERSION = 5;
 
 // A door's fire alarm zone as one line, e.g. "Zone 4 – East wing"
 export const zoneText = (d) => [d.zoneNo ? `Zone ${d.zoneNo}` : '', d.zoneName || ''].filter(Boolean).join(' – ');
@@ -404,10 +438,41 @@ export const QUESTION_DEFECT = {
   'q-glazing': 'Glazing not fire-rated or beads defective',
   'q-leaf': 'Door leaf damaged',
   'q-sign': 'Fire door signage missing',
+  'dmp-1': 'Damper access panel missing or blocked', 'dmp-2': 'Damper failed to close fully', 'dmp-3': 'Fusible link missing or damaged',
+  'dmp-4': 'Damper did not reset / left closed', 'dmp-5': 'Damper corroded or damaged', 'dmp-6': 'Fire stopping around damper incomplete',
+  'dmp-8': 'Damper not linked to fire alarm', 'dmp-9': 'Damper identification label missing',
+  'fa-1': 'Device missing', 'fa-2': 'Detector failed test', 'fa-3': 'Device obstructed or covered', 'fa-5': 'Sounder or beacon not operating',
+  'fa-6': 'Fire alarm panel fault', 'fa-7': 'Zone chart or logbook missing', 'fa-8': 'Door release not operating on alarm',
+  'em-1': 'Luminaire damaged', 'em-2': 'Charge indicator off', 'em-3': 'Luminaire failed functional test / not lit', 'em-4': 'Luminaire failed duration test',
+  'em-5': 'Exit sign incorrect or missing', 'em-6': 'Inadequate coverage', 'em-7': 'Test key switch missing', 'em-8': 'Emergency lighting logbook missing',
+  'ex-1': 'Extinguisher missing', 'ex-2': 'Extinguisher not mounted', 'ex-3': 'Extinguisher discharged or low pressure', 'ex-4': 'Safety pin or tamper seal missing',
+  'ex-5': 'Hose or horn damaged', 'ex-7': 'Wrong extinguisher type for the risk', 'ex-8': 'Extinguisher ID sign missing', 'ex-9': 'Extended service / discharge test overdue',
 };
 
 // The usual product (and quantity) for a defect; the inspector can change it.
 const DEFAULT_PRODUCT = [
+  [/access panel/i, 'm-dp-panel', 1, ''],
+  [/fusible link/i, 'm-dp-link', 1, ''],
+  [/actuator/i, 'm-dp-act', 1, ''],
+  [/damper corroded|damper failed/i, 'm-dp-dmp', 1, ''],
+  [/damper identification/i, 'm-dp-label', 1, ''],
+  [/detector failed|device missing/i, 'm-fa-opt', 1, ''],
+  [/call point/i, 'm-fa-mcp', 1, ''],
+  [/sounder|beacon/i, 'm-fa-snd', 1, ''],
+  [/standby batter/i, 'm-fa-bat', 2, ''],
+  [/zone chart/i, 'm-fa-log', 1, ''],
+  [/duration test|charge indicator/i, 'm-el-bat', 1, ''],
+  [/functional test|luminaire damaged|inadequate coverage/i, 'm-el-bulk', 1, ''],
+  [/exit sign/i, 'm-el-exit', 1, ''],
+  [/test key/i, 'm-el-key', 1, ''],
+  [/emergency lighting logbook/i, 'm-el-log', 1, ''],
+  [/extinguisher missing|wrong extinguisher/i, 'm-ex-pow', 1, ''],
+  [/discharged or low/i, 'm-ex-refill', 1, ''],
+  [/pin or tamper/i, 'm-ex-pin', 1, ''],
+  [/hose or horn/i, 'm-ex-hose', 1, ''],
+  [/extended service/i, 'm-ex-ext', 1, ''],
+  [/not mounted/i, 'm-ex-brk', 1, ''],
+  [/extinguisher id sign/i, 'm-ex-sign', 1, ''],
   [/smoke seal/i, 'm-int15s', 3, ''],
   [/intumescent strip/i, 'm-int15', 3, ''],
   [/threshold/i, 'm-drop', 1, ''],
@@ -467,4 +532,124 @@ export function costAllFails(d, questions, defectList, materials, uid) {
   }
   const r = fillDefectProducts({ ...d, defects }, materials, uid);
   return { defects, materials: r.materials, addedDefects: qs.length, addedProducts: r.added };
+}
+
+// ---------- Inspection types ----------
+// Each drawing has an inspection type; every pin on it uses that type's
+// checklist, defects and item types. Fire doors use the main lists
+// (lists.questions / defects / doorTypes); the others live in lists.kits and
+// start from these defaults. All are editable in Settings.
+const kq = (prefix, texts) => texts.map((text, i) => ({ id: `${prefix}-${i + 1}`, text }));
+const kd = (rows) => rows.map(([label, remedial]) => ({ label, remedial }));
+export const DEFAULT_KITS = {
+  dampers: {
+    name: 'Fire dampers', item: 'Damper', report: 'Fire Damper Inspection Report', standard: 'I.S. EN 15650 / I.S. EN 1366-2',
+    doorTypes: ['Fire damper – curtain (fusible link)', 'Fire damper – motorised', 'Fire and smoke damper', 'Smoke control damper', 'Intumescent air transfer damper'],
+    questions: kq('dmp', [
+      'Access panel present, labelled and accessible',
+      'Damper closes fully when released (drop test)',
+      'Fusible link or actuator present and correctly fitted',
+      'Damper resets and re-opens fully',
+      'Blades, springs and frame free of damage and corrosion',
+      'Fire stopping around the damper / duct penetration intact',
+      'Installed to manufacturer instructions (fixings, breakaway joints)',
+      'Motorised damper operates on fire alarm signal',
+      'Damper identification label present',
+    ]),
+    defects: kd([
+      ['Damper access panel missing or blocked', 'Supply and fit / clear access panel to the damper'],
+      ['Damper failed to close fully', 'Free off and repair damper; replace damper (EN 15650) if it cannot be made to close'],
+      ['Fusible link missing or damaged', 'Supply and fit replacement fusible link (72 °C)'],
+      ['Damper actuator faulty', 'Supply and fit replacement damper actuator'],
+      ['Damper did not reset / left closed', 'Reset damper and confirm it re-opens fully'],
+      ['Damper corroded or damaged', 'Supply and fit replacement fire damper (EN 15650)'],
+      ['Fire stopping around damper incomplete', 'Fire stop around damper and duct with a tested system'],
+      ['Damper not linked to fire alarm', 'Connect damper to the fire alarm interface'],
+      ['Damper identification label missing', 'Fit damper identification label'],
+    ]),
+  },
+  alarm: {
+    name: 'Fire alarm', item: 'Device', report: 'Fire Alarm Service Report', standard: 'I.S. 3218',
+    doorTypes: ['Optical smoke detector', 'Heat detector', 'Multi-sensor detector', 'Manual call point', 'Sounder / beacon', 'Control panel', 'Interface / input-output unit', 'Beam detector', 'Door release (mag lock)'],
+    questions: kq('fa', [
+      'Device present, secure and undamaged',
+      'Device tested and signalled correctly at the panel',
+      'Device unobstructed (no covers, 500 mm clear)',
+      'Correct zone / address shown at the panel',
+      'Sounders and beacons operate and are audible / visible',
+      'Panel free of faults; standby batteries tested',
+      'Zone chart and logbook present and up to date',
+      'Cause and effect operates (door releases, plant shutdown)',
+    ]),
+    defects: kd([
+      ['Detector failed test', 'Supply and fit replacement detector'],
+      ['Device missing', 'Supply and fit device and commission at the panel'],
+      ['Device obstructed or covered', 'Remove obstruction / cover or relocate device'],
+      ['Manual call point damaged', 'Supply and fit replacement call point / element'],
+      ['Sounder or beacon not operating', 'Supply and fit replacement sounder / beacon'],
+      ['Fire alarm panel fault', 'Investigate and clear the panel fault'],
+      ['Standby batteries failed', 'Supply and fit replacement standby batteries'],
+      ['Zone chart or logbook missing', 'Provide zone chart and fire alarm logbook'],
+      ['Door release not operating on alarm', 'Repair or replace door release / interface'],
+    ]),
+  },
+  emlight: {
+    name: 'Emergency lighting', item: 'Luminaire', report: 'Emergency Lighting Inspection Report', standard: 'I.S. 3217',
+    doorTypes: ['Non-maintained bulkhead', 'Maintained bulkhead', 'Exit sign (illuminated)', 'Twin spot', 'Recessed emergency downlight', 'Central battery unit'],
+    questions: kq('em', [
+      'Luminaire present, clean and undamaged',
+      'Charge indicator (LED) lit',
+      'Operates on simulated mains failure (functional test)',
+      'Full-duration test passed (3 hours)',
+      'Exit sign legend / pictogram correct and visible',
+      'Covers escape route, exits and fire equipment as required',
+      'Test key switch present and labelled',
+      'Logbook present and up to date',
+    ]),
+    defects: kd([
+      ['Luminaire failed duration test', 'Supply and fit replacement battery pack or luminaire'],
+      ['Luminaire failed functional test / not lit', 'Supply and fit replacement lamp or luminaire'],
+      ['Luminaire damaged', 'Supply and fit replacement luminaire'],
+      ['Exit sign incorrect or missing', 'Supply and fit correct exit sign (ISO 7010)'],
+      ['Charge indicator off', 'Check supply; replace battery or luminaire'],
+      ['Inadequate coverage', 'Supply and install additional emergency luminaire'],
+      ['Test key switch missing', 'Supply and fit test key switch'],
+      ['Emergency lighting logbook missing', 'Provide emergency lighting logbook'],
+    ]),
+  },
+  ext: {
+    name: 'Fire extinguishers', item: 'Extinguisher', report: 'Fire Extinguisher Service Report', standard: 'I.S. 291',
+    doorTypes: ['6 kg ABC powder', '9 kg ABC powder', '2 kg CO2', '5 kg CO2', '6 L foam', '9 L foam', '9 L water', 'Wet chemical', 'Fire blanket'],
+    questions: kq('ex', [
+      'Extinguisher present at its location',
+      'Mounted on bracket or stand and accessible',
+      'Pressure gauge in the green / weight correct',
+      'Safety pin and tamper seal intact',
+      'Hose, horn and nozzle in good condition',
+      'Service label in date',
+      'Correct type for the risk',
+      'ID sign present',
+      'Not due an extended service / discharge test',
+    ]),
+    defects: kd([
+      ['Extinguisher missing', 'Supply and install extinguisher'],
+      ['Extinguisher discharged or low pressure', 'Recharge or replace extinguisher'],
+      ['Safety pin or tamper seal missing', 'Supply and fit pin and tamper seal'],
+      ['Hose or horn damaged', 'Supply and fit replacement hose / horn'],
+      ['Extended service / discharge test overdue', 'Carry out extended service and discharge test'],
+      ['Extinguisher not mounted', 'Supply and fit wall bracket or stand'],
+      ['Extinguisher ID sign missing', 'Supply and fit extinguisher ID sign'],
+      ['Wrong extinguisher type for the risk', 'Replace with the correct type of extinguisher'],
+    ]),
+  },
+};
+export const KIND_IDS = ['fd', 'dampers', 'alarm', 'emlight', 'ext'];
+// Which kind a project's type of work suggests for new drawings
+export function kindForWork(workType) {
+  const w = (workType || '').toLowerCase();
+  if (/damper/.test(w)) return 'dampers';
+  if (/alarm/.test(w)) return 'alarm';
+  if (/emergency|lighting/.test(w)) return 'emlight';
+  if (/extinguisher/.test(w)) return 'ext';
+  return 'fd';
 }

@@ -942,3 +942,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .update-bar { position: fixed; left: 12px; right: 12px; bottom: calc(14px + var(--safe-b)); z-index: 95; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 10px 10px 14px; border-radius: 14px; background: var(--ink); color: var(--bg); box-shadow: var(--shadow); font-weight: 600; font-size: 14px; }
 .update-bar span { display: flex; align-items: center; gap: 6px; }
 .update-bar .ico { color: var(--st-pass); }
+
+/* inspection types */
+.kind-chip { display: inline-block; padding: 1px 7px; margin-right: 4px; border-radius: 8px; font-size: 11.5px; font-weight: 650; background: var(--surface-2); color: var(--ink-2); }
+.kind-chip.k-fd { background: #fde7e5; color: #a4271f; }
+.kind-chip.k-dampers { background: #e3eefb; color: #1f5fa8; }
+.kind-chip.k-alarm { background: #fdecd9; color: #a45a10; }
+.kind-chip.k-emlight { background: #e5f4e7; color: #23743a; }
+.kind-chip.k-ext { background: #efe7f8; color: #6a3aa8; }
+.kind-seg { flex-wrap: wrap; display: flex; }
+.kind-seg .seg-btn { flex: 1 1 30%; min-height: 40px; font-size: 13.5px; }

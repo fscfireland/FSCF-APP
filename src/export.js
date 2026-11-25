@@ -52,7 +52,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   const defectRows = doors.flatMap((d) => d.defects || []);
   const matTotal = doors.reduce((t, d) => t + materialsTotal(d), 0);
   const summary = [
-    ['FSCF Ireland – Fire door inspection'],
+    ['FSCF Ireland – ' + (project.workType || 'Inspection')],
     [],
     ['Client', project.client || ''],
     ['Site', project.site || ''],

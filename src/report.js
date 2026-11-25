@@ -203,7 +203,7 @@ function reportBanner(doc, lists, title, { bandH = 64, titleSize = 26 } = {}) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9.5);
       doc.setTextColor(255, 225, 222);
-      doc.text(t('Fire door inspection · remedial works · fire stopping'), M, 28);
+      doc.text(t('Fire safety compliance & facilities'), M, 28);
     }
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(titleSize);
@@ -358,7 +358,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
   // ---------- 1. Cover ----------
   onProgress('Building cover and summary…');
-  const title = project.workType ? `${project.workType.replace(/\b\w/g, (c) => c.toUpperCase())} Report` : 'Fire Door Inspection Report';
+  const title = opts.title || (project.workType ? `${project.workType.replace(/\b\w/g, (c) => c.toUpperCase())} Report` : 'Fire Door Inspection Report');
   const bandBottom = reportBanner(doc, lists, title);
   y = Math.max(84, bandBottom + 18);
   font('bold', 20);
@@ -909,7 +909,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     font('bold', 8, C.accent);
     text('FSCF IRELAND', hx, M);
     font('normal', 8, C.ink2);
-    text(t(`Fire door inspection · ${project.site || ''}`), hx + 26, M);
+    text(t(`${opts.title ? opts.title.replace(/ report$/i, '') : project.workType || 'Inspection'} · ${project.site || ''}`), hx + 26, M);
     doc.setDrawColor(...C.line);
     doc.setLineWidth(0.2);
     doc.line(M, M + 2.5, pw - M, M + 2.5);

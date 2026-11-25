@@ -6,7 +6,7 @@ import {
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
-  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails,
+  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails, DEFAULT_KITS, KIND_IDS, kindForWork,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -109,6 +109,28 @@ async function loadLists() {
   }
   return lists;
 }
+
+// ---------- Inspection types ("kits") ----------
+// Fire doors use the main lists; dampers, fire alarm, emergency lighting and
+// extinguishers keep their own checklist, defects and item types in lists.kits.
+let kindNow = 'fd'; // the type of the drawing / pin on screen, or being edited in Settings
+function kitOf(kind) {
+  if (!kind || kind === 'fd' || !DEFAULT_KITS[kind]) {
+    return { id: 'fd', name: 'Fire doors', item: 'Door', report: 'Fire Door Inspection Report', questions: lists.questions || [], defects: lists.defects || [], doorTypes: lists.doorTypes || [] };
+  }
+  return { id: kind, ...DEFAULT_KITS[kind], ...(lists.kits?.[kind] || {}) };
+}
+const kq = () => kitOf(kindNow).questions || [];
+const kd = () => kitOf(kindNow).defects || [];
+const kt = () => kitOf(kindNow).doorTypes || [];
+async function saveKit(patch, kind = kindNow) {
+  if (!kind || kind === 'fd' || !DEFAULT_KITS[kind]) return saveLists(patch);
+  return saveLists({ kits: { ...(lists.kits || {}), [kind]: { ...(lists.kits?.[kind] || {}), ...patch } } });
+}
+const kindOfPlan = (plan) => plan?.inspType || 'fd';
+const kindOfDoor = (d, plan) => d?.kind || plan?.inspType || 'fd';
+// every type's questions (for exports covering several types)
+const allQuestions = () => KIND_IDS.flatMap((k) => kitOf(k).questions || []);
 
 async function saveLists(patch) {
   lists = await db.put('settings', { ...lists, ...patch });
@@ -776,14 +798,14 @@ async function closeService(project, plan, doors) {
     const closedAt = new Date().toISOString();
     const rec = { startedAt: svc?.startedAt || '', closedAt, closedBy: d.closedBy, coll: name, planId: plan.id, questions, answers: d.answers, declIds: d.declIds, declaration: { reason: declFiles.length ? '' : d.reason }, weather: d.weather };
     b.update('Building the final PDF report…');
-    const pdf = await exportProjectPdf(p, lists, { photos: true, passDetail: true, costs: false, doors, plans, filterText: '', returnBlob: true, closeout: { ...rec, declarationBlobs: declFiles.map((f) => f.blob) } }, b.update);
+    const pdf = await exportProjectPdf(p, { ...lists, questions: allQuestions() }, { title: kitOf(kindOfPlan(plan)).report, photos: true, passDetail: true, costs: false, doors, plans, filterText: '', returnBlob: true, closeout: { ...rec, declarationBlobs: declFiles.map((f) => f.blob) } }, b.update);
     const stamp = closedAt.slice(0, 10);
     const label = [p.site || p.client || 'Project', rec.coll].filter(Boolean).join(' – ');
     const pdfRec = await addBlob(p.id, pdf.blob, `Closed report – ${label} – ${stamp}.pdf`, 'Reports', { notes: `Final report, service closed ${fmtDate(stamp)}${rec.closedBy ? ' by ' + rec.closedBy : ''}` });
     b.update('Building the Excel workbook…');
     let xlsRec = null;
     try {
-      const qs = (lists.questions || []).filter((q) => q.text?.trim() && !q.hidden);
+      const qs = allQuestions().filter((q) => q.text?.trim() && !q.hidden);
       const xl = await exportProjectXlsx(p, qs, { doors, filterText: '', returnBlob: true });
       xlsRec = await addBlob(p.id, xl.blob, `Closed report – ${label} – ${stamp}.xlsx`, 'Reports', { notes: 'Excel for the closed service' });
     } catch (e) {
@@ -1432,7 +1454,7 @@ function renderPlansTab(body, project, plans, doors, active) {
             </span>
           </button>
           <div class="plan-meta">
-            <div><b>${esc(p.name)}</b><small>${n[p.id] || 0} doors pinned</small></div>
+            <div><b>${esc(p.name)}</b><small><span class="kind-chip k-${kindOfPlan(p)}">${esc(kitOf(kindOfPlan(p)).name)}</span> ${n[p.id] || 0} pin${(n[p.id] || 0) === 1 ? '' : 's'}</small></div>
             <button class="icon-btn sm plan-menu" data-id="${p.id}" aria-label="Plan options">${icon('more')}</button>
           </div>
           <div class="plan-svc">${svcControls(project, p)}</div>
@@ -1530,7 +1552,7 @@ function renderPlansTab(body, project, plans, doors, active) {
       let order = plansIn(plans, target).length;
       let first = null;
       for (const pg of pages) {
-        const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, ...pg });
+        const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, inspType: kindForWork(project.workType), ...pg });
         first ||= rec;
       }
       bz.done();
@@ -1652,12 +1674,20 @@ async function planMenu(plan, colls = []) {
   const r = await dialog({
     title: 'Plan',
     body: `<label class="field"><span>Name</span><input name="name" id="plan-name" value="${esc(plan.name)}"></label>
+      <label class="field"><span>Inspection type</span><select name="kind" id="plan-kind">${KIND_IDS.map((k) => `<option value="${k}" ${k === kindOfPlan(plan) ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select>
+        <small class="muted">Sets the checklist, defects and item types for every pin on this drawing.</small></label>
       ${colls.length > 1 || plan.collection ? `<label class="field"><span>Collection</span>
         <select name="coll" id="plan-coll">${collOptions(colls, plan.collection || '', { folders: false })}</select></label>` : ''}`,
     buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
-    await db.put('plans', { ...plan, name: r.data.name || plan.name, ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
+    const newKind = r.data.kind || kindOfPlan(plan);
+    if (newKind !== kindOfPlan(plan)) {
+      // pins already on the drawing keep the type they were inspected under
+      for (const d of await db.byIndex('doors', 'planId', plan.id)) if (!d.kind) await db.put('doors', { ...d, kind: kindOfPlan(plan) });
+      toast(`New pins on this drawing will be ${kitOf(newKind).name.toLowerCase()}`);
+    }
+    await db.put('plans', { ...plan, name: r.data.name || plan.name, inspType: newKind, ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
     refresh();
   } else if (r.value === 'delete') {
     const doors = await db.byIndex('doors', 'planId', plan.id);
@@ -1749,7 +1779,7 @@ function renderExportTab(body, project, plans, allDoors) {
     state.rf = emptyFilter();
   }
   const f = state.rf;
-  const questions = (lists.questions || []).filter((q) => q.text?.trim() && !q.hidden);
+  const questions = allQuestions().filter((q) => q.text?.trim() && !q.hidden);
   const opts = filterOptions(allDoors, questions);
   const doors = applyFilter(allDoors, f);
   const filterText = [state.collText, describeFilter(f, plans, opts.checks)].filter(Boolean).join(' · ');
@@ -1814,7 +1844,8 @@ function renderExportTab(body, project, plans, allDoors) {
       </ul>
       <p class="muted">${doors.length} doors · ${nDef} defects${priced() ? ` · materials ${euro(doors.reduce((t, d) => t + materialsTotal(d), 0))} ex VAT` : ' · prices hidden (locked)'}</p>
       ${(() => {
-        const n = doors.filter((d) => uncostedFails(d, lists.questions || [], lists.materials || []).count).length;
+        const pk = Object.fromEntries(plans.map((pl) => [pl.id, kindOfPlan(pl)]));
+        const n = doors.filter((d) => uncostedFails(d, kitOf(d.kind || pk[d.planId]).questions, lists.materials || []).count).length;
         return n ? `<p class="fill-note">${icon('sheet')} <span>${n} door${n === 1 ? ' has' : 's have'} fails that aren't costed yet (failed checks with no defect, or defects with no product). <button class="link-btn" id="fill-all">Cost all fails</button> so they're on the repairs and pricing sheets.</span></p>` : '';
       })()}
       <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
@@ -1910,7 +1941,7 @@ function renderExportTab(body, project, plans, allDoors) {
     try {
       if (!doors.length) return b.done(), noneMsg();
       const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: priced() && $('#pdf-costs').checked, doors, filterText, plans };
-      const r = await exportProjectPdf(project, lists, opts, b.update);
+      const r = await exportProjectPdf(project, { ...lists, questions: allQuestions() }, opts, b.update);
       b.done();
       if (r === 'saved') toast('PDF report saved');
     } catch (e) {
@@ -1958,6 +1989,7 @@ async function renderPlan() {
   useScheme(await db.get('projects', state.projectId));
   planColl = plan?.collection || '';
   if (!plan) return go({ view: 'project', projectId: state.projectId, tab: 'plans' }, { replace: true });
+  kindNow = kindOfPlan(plan);
   mode = null;
   selectedPin = null;
   app.innerHTML = `
@@ -1983,7 +2015,7 @@ async function renderPlan() {
       <div class="plan-toolbar">
         <button class="btn big" id="sel-toggle">${icon('cursor')} Select</button>
         <button class="btn big" id="mk-toggle">${icon('pencil')} Markup</button>
-        <button class="btn primary big" id="add-door">${icon('pin')} Add door</button>
+        <button class="btn primary big" id="add-door">${icon('pin')} Add ${esc(kitOf(kindNow).item.toLowerCase())}</button>
         <button class="btn big" id="place-list" hidden>${icon('list')} Place <span id="place-n"></span></button>
       </div>
       <div class="mk-panel" id="mk-panel" hidden></div>
@@ -2339,7 +2371,7 @@ async function bulkEdit() {
       <p class="muted small">Only what you change here is updated. Everything else on each door (defects, photos, checklist, history) stays as it is.</p>
       <div class="grid2">
         <label class="field"><span>Category</span><select name="category" id="b-cat">${opts(lists.categories || DEFAULT_CATEGORIES, 'No category')}</select></label>
-        <label class="field"><span>Door type</span><select name="doorType" id="b-type">${opts(lists.doorTypes || [], 'No type')}</select></label>
+        <label class="field"><span>${esc(kitOf(kindNow).item)} type</span><select name="doorType" id="b-type">${opts(kt(), 'No type')}</select></label>
         <label class="field"><span>Leaf configuration</span><select name="leaf" id="b-leaf">${opts(LEAF_CONFIGS.filter(Boolean), 'Not set')}</select></label>
         <label class="field"><span>Status</span><select name="status" id="b-status">${keepOpt}${STATUSES.map((s) => `<option value="${s.id}">${esc(s.label)}</option>`).join('')}</select></label>
         <label class="field"><span>Risk rating</span><select name="risk" id="b-risk">${opts(lists.risks || DEFAULT_RISKS, NO_RISK)}</select></label>
@@ -2656,7 +2688,7 @@ function setMode(m, doorId = null) {
   if (!banner) return;
   if (m === 'add') {
     banner.hidden = false;
-    banner.innerHTML = `<span>Tap the plan where the door is</span><button class="btn sm" id="cancel-mode">Cancel</button>`;
+    banner.innerHTML = `<span>Tap the plan where the ${esc(kitOf(kindNow).item.toLowerCase())} is</span><button class="btn sm" id="cancel-mode">Cancel</button>`;
     add.classList.add('is-on');
     add.innerHTML = `${icon('close')} Cancel`;
   } else if (m === 'move') {
@@ -2671,7 +2703,7 @@ function setMode(m, doorId = null) {
   } else {
     banner.hidden = true;
     add.classList.remove('is-on');
-    add.innerHTML = `${icon('pin')} Add door`;
+    add.innerHTML = `${icon('pin')} Add ${esc(kitOf(kindNow).item.toLowerCase())}`;
   }
   $('#cancel-mode')?.addEventListener('click', () => setMode(null));
   $('.viewer')?.classList.toggle('is-adding', m === 'add' || m === 'move');
@@ -2696,7 +2728,7 @@ async function onPlanTap(x, y) {
   if (mode === 'add') {
     const pinNo = await db.nextPinNo(state.projectId);
     const door = await saveDoor({
-      id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y,
+      id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y, kind: kindNow,
       ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
       zoneNo: lastZone.planId === state.planId ? lastZone.no : '', zoneName: lastZone.planId === state.planId ? lastZone.name : '',
       inspectedOn: '', inspectedBy: lists.inspector || '', category: lastCategory.planId === state.planId ? lastCategory.value : '',
@@ -2733,7 +2765,7 @@ async function refreshPins() {
   const el = $('#plan-counts');
   if (el) el.textContent = filtered
     ? `Showing ${doors.length} of ${all.length} · ${[...planFilter.cats.map((x) => x || 'No category'), ...planFilter.statuses.map((x) => statusById[x]?.short || x)].join(', ')}`
-    : `${planColl ? collLabel(planColl) + ' · ' : ''}${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
+    : `${planColl ? collLabel(planColl) + ' · ' : ''}${doors.length} pin${doors.length === 1 ? "" : "s"} · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
 }
 
 // ---------- Door record sheet ----------
@@ -2771,12 +2803,14 @@ async function renderSheet() {
 async function drawSheet(door) {
   const el = $('#sheet');
   const plan = await db.get('plans', door.planId);
+  kindNow = kindOfDoor(door, plan);
+  const K = kitOf(kindNow);
   useScheme(await db.get('projects', door.projectId));
   const s = statusById[door.status || 'not_inspected'];
-  const types = [...new Set([...(lists.doorTypes || []), door.doorType].filter(Boolean))];
+  const types = [...new Set([...(kt() || []), door.doorType].filter(Boolean))];
   // pass / fail comes from the checklist and defects (unless switched off in
   // Settings, or no checklist is set up)
-  const autoRes = lists.autoResult !== false && questionsFor(door, lists.questions || []).length > 0;
+  const autoRes = lists.autoResult !== false && questionsFor(door, kq() || []).length > 0;
   // fire alarm zones already used on this project: number → name
   const project = await db.get('projects', door.projectId);
   const zoneMap = new Map((project?.zones || []).filter((z) => z.no).map((z) => [String(z.no), z.name || '']));
@@ -2788,7 +2822,7 @@ async function drawSheet(door) {
     <div class="sheet-grip" aria-hidden="true"></div>
     <header class="sheet-head">
       <span class="pin-badge lg ${s.id === 'not_inspected' ? 'is-hollow' : ''}" id="sh-badge" style="--pin:${s.color}">${door.pinNo}</span>
-      <div class="sheet-title"><b id="sh-title">${esc(door.ref || 'Door ' + door.pinNo)}</b><small>${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
+      <div class="sheet-title"><b id="sh-title">${esc(door.ref || K.item + ' ' + door.pinNo)}</b><small>${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
       <button class="icon-btn" id="sh-close" aria-label="Close">${icon('close')}</button>
     </header>
     <div class="sheet-body">
@@ -2799,12 +2833,12 @@ async function drawSheet(door) {
       ${autoRes ? '<p class="auto-res" id="auto-res"></p>' : ''}
 
       <div class="grid2">
-        <label class="field"><span>Door ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. GF-012" autocomplete="off"></label>
+        <label class="field"><span>${esc(K.item)} ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. GF-012" autocomplete="off"></label>
         <label class="field"><span>Location / room</span><input id="f-location" data-k="location" value="${esc(door.location)}" placeholder="e.g. Bedroom 4" autocomplete="off"></label>
-        <label class="field"><span>Door type</span>
+        <label class="field"><span>${esc(K.item)} type</span>
           <select id="f-type" data-k="doorType"><option value="">Select…</option>${types.map((t) => `<option ${t === door.doorType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
         </label>
-        <label class="field"><span>Leaf configuration</span>
+        <label class="field" ${kindNow === 'fd' ? '' : 'hidden'}><span>Leaf configuration</span>
           <select id="f-leaf" data-k="leaf">${LEAF_CONFIGS.map((t) => `<option value="${esc(t)}" ${t === (door.leaf || '') ? 'selected' : ''}>${esc(t || 'Select…')}</option>`).join('')}</select>
         </label>
         <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
@@ -2890,8 +2924,8 @@ async function drawSheet(door) {
       <div class="sheet-actions">
         ${!door.planId ? `<button class="btn primary" id="sh-place">${icon('pin')} Place on drawing</button>`
           : state.view === 'plan' ? `<button class="btn" id="sh-move">${icon('move')} Move pin</button>` : `<button class="btn" id="sh-show">${icon('plan')} Show on plan</button>`}
-        <button class="btn" id="sh-dup">${icon('plus')} Duplicate door</button>
-        <button class="btn ghost danger-text" id="sh-del">${icon('trash')} Delete door</button>
+        <button class="btn" id="sh-dup">${icon('plus')} Duplicate ${esc(K.item.toLowerCase())}</button>
+        <button class="btn ghost danger-text" id="sh-del">${icon('trash')} Delete ${esc(K.item.toLowerCase())}</button>
       </div>
     </div>`;
 
@@ -2901,7 +2935,7 @@ async function drawSheet(door) {
   // product); answering it again as pass / N/A takes them back off.
   const syncChecks = (patch) => {
     const checks = patch.checks;
-    const qs = lists.questions || [];
+    const qs = kq() || [];
     let defects = [...(patch.defects || current.defects || [])];
     let mats = [...(patch.materials || current.materials || [])];
     let changed = false;
@@ -2911,7 +2945,7 @@ async function drawSheet(door) {
       const failed = checks[q.id]?.answer === 'fail';
       const has = defects.find((x) => x.label === label);
       if (failed && !has) {
-        const tmpl = (lists.defects || []).find((x) => x.label === label) || { label, remedial: '' };
+        const tmpl = (kd() || []).find((x) => x.label === label) || { label, remedial: '' };
         const nd = { label, remedial: tmpl.remedial || '', qty: 1, fromQ: q.id };
         defects.push(nd);
         mats.push(...defaultProductsFor(nd, lists.materials || [], db.uid));
@@ -2991,7 +3025,7 @@ async function drawSheet(door) {
     const merged = { ...current, ...patch };
     const cur = merged.status || 'not_inspected';
     if (autoRes && ['not_inspected', 'pass', 'fail'].includes(cur)) {
-      const qs = questionsFor(merged, lists.questions || []);
+      const qs = questionsFor(merged, kq() || []);
       const checks = merged.checks || {};
       const failed = (merged.defects || []).length > 0 || qs.some((q) => checks[q.id]?.answer === 'fail');
       const allDone = qs.length > 0 && qs.every((q) => checks[q.id]?.answer);
@@ -3062,7 +3096,7 @@ async function drawSheet(door) {
       }
       if (inp.value === '__new') return; // handled by the "Add new category" dialog
       queue({ [inp.dataset.k]: inp.value });
-      if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || 'Door ' + door.pinNo;
+      if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || K.item + ' ' + door.pinNo;
       if (inp.dataset.k === 'zoneNo' || inp.dataset.k === 'zoneName') {
         // a zone number from the project's zone list fills in its name
         const known = zoneMap.get(inp.value.trim().replace(/^zone\s*/i, ''));
@@ -3220,7 +3254,7 @@ async function drawSheet(door) {
   const openNotes = new Set(); // questions with their note box open
   const drawQuestions = () => {
     if (!$('#questions')) return;
-    const qs = questionsFor(current, lists.questions || []);
+    const qs = questionsFor(current, kq() || []);
     const checks = current.checks || {};
     const answered = qs.filter((q) => checks[q.id]?.answer).length;
     const fails = qs.filter((q) => checks[q.id]?.answer === 'fail').length;
@@ -3293,13 +3327,13 @@ async function drawSheet(door) {
   drawQuestions();
   $('#q-edit').onclick = async () => {
     await flushSave();
-    go({ view: 'settings', focus: 's-qs' });
+    go({ view: 'settings', focus: 's-qs', setKind: kindNow });
   };
   // All No action / All Action: set every question; tap the same one again to
   // put the answers back as they were, or tap the other to switch across.
   let beforeAll = null;
   const toggleAll = (answer) => {
-    const qs = questionsFor(current, lists.questions || []);
+    const qs = questionsFor(current, kq() || []);
     const cur = current.checks || {};
     const allAre = (a) => qs.length > 0 && qs.every((q) => cur[q.id]?.answer === a);
     let checks;
@@ -3322,7 +3356,7 @@ async function drawSheet(door) {
   // glazing). Tap again to clear just those.
   const restStillSet = (memo) => memo.ids.length > 0 && memo.ids.every((id) => (current.checks || {})[id]?.answer === memo.answer);
   const toggleRest = (answer) => {
-    const qs = questionsFor(current, lists.questions || []);
+    const qs = questionsFor(current, kq() || []);
     const checks = { ...(current.checks || {}) };
     const memo = restMemo.get(door.id);
     if (memo && restStillSet(memo)) {
@@ -3351,7 +3385,7 @@ async function drawSheet(door) {
   // Arrange: show / hide each question and slide them into your order.
   // This changes the question list used for every door.
   const drawArrange = () => {
-    const list = (lists.questions || []).filter((q) => q.text?.trim());
+    const list = (kq() || []).filter((q) => q.text?.trim());
     $('#questions').innerHTML = `
       <p class="muted small arr-note">Drag ${icon('grip')} to move a question, or use the arrows. Tap ${icon('eye')} to hide a question you don't use. This sets the order for every door.</p>
       <div class="arr-list" id="arr-list">
@@ -3367,9 +3401,9 @@ async function drawSheet(door) {
           </div>`).join('')}
       </div>`;
     const saveOrder = async (ids) => {
-      const byId = Object.fromEntries((lists.questions || []).map((q) => [q.id, q]));
-      const rest = (lists.questions || []).filter((q) => !ids.includes(q.id));
-      await saveLists({ questions: [...ids.map((id) => byId[id]).filter(Boolean), ...rest] });
+      const byId = Object.fromEntries((kq() || []).map((q) => [q.id, q]));
+      const rest = (kq() || []).filter((q) => !ids.includes(q.id));
+      await saveKit({ questions: [...ids.map((id) => byId[id]).filter(Boolean), ...rest] });
       drawQuestions();
     };
     makeSortable($('#arr-list'), saveOrder);
@@ -3389,7 +3423,7 @@ async function drawSheet(door) {
         saveOrder(o);
       };
       $('.arr-eye', row).onclick = async () => {
-        await saveLists({ questions: lists.questions.map((q) => (q.id === id ? { ...q, hidden: !q.hidden } : q)) });
+        await saveKit({ questions: kq().map((q) => (q.id === id ? { ...q, hidden: !q.hidden } : q)) });
         queue(autoFail({}));
         drawQuestions();
       };
@@ -3513,7 +3547,7 @@ async function drawSheet(door) {
   };
   drawMaterials();
   const showFill = () => {
-    const u = uncostedFails(current, lists.questions || [], lists.materials || []);
+    const u = uncostedFails(current, kq() || [], lists.materials || []);
     const b = $('#fill-mats');
     b.hidden = !u.count;
     b.innerHTML = `${icon('check')} Cost all fails (${u.count})`;
@@ -3523,7 +3557,7 @@ async function drawSheet(door) {
     $('.cost-fails-btn', n)?.addEventListener('click', costFails);
   };
   const costFails = () => {
-    const r = costAllFails(current, lists.questions || [], lists.defects || [], lists.materials || [], db.uid);
+    const r = costAllFails(current, kq() || [], kd() || [], lists.materials || [], db.uid);
     queue({ defects: r.defects, materials: r.materials });
     drawDefects();
     drawMaterials();
@@ -3749,7 +3783,8 @@ async function fillProjectMaterials(doors) {
   for (const d0 of doors) {
     const d = await db.get('doors', d0.id);
     if (!d) continue;
-    const r = costAllFails(d, lists.questions || [], lists.defects || [], lists.materials || [], db.uid);
+    const K = kitOf(kindOfDoor(d, await db.get('plans', d.planId)));
+    const r = costAllFails(d, K.questions, K.defects, lists.materials || [], db.uid);
     if (!r.addedDefects && !r.addedProducts) continue;
     await saveDoor({ ...d, defects: r.defects, materials: r.materials }, [`Fails costed: ${r.addedDefects} defect(s), ${r.addedProducts} product(s) added`]);
     added += r.addedDefects + r.addedProducts;
@@ -3776,7 +3811,7 @@ async function pickDefects(existing) {
     body: `
       <label class="field"><span>Other defect (type your own)</span><input name="custom" id="def-custom" placeholder="Describe the defect"></label>
       <div class="pick-list">
-        ${(lists.defects || []).map((d, i) => `
+        ${(kd() || []).map((d, i) => `
           <label class="pick ${have.has(d.label) ? 'is-had' : ''}">
             <input type="checkbox" name="d${i}" value="${i}" ${have.has(d.label) ? 'disabled' : ''}>
             <span><b>${esc(d.label)}</b><small>${esc(d.remedial)}</small></span>
@@ -3785,7 +3820,7 @@ async function pickDefects(existing) {
     buttons: [{ label: 'Cancel', value: false }, { label: 'Add selected', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return null;
-  const picked = Object.entries(r.data).filter(([k]) => k.startsWith('d')).map(([, v]) => lists.defects[Number(v)]);
+  const picked = Object.entries(r.data).filter(([k]) => k.startsWith('d')).map(([, v]) => kd()[Number(v)]);
   const custom = (r.data.custom || '').trim();
   if (custom) picked.unshift({ label: custom, remedial: '' });
   return picked;
@@ -4026,6 +4061,7 @@ async function logoFromFile(file, maxSide) {
 
 // ---------- Settings ----------
 async function renderSettings() {
+  kindNow = state.setKind || 'fd';
   const est = await db.storageEstimate();
   const projects = await db.all('projects');
   app.innerHTML = `
@@ -4075,9 +4111,15 @@ async function renderSettings() {
         <p class="muted small">The wording for door statuses and checklist answers. Each project picks one (in the project's details).</p>
         <div id="s-schemes"></div>
       </section>
+      <section class="panel kind-panel">
+        <h2 class="h2">Inspection types</h2>
+        <p class="muted small">Each drawing has a type (set it from the drawing's ⋯ menu). Pick a type to edit its questions, ${'item'} types and defects below.</p>
+        <div class="seg kind-seg" role="group">${KIND_IDS.map((k) => `<button class="seg-btn ${k === kindNow ? 'is-on' : ''}" data-kind="${k}">${esc(kitOf(k).name)}</button>`).join('')}</div>
+        ${kindNow !== 'fd' ? `<div class="grid2"><label class="field"><span>Name of each item</span><input id="s-kitem" value="${esc(kitOf(kindNow).item)}"></label><label class="field"><span>Report title</span><input id="s-kreport" value="${esc(kitOf(kindNow).report)}"></label></div>` : ''}
+      </section>
       <section class="panel">
-        <div class="block-head"><h2 class="h2">Inspection questions</h2><button class="btn sm" id="s-add-q">${icon('plus')} Add</button></div>
-        <p class="muted small">Asked of every door, answered Pass / Fail / N/A. Answers already given are kept if you edit or remove a question.</p>
+        <div class="block-head"><h2 class="h2">Inspection questions · ${esc(kitOf(kindNow).name)}</h2><button class="btn sm" id="s-add-q">${icon('plus')} Add</button></div>
+        <p class="muted small">Asked of every ${esc(kitOf(kindNow).item.toLowerCase())} on a ${esc(kitOf(kindNow).name.toLowerCase())} drawing, answered Pass / Fail / N/A. Answers already given are kept if you edit or remove a question.</p>
         <div id="s-qs"></div>
       </section>
       <section class="panel">
@@ -4119,11 +4161,11 @@ async function renderSettings() {
         <div id="s-mats"></div>
       </section>
       <section class="panel">
-        <h2 class="h2">Door types</h2>
-        <label class="field"><span>One per line</span><textarea id="s-types" rows="8">${esc((lists.doorTypes || []).join('\n'))}</textarea></label>
+        <h2 class="h2">${esc(kitOf(kindNow).item)} types · ${esc(kitOf(kindNow).name)}</h2>
+        <label class="field"><span>One per line</span><textarea id="s-types" rows="8">${esc(kt().join('\n'))}</textarea></label>
       </section>
       <section class="panel">
-        <div class="block-head"><h2 class="h2">Defect list</h2><button class="btn sm" id="s-add-def">${icon('plus')} Add</button></div>
+        <div class="block-head"><h2 class="h2">Defect list · ${esc(kitOf(kindNow).name)}</h2><button class="btn sm" id="s-add-def">${icon('plus')} Add</button></div>
         <p class="muted small">Each defect has the remedial work it suggests. Editing here does not change doors already recorded.</p>
         <div id="s-defs"></div>
         <button class="btn ghost sm" id="s-reset">Reset to default list</button>
@@ -4173,7 +4215,10 @@ async function renderSettings() {
     });
   }
   $('#s-insp').onchange = (e) => saveLists({ inspector: e.target.value });
-  $('#s-types').onchange = (e) => saveLists({ doorTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+  $('#s-types').onchange = (e) => saveKit({ doorTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+  $$('.kind-seg .seg-btn').forEach((b) => (b.onclick = () => { state.setKind = b.dataset.kind; refresh(); }));
+  $('#s-kitem')?.addEventListener('change', (e) => saveKit({ item: e.target.value.trim() || kitOf(kindNow).item }));
+  $('#s-kreport')?.addEventListener('change', (e) => saveKit({ report: e.target.value.trim() || kitOf(kindNow).report }));
   // status schemes
   const drawSchemes = async () => {
     const projects = await db.all('projects');
@@ -4219,7 +4264,7 @@ async function renderSettings() {
   $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
 
   const drawQs = () => {
-    $('#s-qs').innerHTML = (lists.questions || []).map((q, i) => `
+    $('#s-qs').innerHTML = (kq() || []).map((q, i) => `
       <div class="q-edit ${q.hidden ? 'is-hidden' : ''}" data-i="${i}" data-id="${esc(q.id)}">
         <button type="button" class="grip" aria-label="Drag to move">${icon('grip')}</button>
         <textarea class="qe-text" id="qe-text-${i}" rows="2" aria-label="Question ${i + 1}">${esc(q.text)}</textarea>
@@ -4230,19 +4275,19 @@ async function renderSettings() {
         </span>
       </div>`).join('') || '<p class="muted small">No questions.</p>';
     makeSortable($('#s-qs'), async (ids) => {
-      const byId = Object.fromEntries(lists.questions.map((q) => [q.id, q]));
-      await saveLists({ questions: ids.map((id) => byId[id]).filter(Boolean) });
+      const byId = Object.fromEntries(kq().map((q) => [q.id, q]));
+      await saveKit({ questions: ids.map((id) => byId[id]).filter(Boolean) });
       drawQs();
     });
     $$('.q-edit').forEach((row) => {
       const i = Number(row.dataset.i);
-      $('.qe-text', row).onchange = (e) => saveLists({ questions: lists.questions.map((q, j) => (j === i ? { ...q, text: e.target.value } : q)) });
-      $('.qe-del', row).onclick = async () => { await saveLists({ questions: lists.questions.filter((_, j) => j !== i) }); drawQs(); };
-      $('.qe-eye', row).onclick = async () => { await saveLists({ questions: lists.questions.map((q, j) => (j === i ? { ...q, hidden: !q.hidden } : q)) }); drawQs(); };
+      $('.qe-text', row).onchange = (e) => saveKit({ questions: kq().map((q, j) => (j === i ? { ...q, text: e.target.value } : q)) });
+      $('.qe-del', row).onclick = async () => { await saveKit({ questions: kq().filter((_, j) => j !== i) }); drawQs(); };
+      $('.qe-eye', row).onclick = async () => { await saveKit({ questions: kq().map((q, j) => (j === i ? { ...q, hidden: !q.hidden } : q)) }); drawQs(); };
       $('.qe-up', row).onclick = async () => {
-        const qs = [...lists.questions];
+        const qs = [...kq()];
         [qs[i - 1], qs[i]] = [qs[i], qs[i - 1]];
-        await saveLists({ questions: qs });
+        await saveKit({ questions: qs });
         drawQs();
       };
     });
@@ -4251,7 +4296,7 @@ async function renderSettings() {
   if (state.focus === 's-qs') setTimeout(() => $('#s-qs')?.closest('.panel')?.scrollIntoView({ block: 'start' }), 50);
   if (state.focus === 's-cats') setTimeout(() => { $('#s-cats')?.closest('.panel')?.scrollIntoView({ block: 'start' }); $('#s-cats')?.focus(); }, 50);
   $('#s-add-q').onclick = async () => {
-    await saveLists({ questions: [...(lists.questions || []), { id: db.uid(), text: '' }] });
+    await saveKit({ questions: [...(kq() || []), { id: db.uid(), text: '' }] });
     drawQs();
     $$('.qe-text').at(-1)?.focus();
   };
@@ -4297,7 +4342,7 @@ async function renderSettings() {
   };
 
   const drawDefs = () => {
-    $('#s-defs').innerHTML = (lists.defects || []).map((d, i) => `
+    $('#s-defs').innerHTML = (kd() || []).map((d, i) => `
       <div class="def-edit" data-i="${i}">
         <input class="de-label" id="de-label-${i}" value="${esc(d.label)}" aria-label="Defect">
         <textarea class="de-rem" id="de-rem-${i}" rows="2" aria-label="Remedial work">${esc(d.remedial)}</textarea>
@@ -4306,26 +4351,26 @@ async function renderSettings() {
     $$('.def-edit').forEach((row) => {
       const i = Number(row.dataset.i);
       const upd = () => {
-        const defects = lists.defects.map((d, j) => (j === i ? { label: $('.de-label', row).value, remedial: $('.de-rem', row).value } : d));
+        const defects = kd().map((d, j) => (j === i ? { label: $('.de-label', row).value, remedial: $('.de-rem', row).value } : d));
         saveLists({ defects });
       };
       $('.de-label', row).onchange = upd;
       $('.de-rem', row).onchange = upd;
       $('.de-del', row).onclick = async () => {
-        await saveLists({ defects: lists.defects.filter((_, j) => j !== i) });
+        await saveKit({ defects: kd().filter((_, j) => j !== i) });
         drawDefs();
       };
     });
   };
   drawDefs();
   $('#s-add-def').onclick = async () => {
-    await saveLists({ defects: [{ label: 'New defect', remedial: '' }, ...lists.defects] });
+    await saveKit({ defects: [{ label: 'New defect', remedial: '' }, ...kd()] });
     drawDefs();
     $('.de-label')?.select();
   };
   $('#s-reset').onclick = async () => {
     if (await confirmBox('Reset defect list?', 'Your edited defect list will be replaced with the default list.', 'Reset')) {
-      await saveLists({ defects: DEFAULT_DEFECTS });
+      await saveKit({ defects: kindNow === 'fd' ? DEFAULT_DEFECTS : DEFAULT_KITS[kindNow].defects });
       drawDefs();
     }
   };
