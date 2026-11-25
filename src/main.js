@@ -15,6 +15,7 @@ import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
+import { markupPhoto, plainThumb } from './photomark.js';
 import { DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
@@ -2902,7 +2903,7 @@ function openPhoto(photo, onChange) {
   const video = isVideo(photo);
   const wrap = document.createElement('div');
   wrap.className = 'lightbox' + (video ? ' is-video' : '');
-  const u = URL.createObjectURL(photo.blob);
+  let u = URL.createObjectURL(video ? photo.blob : photo.marked || photo.blob);
   wrap.innerHTML = `
     ${video
       ? `<video src="${u}" controls playsinline preload="metadata"></video>
@@ -2915,6 +2916,7 @@ function openPhoto(photo, onChange) {
       : `<img alt="Door photo" src="${u}">`}
     <div class="lb-bar">
       <button class="btn ghost danger-text" id="lb-del">${icon('trash')} Delete</button>
+      ${video ? '' : `<button class="btn" id="lb-mark">${icon('pencil')} ${photo.marks?.length ? 'Edit markup' : 'Mark up'}</button>`}
       <button class="btn" id="lb-close">Close</button>
     </div>`;
   document.body.append(wrap);
@@ -2937,6 +2939,20 @@ function openPhoto(photo, onChange) {
     close();
   };
   $('img', wrap)?.addEventListener('click', close);
+  $('#lb-mark', wrap)?.addEventListener('click', async () => {
+    const r = await markupPhoto(photo);
+    if (!r) return;
+    const next = r.marks.length
+      ? { ...photo, marks: r.marks, marked: r.marked, thumb: r.thumb }
+      : { ...photo, marks: [], marked: null, thumb: await plainThumb(photo) };
+    Object.assign(photo, await db.put('photos', next));
+    URL.revokeObjectURL(u);
+    u = URL.createObjectURL(photo.marked || photo.blob);
+    $('img', wrap).src = u;
+    $('#lb-mark', wrap).innerHTML = `${icon('pencil')} ${photo.marks?.length ? 'Edit markup' : 'Mark up'}`;
+    toast(r.marks.length ? 'Markup saved' : 'Markup removed');
+    onChange();
+  });
   $('#lb-del', wrap).onclick = async () => {
     const what = video ? 'video' : 'photo';
     if (await confirmBox(`Delete ${what}?`, `This ${what} will be removed from the door record.`)) {

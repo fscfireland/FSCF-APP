@@ -9,7 +9,7 @@ const FORMAT = 'fscf-doors-backup';
 
 async function serialise(rec) {
   const out = { ...rec };
-  for (const k of ['blob', 'thumb']) {
+  for (const k of ['blob', 'thumb', 'marked']) {
     if (rec[k] instanceof Blob) out[k] = { $blob: await blobToBase64(rec[k]), type: rec[k].type };
   }
   return out;
@@ -17,7 +17,7 @@ async function serialise(rec) {
 
 function deserialise(rec) {
   const out = { ...rec };
-  for (const k of ['blob', 'thumb']) {
+  for (const k of ['blob', 'thumb', 'marked']) {
     if (rec[k]?.$blob) out[k] = base64ToBlob(rec[k].$blob, rec[k].type);
   }
   return out;

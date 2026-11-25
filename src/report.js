@@ -749,7 +749,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
           const item = photos[i];
           const vid = isVideo(item);
           // videos use their still frame; the video file itself can't go in a PDF
-          const img = await reportImage(vid ? item.thumb : item.blob);
+          const img = await reportImage(vid ? item.thumb : item.marked || item.blob);
           const k = Math.min(cellW / img.w, cellH / img.h);
           const w = img.w * k;
           const h = img.h * k;
@@ -1112,7 +1112,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
           y = M;
         }
         for (const [i, p] of ph.entries()) {
-          const img = await reportImage(p.kind === 'video' ? p.thumb : p.blob, 800, 0.7);
+          const img = await reportImage(p.kind === 'video' ? p.thumb : p.marked || p.blob, 800, 0.7);
           const k = Math.min(cellW / img.w, cellH / img.h);
           const x = M + i * (cellW + 4);
           doc.setFillColor(...C.soft);
