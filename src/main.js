@@ -6,7 +6,7 @@ import {
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
-  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails, DEFAULT_KITS, KIND_IDS, kindForWork,
+  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails, DEFAULT_KITS, KIND_IDS, kindForWork, DEFAULT_TEMPLATES,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -115,23 +115,45 @@ async function loadLists() {
 // extinguishers keep their own checklist, defects and item types in lists.kits.
 let kindNow = 'fd'; // the type of the pin on screen, or being edited in Settings
 let planKind = 'fd'; // the type new pins on the drawing on screen will get
-function kitOf(kind) {
-  if (!kind || kind === 'fd' || !DEFAULT_KITS[kind]) {
-    return { id: 'fd', name: 'Fire doors', item: 'Door', report: 'Fire Door Inspection Report', questions: lists.questions || [], defects: lists.defects || [], doorTypes: lists.doorTypes || [] };
-  }
-  return { id: kind, ...DEFAULT_KITS[kind], ...(lists.kits?.[kind] || {}) };
+// Checklist templates: shipped ones (DEFAULT_TEMPLATES) and your own (lists.customKits)
+const templateOf = (id) => DEFAULT_TEMPLATES[id] || (lists.customKits || []).find((x) => x.id === id) || null;
+// every type and checklist, in order: the five types, then the templates under them
+function kindIds() {
+  const hidden = new Set(lists.hiddenKits || []);
+  const tpl = [...Object.keys(DEFAULT_TEMPLATES), ...(lists.customKits || []).map((x) => x.id)].filter((id) => !hidden.has(id));
+  const base = (id) => templateOf(id)?.base || 'fd';
+  return KIND_IDS.flatMap((k) => [k, ...tpl.filter((t) => base(t) === k)]);
 }
+function kitOf(kind) {
+  const t = kind && kind !== 'fd' && !DEFAULT_KITS[kind] ? templateOf(kind) : null;
+  if (t) {
+    const b = kitOf(t.base || 'fd');
+    const own = lists.kits?.[kind] || {};
+    const extra = (t.extraDefects || []).map(([label, remedial]) => ({ label, remedial }));
+    return {
+      ...b, ...t, ...own, id: kind, base: t.base || 'fd',
+      questions: own.questions || t.questions || b.questions,
+      defects: own.defects || (extra.length ? [...b.defects, ...extra.filter((x) => !b.defects.some((y) => y.label === x.label))] : b.defects),
+      doorTypes: own.doorTypes || t.doorTypes || b.doorTypes,
+    };
+  }
+  if (!kind || kind === 'fd' || !DEFAULT_KITS[kind]) {
+    return { id: 'fd', base: 'fd', name: 'Fire doors', item: 'Door', report: 'Fire Door Inspection Report', questions: lists.questions || [], defects: lists.defects || [], doorTypes: lists.doorTypes || [] };
+  }
+  return { id: kind, base: kind, ...DEFAULT_KITS[kind], ...(lists.kits?.[kind] || {}) };
+}
+const kcls = (k) => 'k-' + (kitOf(k).base || k);
 const kq = () => kitOf(kindNow).questions || [];
 const kd = () => kitOf(kindNow).defects || [];
 const kt = () => kitOf(kindNow).doorTypes || [];
 async function saveKit(patch, kind = kindNow) {
-  if (!kind || kind === 'fd' || !DEFAULT_KITS[kind]) return saveLists(patch);
+  if (!kind || kind === 'fd' || (!DEFAULT_KITS[kind] && !templateOf(kind))) return saveLists(patch);
   return saveLists({ kits: { ...(lists.kits || {}), [kind]: { ...(lists.kits?.[kind] || {}), ...patch } } });
 }
 const kindOfPlan = (plan) => plan?.inspType || 'fd';
 const kindOfDoor = (d, plan) => d?.kind || plan?.inspType || 'fd';
 // every type's questions (for exports covering several types)
-const allQuestions = () => KIND_IDS.flatMap((k) => kitOf(k).questions || []);
+const allQuestions = () => kindIds().flatMap((k) => kitOf(k).questions || []);
 
 async function saveLists(patch) {
   lists = await db.put('settings', { ...lists, ...patch });
@@ -1455,7 +1477,7 @@ function renderPlansTab(body, project, plans, doors, active) {
             </span>
           </button>
           <div class="plan-meta">
-            <div><b>${esc(p.name)}</b><small><button type="button" class="kind-chip kind-pick k-${kindOfPlan(p)}" data-id="${p.id}" aria-label="Inspection type: ${esc(kitOf(kindOfPlan(p)).name)}. Tap to change">${esc(kitOf(kindOfPlan(p)).name)} ${icon('down')}</button> ${n[p.id] || 0} pin${(n[p.id] || 0) === 1 ? '' : 's'}</small></div>
+            <div><b>${esc(p.name)}</b><small><button type="button" class="kind-chip kind-pick ${kcls(kindOfPlan(p))}" data-id="${p.id}" aria-label="Inspection type: ${esc(kitOf(kindOfPlan(p)).name)}. Tap to change">${esc(kitOf(kindOfPlan(p)).name)} ${icon('down')}</button> ${n[p.id] || 0} pin${(n[p.id] || 0) === 1 ? '' : 's'}</small></div>
             <button class="icon-btn sm plan-menu" data-id="${p.id}" aria-label="Plan options">${icon('more')}</button>
           </div>
           <div class="plan-svc">${svcControls(project, p)}</div>
@@ -1598,7 +1620,7 @@ async function copyCollectionDialog(project, plans, from) {
         <label class="scheme-opt"><input type="radio" name="mode" value="none">
           <span><b>Drawings only, no pins</b><small>Start a different inspection (e.g. dampers or emergency lighting) on the same drawings.</small></span></label>
       </fieldset>
-      <label class="field"><span>Inspection type for the copied drawings</span><select name="kind"><option value="">Same as now</option>${KIND_IDS.map((k) => `<option value="${k}">${esc(kitOf(k).name)}</option>`).join('')}</select></label>
+      <label class="field"><span>Inspection type for the copied drawings</span><select name="kind"><option value="">Same as now</option>${kindIds().map((k) => `<option value="${k}">${esc(kitOf(k).name)}</option>`).join('')}</select></label>
       <p class="muted small">Photos and videos aren't copied; they stay with "${esc(collLabel(from))}".</p>`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Copy', value: true, kind: 'primary' }],
   });
@@ -1695,7 +1717,7 @@ async function pickKind(title, current) {
   const r = await dialog({
     title,
     body: `<p class="muted small">Sets the checklist, defects and item types for every new pin on the drawing.</p>
-      <div class="kind-list">${KIND_IDS.map((k) => `<label class="kind-opt k-${k}"><input type="radio" name="kind" value="${k}" ${k === current ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>Each pin is ${/^[aeiou]/i.test(kitOf(k).item) ? 'an' : 'a'} ${esc(kitOf(k).item.toLowerCase())} · ${(kitOf(k).questions || []).filter((q) => q.text?.trim() && !q.hidden).length} checks</small></span></label>`).join('')}</div>`,
+      <div class="kind-list">${kindIds().map((k) => `<label class="kind-opt ${kcls(k)}"><input type="radio" name="kind" value="${k}" ${k === current ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>Each pin is ${/^[aeiou]/i.test(kitOf(k).item) ? 'an' : 'a'} ${esc(kitOf(k).item.toLowerCase())} · ${(kitOf(k).questions || []).filter((q) => q.text?.trim() && !q.hidden).length} checks</small></span></label>`).join('')}</div>`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Use this type', value: true, kind: 'primary' }],
   });
   return r.value === true ? r.data.kind || current : null;
@@ -1737,7 +1759,7 @@ async function removePins(plan) {
   const r = await dialog({
     title: `Remove pins from "${plan.name}"`,
     body: `<p>Tick the pins to remove. Their details and photos are deleted; this cannot be undone.</p>
-      <div class="kind-list">${kinds.map((k) => `<label class="kind-opt k-${k}"><input type="checkbox" name="k_${k}" ${kinds.length === 1 || k !== kindOfPlan(plan) ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>${byKind[k].length} pin${byKind[k].length === 1 ? '' : 's'}${byKind[k].some((d) => (d.status || 'not_inspected') !== 'not_inspected') ? ` · ${byKind[k].filter((d) => (d.status || 'not_inspected') !== 'not_inspected').length} inspected` : ''}</small></span></label>`).join('')}</div>`,
+      <div class="kind-list">${kinds.map((k) => `<label class="kind-opt ${kcls(k)}"><input type="checkbox" name="k_${k}" ${kinds.length === 1 || k !== kindOfPlan(plan) ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>${byKind[k].length} pin${byKind[k].length === 1 ? '' : 's'}${byKind[k].some((d) => (d.status || 'not_inspected') !== 'not_inspected') ? ` · ${byKind[k].filter((d) => (d.status || 'not_inspected') !== 'not_inspected').length} inspected` : ''}</small></span></label>`).join('')}</div>`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, kind: 'primary danger' }],
   });
   if (r.value !== true) return;
@@ -1752,7 +1774,7 @@ async function planMenu(plan, colls = []) {
   const r = await dialog({
     title: 'Plan',
     body: `<label class="field"><span>Name</span><input name="name" id="plan-name" value="${esc(plan.name)}"></label>
-      <label class="field"><span>Inspection type</span><select name="kind" id="plan-kind">${KIND_IDS.map((k) => `<option value="${k}" ${k === kindOfPlan(plan) ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select>
+      <label class="field"><span>Inspection type</span><select name="kind" id="plan-kind">${kindIds().map((k) => `<option value="${k}" ${k === kindOfPlan(plan) ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select>
         <small class="muted">Sets the checklist, defects and item types for every pin on this drawing.</small></label>
       ${colls.length > 1 || plan.collection ? `<label class="field"><span>Collection</span>
         <select name="coll" id="plan-coll">${collOptions(colls, plan.collection || '', { folders: false })}</select></label>` : ''}`,
@@ -2764,7 +2786,7 @@ function setMode(m, doorId = null) {
   if (!banner) return;
   if (m === 'add') {
     banner.hidden = false;
-    banner.innerHTML = `<span>Tap to add</span><button type="button" class="kind-chip kind-pick k-${planKind}" id="add-kind" aria-label="New pin type: ${esc(kitOf(planKind).name)}. Tap to change">${esc(kitOf(planKind).name)} ${icon('down')}</button><button class="btn sm" id="cancel-mode">Cancel</button>`;
+    banner.innerHTML = `<span>Tap to add</span><button type="button" class="kind-chip kind-pick ${kcls(planKind)}" id="add-kind" aria-label="New pin type: ${esc(kitOf(planKind).name)}. Tap to change">${esc(kitOf(planKind).name)} ${icon('down')}</button><button class="btn sm" id="cancel-mode">Cancel</button>`;
     add.classList.add('is-on');
     add.innerHTML = `${icon('close')} Cancel`;
   } else if (m === 'move') {
@@ -2912,7 +2934,7 @@ async function drawSheet(door) {
     <div class="sheet-grip" aria-hidden="true"></div>
     <header class="sheet-head">
       <span class="pin-badge lg ${s.id === 'not_inspected' ? 'is-hollow' : ''}" id="sh-badge" style="--pin:${s.color}">${door.pinNo}</span>
-      <div class="sheet-title"><b id="sh-title">${esc(door.ref || K.item + ' ' + door.pinNo)}</b><small><button type="button" class="kind-chip kind-pick k-${kindNow}" id="sh-kind" aria-label="Inspection type: ${esc(K.name)}. Tap to change">${esc(K.name)} ${icon('down')}</button> ${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
+      <div class="sheet-title"><b id="sh-title">${esc(door.ref || K.item + ' ' + door.pinNo)}</b><small><button type="button" class="kind-chip kind-pick ${kcls(kindNow)}" id="sh-kind" aria-label="Inspection type: ${esc(K.name)}. Tap to change">${esc(K.name)} ${icon('down')}</button> ${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
       <button class="icon-btn" id="sh-close" aria-label="Close">${icon('close')}</button>
     </header>
     <div class="sheet-body">
@@ -4184,8 +4206,11 @@ async function renderSettings() {
       <div class="set-group"><h2>Inspection checks</h2><p class="muted small">Pick a type, then edit its questions, item types, defects and prices. Tap a heading to open or close it.</p></div>
       <section class="panel kind-panel">
         <label class="field kind-select"><span>Inspection type</span>
-          <select id="s-kind">${KIND_IDS.map((k) => `<option value="${k}" ${k === kindNow ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
+          <select id="s-kind">${kindIds().map((k) => `<option value="${k}" ${k === kindNow ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
         <p class="muted small">The questions, ${esc(kitOf(kindNow).item.toLowerCase())} types, defects and products below are for <b>${esc(kitOf(kindNow).name.toLowerCase())}</b> only. Each drawing's type is set from its label on the Plans tab.</p>
+        <div class="row-btns"><button type="button" class="btn sm" id="s-kit-new">${icon('plus')} New checklist from this one</button>
+          ${templateOf(kindNow) ? `<button type="button" class="btn ghost sm danger-text" id="s-kit-del">${icon('trash')} Remove this checklist</button>` : ''}</div>
+        ${templateOf(kindNow) ? `<label class="field"><span>Checklist name</span><input id="s-kname" value="${esc(kitOf(kindNow).name)}"></label>` : ''}
         ${kindNow !== 'fd' ? `<div class="grid2"><label class="field"><span>Name of each item</span><input id="s-kitem" value="${esc(kitOf(kindNow).item)}"></label><label class="field"><span>Report title</span><input id="s-kreport" value="${esc(kitOf(kindNow).report)}"></label></div>` : ''}
       </section>
       <section class="panel fold" data-fold="qs">
@@ -4332,6 +4357,31 @@ async function renderSettings() {
   $('#s-insp').onchange = (e) => saveLists({ inspector: e.target.value });
   $('#s-types').onchange = (e) => saveKit({ doorTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-kind').onchange = (e) => { state.setKind = e.target.value; refresh(); };
+  $('#s-kname')?.addEventListener('change', (e) => saveKit({ name: e.target.value.trim() || kitOf(kindNow).name }));
+  $('#s-kit-new').onclick = async () => {
+    const src = kitOf(kindNow);
+    const r = await dialog({
+      title: 'New checklist',
+      body: `<p>Starts as a copy of <b>${esc(src.name)}</b>: same questions, ${esc(src.item.toLowerCase())} types and defects, which you can then change.</p>
+        <label class="field"><span>Name</span><input name="name" required placeholder="e.g. Fire doors – 29 point check"></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Create', value: true, kind: 'primary' }],
+    });
+    if (r.value !== true || !r.data.name.trim()) return;
+    const id = 'c-' + db.uid().slice(0, 8);
+    await saveLists({
+      customKits: [...(lists.customKits || []), { id, base: src.base || 'fd', name: r.data.name.trim() }],
+      kits: { ...(lists.kits || {}), [id]: { name: r.data.name.trim(), item: src.item, report: src.report, questions: src.questions.map((q, i) => ({ ...q, id: `${id}-${i + 1}`, defect: q.defect || QUESTION_DEFECT[q.id] || undefined })), defects: src.defects, doorTypes: src.doorTypes } },
+    });
+    state.setKind = id;
+    toast('Checklist created');
+    refresh();
+  };
+  $('#s-kit-del')?.addEventListener('click', async () => {
+    if (!(await confirmBox('Remove this checklist?', `"${kitOf(kindNow).name}" will no longer be offered for new drawings and pins. Pins already done with it keep their answers.`, 'Remove'))) return;
+    await saveLists({ hiddenKits: [...new Set([...(lists.hiddenKits || []), kindNow])] });
+    state.setKind = kitOf(kindNow).base || 'fd';
+    refresh();
+  });
   $('#s-allmats')?.addEventListener('click', () => { state.allMats = !state.allMats; refresh(); });
   // fold / unfold sections; remembered while the app is open
   for (const sec of $$('.panel.fold')) {
@@ -4433,9 +4483,9 @@ async function renderSettings() {
   };
 
   const drawMats = () => {
-    const show = state.allMats ? null : new Set([...(KIND_CATS[kindNow] || []), 'Labour', 'Other']);
+    const show = state.allMats ? null : new Set([...(KIND_CATS[kitOf(kindNow).base] || []), 'Labour', 'Other']);
     const all = (lists.materials || []).map((m, i) => ({ m, i })).filter(({ m }) => !show || show.has(matCat(m)) || (show.has('Other') && !MAT_CATEGORIES.includes(matCat(m))));
-    const cats = [...new Set([...(show ? KIND_CATS[kindNow] || [] : []), ...MAT_CATEGORIES, ...all.map(({ m }) => matCat(m))])];
+    const cats = [...new Set([...(show ? KIND_CATS[kitOf(kindNow).base] || [] : []), ...MAT_CATEGORIES, ...all.map(({ m }) => matCat(m))])];
     $('#s-mats').innerHTML = cats.map((c) => {
       const rows = all.filter(({ m }) => matCat(m) === c);
       if (!rows.length) return '';
@@ -4468,7 +4518,7 @@ async function renderSettings() {
     if (priced()) { libUnlocked = false; toast('Locked'); refresh(); } else unlockOwner();
   });
   $('#s-add-m').onclick = async () => {
-    await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), cat: state.allMats ? 'Other' : (KIND_CATS[kindNow] || ['Other'])[0], name: '', unit: 'each', cost: 0 }] });
+    await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), cat: state.allMats ? 'Other' : (KIND_CATS[kitOf(kindNow).base] || ['Other'])[0], name: '', unit: 'each', cost: 0 }] });
     openFolds.add('mats');
     drawMats();
     $$('.me-name').at(-1)?.focus();
@@ -4503,7 +4553,7 @@ async function renderSettings() {
   };
   $('#s-reset').onclick = async () => {
     if (await confirmBox('Reset defect list?', 'Your edited defect list will be replaced with the default list.', 'Reset')) {
-      await saveKit({ defects: kindNow === 'fd' ? DEFAULT_DEFECTS : DEFAULT_KITS[kindNow].defects });
+      await saveKit({ defects: kindNow === 'fd' ? DEFAULT_DEFECTS : DEFAULT_KITS[kindNow]?.defects || null });
       drawDefs();
     }
   };

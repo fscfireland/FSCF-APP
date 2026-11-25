@@ -653,3 +653,61 @@ export function kindForWork(workType) {
   if (/extinguisher/.test(w)) return 'ext';
   return 'fd';
 }
+
+// ---------- Checklist templates ----------
+// Extra named checklists for an inspection type (e.g. a 6-point fire door
+// check). They share the item types, defects and products of their base type
+// unless edited. More can be made in Settings ("New checklist from this one").
+const tq = (prefix, rows) => rows.map(([text, defect], i) => ({ id: `${prefix}-${i + 1}`, text, ...(defect ? { defect } : {}) }));
+export const DEFAULT_TEMPLATES = {
+  fd6: {
+    base: 'fd', name: 'Fire doors – 6 point check', item: 'Door', report: '6 Point Fire Door Inspection Report',
+    questions: tq('fd6', [
+      ['Have any noted faults in the fire register been addressed?', ''],
+      ['Does the fire door close properly and the receiver engage?', 'Door fails to close and latch'],
+      ['Are the door gaps within 2–4 mm between door and frame or meeting leaves?', 'Leaf-to-frame gaps outside 2–4 mm'],
+      ['Is the combined intumescent / cold smoke seal intact?', 'Smoke seals missing or damaged'],
+      ['Is the correct signage fitted on both sides of the door?', 'Fire door signage missing'],
+      ['Is the correct ironmongery fitted on the door set?', 'Ironmongery not fire-rated / not CE marked'],
+    ]),
+  },
+  fdexit: {
+    base: 'fd', name: 'Final exit / escape doors', item: 'Exit door', report: 'Final Exit Door Inspection Report',
+    questions: tq('fx', [
+      ['1.1 Internal escape route to the door is free of equipment, waste and furniture', 'Escape route to exit obstructed'],
+      ['1.2 Door opens onto a clear, safe external discharge point', 'External discharge point obstructed'],
+      ['1.3 External area free of parked vehicles, pallets or skips that could impede evacuation', 'External discharge point obstructed'],
+      ['1.4 Floor surface on both sides level and free of trip or slip hazards', 'Trip or slip hazard at exit'],
+      ['2.1 Door opens from inside by a single manual action, without a key or code', 'Exit door needs a key or code to open'],
+      ['2.2 Lever or push pad releases all latches instantly', 'Panic / emergency exit hardware faulty'],
+      ['2.3 Door leaf opens outwards in the direction of escape', ''],
+      ['2.4 Opening force is light enough for a person with limited strength', 'Opening force too high'],
+      ['2.5 Hinges secure, lubricated and free of wear or metal fragments', 'Hinges: fewer than 3, missing screws or worn'],
+      ['2.6 Release force under 70 N for lever handles (150 N for push pads)', 'Opening force too high'],
+      ['2.7 Inward-opening door correctly signed "Pull to open" where allowed', 'Exit signage missing or incorrect'],
+      ['2.8 Device CE / UKCA marked with the manufacturer\'s identification (EN 179 / EN 1125)', 'Panic / emergency exit hardware not certified'],
+      ['3.1 Maglock releases immediately when the fire alarm operates', 'Maglock does not release on fire alarm'],
+      ['3.2 Working green break-glass unit within 1.5 m of the door', 'Green break-glass unit missing or faulty'],
+      ['3.3 Door unlocks automatically on total loss of mains power', 'Maglock does not fail safe on power loss'],
+      ['4.1 "Emergency exit" (running man) sign clearly visible from the approach', 'Exit signage missing or incorrect'],
+      ['4.2 Emergency light above the door works when local power is cut', 'Emergency light at exit failed'],
+      ['4.3 Instruction signs ("Push bar to open", "Fire exit keep clear") legible and correctly mounted', 'Exit signage missing or incorrect'],
+      ['4.4 Glass doors have visible manifestation at eye level', 'Glazing manifestation missing'],
+    ]),
+    extraDefects: [
+      ['Escape route to exit obstructed', 'Remove obstructions from the escape route and keep it clear'],
+      ['External discharge point obstructed', 'Clear the external discharge area; advise client to keep it clear'],
+      ['Trip or slip hazard at exit', 'Make good floor surface at the exit'],
+      ['Exit door needs a key or code to open', 'Fit EN 179 / EN 1125 hardware so the door opens with a single action'],
+      ['Panic / emergency exit hardware faulty', 'Repair or replace panic / emergency exit hardware (EN 1125 / EN 179)'],
+      ['Panic / emergency exit hardware not certified', 'Replace with CE-marked EN 1125 / EN 179 hardware'],
+      ['Opening force too high', 'Adjust closer and hardware to reduce the opening force'],
+      ['Maglock does not release on fire alarm', 'Repair maglock interface so it releases on fire alarm'],
+      ['Maglock does not fail safe on power loss', 'Repair maglock so it unlocks on loss of power'],
+      ['Green break-glass unit missing or faulty', 'Supply and fit green break-glass unit within 1.5 m of the door'],
+      ['Exit signage missing or incorrect', 'Supply and fit correct exit signage (I.S. 3217 / ISO 7010)'],
+      ['Emergency light at exit failed', 'Repair or replace the emergency light above the exit'],
+      ['Glazing manifestation missing', 'Apply manifestation to the glass at eye level'],
+    ],
+  },
+};
