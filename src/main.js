@@ -27,7 +27,7 @@ import {
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { fileFolders, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
-import { DEFAULT_CLOSE_QUESTIONS, CLOSE_ANSWERS, closeQuestions, closeKey, closeoutOf, saveCloseout, recordWeather, weatherDays, serviceOf, isLive, liveKeys, startService, weatherLine, inspectionDates, todayDublin, WEATHER_SOURCE } from './closeout.js';
+import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
 import { fmtSize as fmtBytes } from './media.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
 
@@ -153,18 +153,19 @@ async function renderProjects() {
   const live = [];
   for (const p of projects) {
     for (const k of liveKeys(p)) {
-      const pls = plansBy[p.id] || [];
-      const ids = new Set(plansIn(pls, k).map((x) => x.id));
-      const ds = allDoors.filter((d) => d.projectId === p.id && (ids.has(d.planId) || (!d.planId && inColl(d.collection || '', k))));
-      live.push({ p, k, sv: p.services[k], total: ds.length, done: ds.filter(isInspected).length });
+      const plan = (plansBy[p.id] || []).find((x) => planKey(x.id) === k);
+      if (!plan) continue; // drawing deleted
+      const ds = allDoors.filter((d) => d.planId === plan.id);
+      live.push({ p, k, plan, sv: p.services[k], total: ds.length, done: ds.filter(isInspected).length });
     }
   }
   live.sort((a, b) => b.sv.startedAt.localeCompare(a.sv.startedAt));
   const liveHtml = live.length ? `<section class="live-list">
       <h2 class="h2"><span class="live-dot" aria-hidden="true"></span> Live services <span class="muted">${live.length}</span></h2>
-      ${live.map(({ p, k, sv, total, done }) => `<button class="live-card" data-pid="${p.id}" data-k="${esc(k)}">
+      ${live.map(({ p, plan, sv, total, done }) => `<button class="live-card" data-pid="${p.id}" data-plan="${plan.id}">
         <span class="lc-main"><b>${esc(p.site || 'Untitled site')}</b>
-          <small>${esc([k ? collLabel(k) : '', p.workType, p.client].filter(Boolean).join(' · '))}</small>
+          <small class="lc-plan">${icon('plan')} ${esc(planSvcName(plan))}</small>
+          <small>${esc([p.workType, p.client].filter(Boolean).join(' · '))}</small>
           <small>Started ${esc(fmtWhen(sv.startedAt))}${sv.startedBy ? ' by ' + esc(sv.startedBy) : ''}</small></span>
         <span class="lc-prog"><b>${total ? Math.round((done / total) * 100) : 0}%</b><small>${done}/${total} doors</small>
           <i style="--p:${total ? (done / total) * 100 : 0}%"></i></span>
@@ -229,7 +230,7 @@ async function renderProjects() {
     </main>
     ${projects.length ? `<button class="fab" id="new-project">${icon('plus')} New project</button>` : ''}
   `;
-  $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'project', projectId: c.dataset.pid, tab: 'plans', coll: c.dataset.k })));
+  $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'plan', projectId: c.dataset.pid, planId: c.dataset.plan })));
   $('#settings').onclick = () => go({ view: 'settings' });
   $$('#new-project, #new-project-2').forEach((b) => (b.onclick = () => editProject()));
   const demo = $('#demo');
@@ -415,10 +416,8 @@ async function renderProject() {
       ${[['plans', 'Plans', allPlans.length], ['doors', 'Doors', doors.length], ['repairs', 'Repairs', ''], ['files', 'Files', files.length || ''], ['export', 'Export', '']].map(([id, label, n]) =>
         `<button role="tab" class="tab ${tab === id ? 'is-on' : ''}" data-tab="${id}" aria-selected="${tab === id}">${label}${n !== '' ? ` <span class="tab-n">${n}</span>` : ''}</button>`).join('')}
     </nav>
-    ${serviceBar(project, coll, colls)}
     <main class="page" id="tab-body"></main>
   `;
-  bindServiceBar(project, coll, plans, doors);
   if (liveKeys(project).length) noteWeather(project.id);
   $('#back').onclick = back;
   $('#proj-edit').onclick = () => editProject(project);
@@ -445,46 +444,59 @@ async function renderProject() {
 
 // ---------- Start / End service bar (project screen) ----------
 const fmtWhen = (iso) => new Date(iso).toLocaleString('en-IE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-function serviceBar(project, coll, colls) {
-  if (coll === '*' || isFolderPick(coll)) {
-    return colls.length > 1 ? `<div class="svc-bar"><span class="svc-txt"><small>Pick one collection to start or end a service</small></span></div>` : '';
-  }
-  const key = closeKey(coll);
-  const name = coll ? collLabel(coll) : '';
+const planSvcName = (plan) => [plan.collection ? collLabel(plan.collection) : '', plan.name].filter(Boolean).join(' › ');
+
+// Status and button for one drawing's service. `full` adds Reopen (Export tab).
+function svcControls(project, plan, full = false) {
+  const key = planKey(plan.id);
   const co = project.closeouts?.[key];
   const sv = project.services?.[key];
   if (co) {
-    return `<div class="svc-bar is-closed">${icon('check')}<span class="svc-txt"><b>Service closed</b><small>${esc([name, fmtDate(co.closedAt.slice(0, 10)), co.closedBy].filter(Boolean).join(' · '))}</small></span>
-      ${co.reportFileId ? `<button class="btn sm" id="svc-view">${icon('report')} Report</button>` : ''}</div>`;
+    return `<span class="svc-chip is-closed">${icon('check')} Closed ${esc(fmtDate(co.closedAt.slice(0, 10)))}</span>
+      ${co.reportFileId ? `<button class="btn sm svc-act" data-act="report" data-plan="${plan.id}">${icon('report')} Report</button>` : ''}
+      ${full ? `<button class="btn ghost sm svc-act" data-act="reopen" data-plan="${plan.id}">Reopen</button>` : ''}`;
   }
   if (sv) {
-    return `<div class="svc-bar is-live"><span class="live-dot" aria-hidden="true"></span><span class="svc-txt"><b>Service live</b><small>${esc([name, 'started ' + fmtWhen(sv.startedAt)].filter(Boolean).join(' · '))}</small></span>
-      <button class="btn primary sm" id="svc-end">${icon('check')} End service</button></div>`;
+    return `<span class="svc-chip is-live"><span class="live-dot" aria-hidden="true"></span> Live since ${esc(fmtWhen(sv.startedAt))}</span>
+      <button class="btn primary sm svc-act" data-act="end" data-plan="${plan.id}">${icon('check')} End service</button>`;
   }
-  return `<div class="svc-bar"><span class="svc-txt"><b>Not started</b><small>${esc(name ? name + ' · ' : '')}Start when you arrive on site</small></span>
-    <button class="btn primary sm" id="svc-start">${icon('play')} Start service</button></div>`;
+  return `<button class="btn sm svc-act" data-act="start" data-plan="${plan.id}">${icon('play')} Start service</button>`;
 }
 
-function bindServiceBar(project, coll, plans, doors) {
-  $('#svc-start')?.addEventListener('click', async () => {
-    await startService(project.id, coll, lists.inspector);
-    toast('Service started');
-    renderProject();
-    // record the weather now that we're on site
-    try {
-      const day = await recordWeather(project.id, doors, phoneFix, { force: true });
-      const w = day && weatherDays({ weatherLog: { [todayDublin()]: day } }, [todayDublin()])[0];
-      if (w && weatherLine(w)) toast("Today's weather recorded: " + weatherLine(w));
-    } catch (e) {
-      toast('Weather not recorded yet: ' + (/fetch|network|load failed/i.test(e.message) ? 'no internet' : e.message));
+function bindSvc(root, project, plans, after = refresh) {
+  $$('.svc-act', root).forEach((b) => (b.onclick = async (e) => {
+    e.stopPropagation();
+    const plan = plans.find((x) => x.id === b.dataset.plan);
+    if (!plan) return;
+    const key = planKey(plan.id);
+    const fresh = await db.get('projects', project.id);
+    if (b.dataset.act === 'start') {
+      await startService(project.id, key, lists.inspector);
+      toast(`Service started: ${plan.name}`);
+      await after();
+      try {
+        const doors = await db.projectDoors(project.id);
+        const day = await recordWeather(project.id, doors, phoneFix, { force: true });
+        const w = day && weatherDays({ weatherLog: { [todayDublin()]: day } }, [todayDublin()])[0];
+        if (w && weatherLine(w)) toast("Today's weather recorded: " + weatherLine(w));
+      } catch (err) {
+        toast('Weather not recorded yet: ' + (/fetch|network|load failed/i.test(err.message) ? 'no internet' : err.message));
+      }
+    } else if (b.dataset.act === 'end') {
+      const doors = (await db.byIndex('doors', 'planId', plan.id)).sort((a, c) => (a.pinNo || 0) - (c.pinNo || 0));
+      await closeService(fresh, plan, doors);
+      after();
+    } else if (b.dataset.act === 'report') {
+      const f = await db.get('files', fresh.closeouts?.[key]?.reportFileId);
+      if (!f) return toast('The report file was deleted from Files', 'error');
+      openFile(f).catch((err) => toast(err.message, 'error'));
+    } else if (b.dataset.act === 'reopen') {
+      if (!(await confirmBox('Reopen this service?', 'Your end-of-service answers are kept so you can end it again. The report already saved in Files stays there.', 'Reopen', false))) return;
+      await reopenService(project.id, key);
+      toast('Service reopened');
+      after();
     }
-  });
-  $('#svc-end')?.addEventListener('click', () => closeService(project, coll, doors, plans));
-  $('#svc-view')?.addEventListener('click', async () => {
-    const f = await db.get('files', project.closeouts[closeKey(coll)].reportFileId);
-    if (!f) return toast('The report file was deleted from Files', 'error');
-    openFile(f).catch((e) => toast(e.message, 'error'));
-  });
+  }));
 }
 
 // ---------- Weather recorded on site ----------
@@ -496,12 +508,14 @@ function noteWeather(projectId) {
 }
 
 // ---------- End of service close-out ----------
-async function closeService(project, coll, doors, plans) {
-  const key = closeKey(coll);
+async function closeService(project, plan, doors) {
+  const key = planKey(plan.id);
+  const plans = [plan];
+  const name = planSvcName(plan);
   const questions = closeQuestions(lists);
   const p0 = await db.get('projects', project.id);
   const draft = { answers: {}, declIds: [], reason: '', weather: null, closedBy: lists.inspector || '', ...(p0.closeDrafts?.[key] || {}) };
-  const svc = serviceOf(p0, coll);
+  const svc = serviceOf(p0, key);
   const dates = [...new Set([...(svc ? [svc.startedAt.slice(0, 10)] : []), ...doors.map((d) => d.inspectedOn).filter(Boolean)])].sort();
   if (!dates.length) dates.push(todayDublin());
   const declFiles = (await Promise.all((draft.declIds || []).map((id) => db.get('files', id)))).filter(Boolean);
@@ -544,7 +558,7 @@ async function closeService(project, coll, doors, plans) {
   const r = await dialog({
     title: 'End of service',
     body: `
-      <p>${doors.length} door${doors.length === 1 ? '' : 's'}${coll && coll !== '*' ? ` in <b>${esc(collLabel(coll))}</b>` : ''} · inspected ${esc(dates.map((d) => fmtDate(d)).join(', '))}. Answer every question to close.</p>
+      <p><b>${esc(name)}</b> · ${doors.length} door${doors.length === 1 ? '' : 's'} · inspected ${esc(dates.map((d) => fmtDate(d)).join(', '))}. Answer every question to close.</p>
       <div class="co-qs">
         ${questions.map((q, i) => {
           const a = draft.answers[q] || {};
@@ -595,7 +609,7 @@ async function closeService(project, coll, doors, plans) {
           try {
             const img = await compressImage(file, 2400, 0.85);
             const n = declFiles.length + 1;
-            const rec = await addBlob(project.id, img.blob, `Client declaration – ${project.site || 'site'}${coll && coll !== '*' ? ' – ' + collLabel(coll) : ''} – ${today()}${n > 1 ? ' (' + n + ')' : ''}.jpg`, 'Certificates', { notes: 'Signed end-of-service declaration' });
+            const rec = await addBlob(project.id, img.blob, `Client declaration – ${project.site || 'site'} – ${name} – ${today()}${n > 1 ? ' (' + n + ')' : ''}.jpg`, 'Certificates', { notes: 'Signed end-of-service declaration' });
             declFiles.push(rec);
           } catch (err) {
             toast('Could not use that photo: ' + err.message, 'error');
@@ -636,13 +650,13 @@ async function closeService(project, coll, doors, plans) {
   const d = await saveDraft(r.data);
   if (r.value !== true) {
     if (r.value === false) toast('Close-out saved for later');
-    return renderProject();
+    return;
   }
   const b = busy('Closing the service…');
   try {
     const p = await db.get('projects', project.id);
     const closedAt = new Date().toISOString();
-    const rec = { startedAt: svc?.startedAt || '', closedAt, closedBy: d.closedBy, coll: coll && coll !== '*' ? collLabel(coll) : '', questions, answers: d.answers, declIds: d.declIds, declaration: { reason: declFiles.length ? '' : d.reason }, weather: d.weather };
+    const rec = { startedAt: svc?.startedAt || '', closedAt, closedBy: d.closedBy, coll: name, planId: plan.id, questions, answers: d.answers, declIds: d.declIds, declaration: { reason: declFiles.length ? '' : d.reason }, weather: d.weather };
     b.update('Building the final PDF report…');
     const pdf = await exportProjectPdf(p, lists, { photos: true, passDetail: true, costs: false, doors, plans, filterText: '', returnBlob: true, closeout: { ...rec, declarationBlobs: declFiles.map((f) => f.blob) } }, b.update);
     const stamp = closedAt.slice(0, 10);
@@ -668,7 +682,6 @@ async function closeService(project, coll, doors, plans) {
     console.error(e);
     toast('Could not close: ' + e.message, 'error');
   }
-  renderProject();
 }
 
 // ---------- Files: certificates, manuals, quotes and other documents ----------
@@ -1039,6 +1052,7 @@ function renderPlansTab(body, project, plans, doors, active) {
             <div><b>${esc(p.name)}</b><small>${n[p.id] || 0} doors pinned</small></div>
             <button class="icon-btn sm plan-menu" data-id="${p.id}" aria-label="Plan options">${icon('more')}</button>
           </div>
+          <div class="plan-svc">${svcControls(project, p)}</div>
         </div>`;
   const group = (c) => {
     const ps = plansIn(plans, c);
@@ -1078,6 +1092,7 @@ function renderPlansTab(body, project, plans, doors, active) {
         <small>PDF or photo of a floor plan. Each PDF page becomes a plan.</small>
       </label>
     </div>`;
+  bindSvc(body, project, plans);
   $$('.plan-open', body).forEach((b) => (b.onclick = async () => {
     // opening a drawing makes its collection the current one
     const c = plans.find((p) => p.id === b.dataset.id)?.collection || '';
@@ -1356,23 +1371,11 @@ function renderExportTab(body, project, plans, allDoors) {
   const nDef = doors.reduce((a, d) => a + (d.defects || []).length, 0);
   const chip = (group, value, label, on, color) =>
     `<button class="chip ${on ? 'is-on' : ''}" data-g="${group}" data-v="${esc(value)}" ${color ? `style="--c:${color}"` : ''}>${color ? '<i></i>' : ''}${esc(label)}</button>`;
-  const co = closeoutOf(project, state.curColl);
-  const draft = project.closeDrafts?.[closeKey(state.curColl)];
-  const nQ = closeQuestions(lists).length;
-  const nAns = draft ? closeQuestions(lists).filter((q) => draft.answers?.[q]?.a).length : 0;
   body.innerHTML = `
-    <section class="panel closeout-panel ${co ? 'is-closed' : ''}">
-      <h2 class="h2">${icon(co ? 'check' : 'shield')} ${co ? 'Service closed' : 'End of service'}</h2>
-      ${co
-        ? `<p>Closed <b>${esc(fmtDate(co.closedAt.slice(0, 10)))}</b>${co.closedBy ? ` by ${esc(co.closedBy)}` : ''}. ${co.reportFileId ? 'The report and Excel were saved in <b>Files › Reports</b>.' : ''}</p>
-           <div class="row-btns">
-             ${co.reportFileId ? `<button class="btn primary sm" id="co-view">${icon('report')} Open closed report</button>` : ''}
-             <button class="btn sm" id="co-files">${icon('folder')} Files</button>
-             <button class="btn ghost sm" id="co-reopen">Reopen</button>
-           </div>`
-        : `<p>When the work is finished, answer the ${nQ} end-of-service questions, photograph the client's signed declaration sheet and record the weather. Closing saves the final PDF report and Excel into <b>Files › Reports</b>.</p>
-           ${draft ? `<p class="muted small">${nAns} of ${nQ} questions answered so far${draft.declIds?.length ? ' · declaration photo taken' : ''}.</p>` : ''}
-           <button class="btn primary" id="co-start">${icon('check')} ${draft ? 'Continue ending service' : 'End service'}</button>`}
+    <section class="panel svc-panel">
+      <h2 class="h2">${icon('check')} Services</h2>
+      <p class="muted small">Each drawing is its own service. Start it on site; End service answers the ${closeQuestions(lists).length} end-of-service questions, takes the signed declaration and saves the report into Files › Reports.</p>
+      <div class="svc-rows">${plans.map((pl) => `<div class="svc-row"><span class="svc-name"><b>${esc(pl.name)}</b>${pl.collection ? `<small>${esc(collLabel(pl.collection))}</small>` : ''}</span><span class="svc-ctl">${svcControls(project, pl, true)}</span></div>`).join('') || '<p class="muted">No drawings yet.</p>'}</div>
     </section>
     <section class="panel filter-panel">
       <div class="block-head"><h2 class="h2">${icon('search')} Report filters</h2>
@@ -1533,24 +1536,7 @@ function renderExportTab(body, project, plans, allDoors) {
       toast(e.message, 'error');
     }
   };
-  $('#co-start')?.addEventListener('click', () => closeService(project, state.curColl, allDoors, plans));
-  $('#co-files')?.addEventListener('click', () => { state.fileF = 'Reports'; go({ ...state, tab: 'files' }, { replace: true }); });
-  $('#co-view')?.addEventListener('click', async () => {
-    const f = await db.get('files', co.reportFileId);
-    if (!f) return toast('The report file was deleted from Files', 'error');
-    openFile(f).catch((e) => toast(e.message, 'error'));
-  });
-  $('#co-reopen')?.addEventListener('click', async () => {
-    if (!(await confirmBox('Reopen this service?', 'Your close-out answers are kept so you can close it again. The report already saved in Files stays there.', 'Reopen', false))) return;
-    const p = await db.get('projects', project.id);
-    const k = closeKey(state.curColl);
-    const c = p.closeouts?.[k];
-    const closeouts = { ...(p.closeouts || {}) };
-    delete closeouts[k];
-    await db.put('projects', { ...p, closeouts, closeDrafts: { ...(p.closeDrafts || {}), [k]: { answers: c.answers, declIds: c.declIds, reason: c.declaration?.reason || '', weather: c.weather, closedBy: c.closedBy } } });
-    toast('Service reopened');
-    renderProject();
-  });
+  bindSvc(body, project, plans);
   $('#del-proj').onclick = async () => {
     if (await confirmBox('Delete project?', `This deletes "${project.site}", its ${plans.length} plan(s), ${doors.length} door record(s) and all photos from this phone. This cannot be undone.`)) {
       await db.deleteProject(project.id);
@@ -1593,6 +1579,7 @@ async function renderPlan() {
       </header>
       <div class="viewer" id="viewer"></div>
       <div class="mode-banner" id="banner" hidden></div>
+      <div class="plan-svc-pill" id="plan-svc"></div>
       <div class="zoom-ctl">
         <button class="icon-btn" id="zin" aria-label="Zoom in">${icon('zoomIn')}</button>
         <button class="icon-btn" id="zout" aria-label="Zoom out">${icon('zoomOut')}</button>
@@ -1608,6 +1595,14 @@ async function renderPlan() {
     </div>`;
   $('#back').onclick = back;
   $('#to-list').onclick = () => go({ view: 'project', projectId: state.projectId, tab: 'doors' });
+  const drawSvc = async () => {
+    const pr = await db.get('projects', state.projectId);
+    const el = $('#plan-svc');
+    if (!el || !pr) return;
+    el.innerHTML = svcControls(pr, plan);
+    bindSvc(el, pr, [plan], drawSvc);
+  };
+  drawSvc();
   viewer = new PlanViewer($('#viewer'), {
     onTap: onPlanTap,
     onPinTap: (id) => {

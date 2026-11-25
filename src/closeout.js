@@ -27,27 +27,27 @@ export const CLOSE_ANSWERS = [
 
 export const closeQuestions = (lists) => (lists.closeQuestions?.length ? lists.closeQuestions : DEFAULT_CLOSE_QUESTIONS);
 
-// One close-out per collection (monthly service, etc.); '' when there's none.
-export const closeKey = (coll) => (coll == null || coll === '*' ? '' : coll);
-export const closeoutOf = (project, coll) => project.closeouts?.[closeKey(coll)] || null;
-
-// ---------- Live services: Start service -> End service (close-out) ----------
-export const serviceOf = (project, coll) => project.services?.[closeKey(coll)] || null;
+// Each drawing is its own service: Start service on the drawing, End service
+// (close-out) when it's done. Keys look like 'plan:<plan id>'.
+export const planKey = (planId) => 'plan:' + planId;
+export const closeoutOf = (project, key) => project.closeouts?.[key] || null;
+export const serviceOf = (project, key) => project.services?.[key] || null;
 export const isLive = (project, key) => !!project.services?.[key] && !project.closeouts?.[key];
-export const liveKeys = (project) => Object.keys(project.services || {}).filter((k) => isLive(project, k));
+export const liveKeys = (project) => Object.keys(project.services || {}).filter((k) => k.startsWith('plan:') && isLive(project, k));
 
-export async function startService(projectId, coll, by) {
+export async function startService(projectId, key, by) {
   const p = await db.get('projects', projectId);
-  const services = { ...(p.services || {}), [closeKey(coll)]: { startedAt: new Date().toISOString(), startedBy: by || '' } };
+  const services = { ...(p.services || {}), [key]: { startedAt: new Date().toISOString(), startedBy: by || '' } };
   return db.put('projects', { ...p, services });
 }
 
-export async function saveCloseout(projectId, coll, rec) {
+export async function reopenService(projectId, key) {
   const p = await db.get('projects', projectId);
+  const c = p.closeouts?.[key];
   const closeouts = { ...(p.closeouts || {}) };
-  if (rec) closeouts[closeKey(coll)] = rec;
-  else delete closeouts[closeKey(coll)];
-  return db.put('projects', { ...p, closeouts });
+  delete closeouts[key];
+  const draft = c ? { answers: c.answers, declIds: c.declIds, reason: c.declaration?.reason || '', weather: c.weather, closedBy: c.closedBy } : undefined;
+  return db.put('projects', { ...p, closeouts, closeDrafts: { ...(p.closeDrafts || {}), ...(draft ? { [key]: draft } : {}) } });
 }
 
 // ---------- Weather (Met Éireann open data: free, commercial use allowed) ----------
