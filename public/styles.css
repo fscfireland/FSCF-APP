@@ -980,3 +980,5 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 
 .fw-line { margin: 14px 4px 80px; text-align: center; }
 .fw-line .link-btn { display: inline-flex; gap: 6px; align-items: center; cursor: pointer; }
+
+.dup-top { width: 100%; justify-content: center; margin: 8px 0 4px; }

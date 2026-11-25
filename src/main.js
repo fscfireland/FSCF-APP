@@ -2920,9 +2920,10 @@ async function onPlanTap(x, y) {
   }
   if (mode === 'add') {
     const pinNo = await db.nextPinNo(state.projectId);
+    const ref = nextFreeRef(await db.projectDoors(state.projectId), state.planId, pinNo);
     const door = await saveDoor({
       id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y, kind: planKind,
-      ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
+      ref, location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
       zoneNo: lastZone.planId === state.planId ? lastZone.no : '', zoneName: lastZone.planId === state.planId ? lastZone.name : '',
       inspectedOn: '', inspectedBy: lists.inspector || '', category: lastCategory.planId === state.planId ? lastCategory.value : '',
     });
@@ -3024,6 +3025,7 @@ async function drawSheet(door) {
         ${STATUSES.filter((st) => !autoRes || !['pass', 'fail'].includes(st.id)).map((st) => `<label class="status-opt" style="--c:${st.color}"><input type="radio" name="status" value="${st.id}" ${st.id === (door.status || 'not_inspected') ? 'checked' : ''}><span>${st.label}</span></label>`).join('')}
       </fieldset>
       ${autoRes ? '<p class="auto-res" id="auto-res"></p>' : ''}
+      <button type="button" class="btn dup-top" id="sh-dup">${icon('plus')} Duplicate this ${esc(K.item.toLowerCase())}</button>
 
       <div class="grid2">
         <label class="field"><span>${esc(K.item)} ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. GF-012" autocomplete="off"></label>
@@ -3117,7 +3119,6 @@ async function drawSheet(door) {
       <div class="sheet-actions">
         ${!door.planId ? `<button class="btn primary" id="sh-place">${icon('pin')} Place on drawing</button>`
           : state.view === 'plan' ? `<button class="btn" id="sh-move">${icon('move')} Move pin</button>` : `<button class="btn" id="sh-show">${icon('plan')} Show on plan</button>`}
-        <button class="btn" id="sh-dup">${icon('plus')} Duplicate ${esc(K.item.toLowerCase())}</button>
         <button class="btn ghost danger-text" id="sh-del">${icon('trash')} Delete ${esc(K.item.toLowerCase())}</button>
       </div>
     </div>`;
@@ -3947,14 +3948,36 @@ function nextRef(ref) {
   if (!m) return ref ? ref + ' (copy)' : '';
   return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0') + m[3];
 }
+// New pin's ref: carry on the numbering used on this drawing (GF-012 → GF-013),
+// skipping any ref already used in the project; no refs yet → the pin number.
+function nextFreeRef(all, planId, pinNo) {
+  const used = new Set(all.map((d) => (d.ref || '').trim().toUpperCase()).filter(Boolean));
+  const numbered = (list) => list.filter((d) => /\d/.test(d.ref || ''));
+  const pool = numbered(all.filter((d) => d.planId === planId));
+  const src = pool.length ? pool : numbered(all);
+  if (!src.length) {
+    let n = pinNo;
+    while (used.has(String(n))) n++;
+    return String(n);
+  }
+  // the highest number in the most common prefix style
+  const parse = (r) => { const m = /^(.*?)(\d+)(\D*)$/.exec(r.trim()); return m ? { pre: m[1], n: Number(m[2]), w: m[2].length, post: m[3] } : null; };
+  const last = src.map((d) => parse(d.ref)).filter(Boolean);
+  const latest = parse([...src].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0].ref) || last[0];
+  const same = last.filter((x) => x.pre === latest.pre && x.post === latest.post);
+  let n = Math.max(...same.map((x) => x.n)) + 1;
+  const make = (k) => latest.pre + String(k).padStart(latest.w, '0') + latest.post;
+  while (used.has(make(n).toUpperCase())) n++;
+  return make(n);
+}
 async function duplicateDoor(src) {
   await flushSave();
   const d0 = (await db.get('doors', src.id)) || src;
   const all = await db.projectDoors(d0.projectId);
-  let suggest = nextRef(d0.ref);
-  while (suggest && all.some((x) => x.ref === suggest)) suggest = nextRef(suggest);
+  let suggest = d0.ref ? nextFreeRef(all, d0.planId, 0) : '';
+  if (suggest && !/\d/.test(d0.ref)) suggest = nextRef(d0.ref);
   const r = await dialog({
-    title: 'Duplicate door',
+    title: `Duplicate ${kitOf(kindOfDoor(d0, await db.get('plans', d0.planId))).item.toLowerCase()}`,
     body: `<p>Makes a new pin next to pin ${d0.pinNo} with the same details: status, checklist, defects and products, actions, signs and notes. Photos are not copied.</p>
       <label class="field"><span>New door ref / ID</span><input name="ref" value="${esc(suggest)}" required autocomplete="off"></label>
       <label class="field"><span>Location / room</span><input name="location" value="${esc(d0.location || '')}" autocomplete="off"></label>`,
