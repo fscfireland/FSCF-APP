@@ -146,27 +146,74 @@ export const DEFAULT_QUESTIONS = [
 
 // Materials catalogue. Prices are left at 0 for you to enter your own
 // (ex VAT) in Settings; they then pre-fill each door.
+export const MAT_CATEGORIES = ['Seals', 'Closers', 'Hinges', 'Ironmongery', 'Hold-open', 'Signs', 'Glazing', 'Fire stopping', 'Timber & repairs', 'Labour', 'Other'];
+
+// One price list for everything: each product has a category, so a defect
+// can offer only the products that fix it (e.g. Closers → Arrone or Dorma).
 export const DEFAULT_MATERIALS = [
-  { id: 'm-int10', name: 'Intumescent strip 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int15', name: 'Intumescent strip 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int20', name: 'Intumescent strip 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int25', name: 'Intumescent strip 25 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int10s', name: 'Intumescent + smoke seal 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int15s', name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-int20s', name: 'Intumescent + smoke seal 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-smoke', name: 'Smoke seal only, brush or fin (2.1 m)', unit: 'length', cost: 0 },
-  { id: 'm-glaze', name: 'Intumescent glazing tape / seal', unit: 'roll', cost: 0 },
-  { id: 'm-closer', name: 'Overhead door closer EN 1154', unit: 'each', cost: 0 },
-  { id: 'm-hinge', name: 'Fire-rated hinge EN 1935 (Grade 13)', unit: 'each', cost: 0 },
-  { id: 'm-hpad', name: 'Intumescent hinge pads', unit: 'pack', cost: 0 },
-  { id: 'm-drop', name: 'Automatic drop-down seal', unit: 'each', cost: 0 },
-  { id: 'm-thresh', name: 'Threshold strip / seal', unit: 'each', cost: 0 },
-  { id: 'm-mastic', name: 'Intumescent sealant 310 ml', unit: 'tube', cost: 0 },
-  { id: 'm-lip', name: 'Hardwood lipping', unit: 'length', cost: 0 },
-  { id: 'm-holdopen', name: 'Hold-open device EN 1155', unit: 'each', cost: 0 },
-  { id: 'm-sign', name: 'Fire Door Keep Shut sign', unit: 'each', cost: 0 },
-  { id: 'm-latch', name: 'Fire-rated latch / lock', unit: 'each', cost: 0 },
+  { id: 'm-int10', cat: 'Seals', name: 'Intumescent strip 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int15', cat: 'Seals', name: 'Intumescent strip 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int20', cat: 'Seals', name: 'Intumescent strip 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int25', cat: 'Seals', name: 'Intumescent strip 25 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int10s', cat: 'Seals', name: 'Intumescent + smoke seal 10 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int15s', cat: 'Seals', name: 'Intumescent + smoke seal 15 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-int20s', cat: 'Seals', name: 'Intumescent + smoke seal 20 × 4 mm (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-smoke', cat: 'Seals', name: 'Smoke seal only, brush or fin (2.1 m)', unit: 'length', cost: 0 },
+  { id: 'm-drop', cat: 'Seals', name: 'Automatic drop-down seal', unit: 'each', cost: 0 },
+  { id: 'm-thresh', cat: 'Seals', name: 'Threshold strip / seal', unit: 'each', cost: 0 },
+  { id: 'm-closer', cat: 'Closers', name: 'Overhead door closer EN 1154 (standard)', unit: 'each', cost: 0 },
+  { id: 'm-cl-arrone', cat: 'Closers', name: 'Arrone overhead closer EN 1154', unit: 'each', cost: 0 },
+  { id: 'm-cl-dorma', cat: 'Closers', name: 'Dorma TS83 overhead closer EN 1154', unit: 'each', cost: 0 },
+  { id: 'm-cl-conc', cat: 'Closers', name: 'Concealed jamb closer (Perko type)', unit: 'each', cost: 0 },
+  { id: 'm-cl-free', cat: 'Closers', name: 'Free-swing closer linked to fire alarm', unit: 'each', cost: 0 },
+  { id: 'm-hinge', cat: 'Hinges', name: 'Fire-rated hinge EN 1935 (Grade 13)', unit: 'each', cost: 0 },
+  { id: 'm-hpad', cat: 'Hinges', name: 'Intumescent hinge pads', unit: 'pack', cost: 0 },
+  { id: 'm-latch', cat: 'Ironmongery', name: 'Fire-rated latch / lock', unit: 'each', cost: 0 },
+  { id: 'm-holdopen', cat: 'Hold-open', name: 'Hold-open device EN 1155', unit: 'each', cost: 0 },
+  { id: 'm-glaze', cat: 'Glazing', name: 'Intumescent glazing tape / seal', unit: 'roll', cost: 0 },
+  { id: 'm-mastic', cat: 'Fire stopping', name: 'Intumescent sealant 310 ml', unit: 'tube', cost: 0 },
+  { id: 'm-lip', cat: 'Timber & repairs', name: 'Hardwood lipping', unit: 'length', cost: 0 },
+  { id: 'm-sign', cat: 'Signs', name: 'Fire door keep shut', unit: 'each', cost: 0 },
+  { id: 'm-sg-auto', cat: 'Signs', name: 'Automatic fire door keep shut', unit: 'each', cost: 0 },
+  { id: 'm-sg-lock', cat: 'Signs', name: 'Fire door keep locked', unit: 'each', cost: 0 },
+  { id: 'm-sg-exit', cat: 'Signs', name: 'Fire exit keep clear', unit: 'each', cost: 0 },
+  { id: 'm-sg-push', cat: 'Signs', name: 'Push bar to open', unit: 'each', cost: 0 },
+  { id: 'm-sg-right', cat: 'Signs', name: 'Turn to the right', unit: 'each', cost: 0 },
+  { id: 'm-sg-left', cat: 'Signs', name: 'Turn to the left', unit: 'each', cost: 0 },
 ];
+
+// Category of a price-list item (older lists had none: work it out from the name)
+export function matCat(m) {
+  if (m.cat) return m.cat;
+  const n = (m.name || '').toLowerCase();
+  if (/sign/.test(n)) return 'Signs';
+  if (/closer/.test(n)) return 'Closers';
+  if (/hinge/.test(n)) return 'Hinges';
+  if (/hold.?open|free.?swing|mag/.test(n)) return 'Hold-open';
+  if (/seal|intumescent strip|threshold|drop/.test(n)) return 'Seals';
+  if (/latch|lock|handle|ironmongery|bar/.test(n)) return 'Ironmongery';
+  if (/glaz|bead/.test(n)) return 'Glazing';
+  if (/mastic|sealant|fire.?stop|batt/.test(n)) return 'Fire stopping';
+  if (/lip|timber|leaf|frame/.test(n)) return 'Timber & repairs';
+  return 'Other';
+}
+
+// Which part of the price list fixes a defect
+export function defectCat(d) {
+  if (d.cat) return d.cat;
+  const n = ((d.label || '') + ' ' + (d.remedial || '')).toLowerCase();
+  if (/sign/.test(n)) return 'Signs';
+  if (/closer/.test(n)) return 'Closers';
+  if (/hinge/.test(n)) return 'Hinges';
+  if (/hold.?open|wedged/.test(n)) return 'Hold-open';
+  if (/threshold|seal|intumescent strip/.test(n)) return 'Seals';
+  if (/lock|latch|ironmongery/.test(n)) return 'Ironmongery';
+  if (/glaz|bead/.test(n)) return 'Glazing';
+  if (/fire stop|wall not/.test(n)) return 'Fire stopping';
+  if (/leaf|frame|holes|gaps/.test(n)) return 'Timber & repairs';
+  return '';
+}
+
 
 
 // Older records stored one action as a string; newer ones store a list.
@@ -208,13 +255,16 @@ export const zonesToText = (zones) => (zones || []).map((z) => (z.name ? `${z.no
 
 // A material as it appears in lists and reports, with its size / type
 export const matLabel = (m) => (m.spec ? `${m.name} – ${m.spec}` : m.name || '');
-export const MATERIALS_VERSION = 2;
+export const MATERIALS_VERSION = 3;
 
 // A door's fire alarm zone as one line, e.g. "Zone 4 – East wing"
 export const zoneText = (d) => [d.zoneNo ? `Zone ${d.zoneNo}` : '', d.zoneName || ''].filter(Boolean).join(' – ');
 
 export function materialsTotal(d) {
-  return (d.materials || []).reduce((t, m) => t + (Number(m.qty) || 0) * (Number(m.cost) || 0), 0);
+  const mats = (d.materials || []).reduce((t, m) => t + (Number(m.qty) || 0) * (Number(m.cost) || 0), 0);
+  // signs still needed are costed from their price-list price
+  const signs = (d.signs || []).filter((x) => x.state !== 'fitted').reduce((t, x) => t + (Number(x.qty) || 0) * (Number(x.cost) || 0), 0);
+  return mats + signs;
 }
 
 const eur = new Intl.NumberFormat('en-IE', { style: 'currency', currency: 'EUR' });

@@ -6,7 +6,7 @@ import {
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
-  DEFAULT_SIGNS, SIGN_FACES, signsNeeded,
+  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -102,7 +102,8 @@ async function loadLists() {
   setCustomSchemes(lists.customSchemes);
   if (s?.materials && (s.matVersion || 1) < MATERIALS_VERSION) {
     const have = new Set(s.materials.map((m) => m.id));
-    await saveLists({ materials: [...s.materials, ...DEFAULT_MATERIALS.filter((m) => !have.has(m.id))], matVersion: MATERIALS_VERSION });
+    const merged = [...s.materials, ...DEFAULT_MATERIALS.filter((m) => !have.has(m.id))].map((m) => ({ ...m, cat: matCat(m) }));
+    await saveLists({ materials: merged, matVersion: MATERIALS_VERSION });
   }
   return lists;
 }
@@ -2974,24 +2975,48 @@ async function drawSheet(door) {
             <label class="field"><span>Remedial work</span><textarea rows="2" class="def-rem" id="def-rem-${i}">${esc(d.remedial)}</textarea></label>
             <label class="field qty"><span>Qty</span><input type="number" inputmode="numeric" min="1" class="def-qty" id="def-qty-${i}" value="${esc(d.qty ?? 1)}"></label>
           </div>
+          ${(() => {
+            const cat = defectCat(d);
+            const opts = (lists.materials || []).filter((m) => m.name?.trim() && (!cat || matCat(m) === cat));
+            if (!opts.length && !d.product) return '';
+            return `<label class="field def-prod"><span>Product${cat ? ' · ' + esc(cat) : ''}</span><select class="def-product">
+              <option value="">Choose product…</option>
+              ${opts.map((m) => `<option value="${esc(m.id)}" ${m.name === d.product ? 'selected' : ''}>${esc(m.name)}${m.cost ? ' – ' + euro(m.cost) : ''}</option>`).join('')}
+              ${d.product && !opts.some((m) => m.name === d.product) ? `<option selected>${esc(d.product)}</option>` : ''}
+            </select></label>`;
+          })()}
         </div>`).join('')
       : '<p class="muted small">No defects recorded.</p>';
     $$('.defect', el).forEach((row) => {
       const i = Number(row.dataset.i);
       $('.def-del', row).onclick = () => {
         const defects = [...current.defects];
-        defects.splice(i, 1);
-        queue(autoFail({ defects }));
+        const [gone] = defects.splice(i, 1);
+        queue(autoFail({ defects, materials: (current.materials || []).filter((m) => m.forKey !== 'd:' + gone.label) }));
         drawDefects();
+        drawMaterials();
       };
       $('.def-rem', row).oninput = (e) => {
         const defects = current.defects.map((d, j) => (j === i ? { ...d, remedial: e.target.value } : d));
         queue({ defects });
       };
       $('.def-qty', row).oninput = (e) => {
-        const defects = current.defects.map((d, j) => (j === i ? { ...d, qty: Number(e.target.value) || 1 } : d));
-        queue({ defects });
+        const q = Number(e.target.value) || 1;
+        const defects = current.defects.map((d, j) => (j === i ? { ...d, qty: q } : d));
+        const key = 'd:' + current.defects[i].label;
+        // the product picked for this defect follows its quantity
+        queue({ defects, materials: (current.materials || []).map((m) => (m.forKey === key ? { ...m, qty: q } : m)) });
       };
+      $('.def-product', row)?.addEventListener('change', (e) => {
+        const d = current.defects[i];
+        const key = 'd:' + d.label;
+        const m = (lists.materials || []).find((x) => x.id === e.target.value);
+        const others = (current.materials || []).filter((x) => x.forKey !== key);
+        const materials = m ? [...others, { id: db.uid(), name: m.name, unit: m.unit || 'each', cost: Number(m.cost) || 0, qty: Number(d.qty) || 1, cat: matCat(m), forKey: key }] : others;
+        const defects = current.defects.map((x, j) => (j === i ? { ...x, product: m ? m.name : '' } : x));
+        queue({ defects, materials });
+        drawMaterials();
+      });
     });
   };
   drawDefects();
@@ -3214,7 +3239,8 @@ async function drawSheet(door) {
   // fire safety signs: several types per door, each with a quantity
   const drawSigns = () => {
     const list = current.signs || [];
-    const types = [...new Set([...(lists.signs || DEFAULT_SIGNS), ...list.map((x) => x.type)])];
+    const priced = (lists.materials || []).filter((m) => matCat(m) === 'Signs' && m.name?.trim());
+    const types = [...new Set([...(priced.length ? priced.map((m) => m.name) : DEFAULT_SIGNS), ...list.map((x) => x.type)])];
     const need = signsNeeded(current).reduce((a, x) => a + (Number(x.qty) || 0), 0);
     $('#sign-n').textContent = list.length ? `${need} needed` : '';
     $('#sign-add').innerHTML = types.map((t) => `<button type="button" class="chip sign-chip ${list.some((x) => x.type === t) ? 'is-on' : ''}" data-t="${esc(t)}">${icon('plus')} ${esc(t)}</button>`).join('')
@@ -3232,12 +3258,13 @@ async function drawSheet(door) {
     $$('.sign-chip', el).forEach((c) => (c.onclick = async () => {
       let t = c.dataset.t;
       if (!t) {
-        const r = await dialog({ title: 'Other sign', body: '<label class="field"><span>Sign wording</span><input name="t" required placeholder="e.g. Fire escape route"></label><label class="check-line"><input type="checkbox" name="keep" checked> Add to my sign list</label>', buttons: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, kind: 'primary' }] });
+        const r = await dialog({ title: 'Other sign', body: '<label class="field"><span>Sign wording</span><input name="t" required placeholder="e.g. Fire escape route"></label><label class="check-line"><input type="checkbox" name="keep" checked> Add to my price list (Signs)</label>', buttons: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, kind: 'primary' }] });
         if (r.value !== true || !r.data.t.trim()) return;
         t = r.data.t.trim();
-        if (r.data.keep && !(lists.signs || DEFAULT_SIGNS).includes(t)) await saveLists({ signs: [...(lists.signs || DEFAULT_SIGNS), t] });
+        if (r.data.keep && !(lists.materials || []).some((m) => m.name === t)) await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), cat: 'Signs', name: t, unit: 'each', cost: 0 }] });
       }
-      queue({ signs: [...(current.signs || []), { type: t, qty: 1, face: '', state: 'needed' }] });
+      const pm = (lists.materials || []).find((m) => m.name === t && matCat(m) === 'Signs');
+      queue({ signs: [...(current.signs || []), { type: t, qty: 1, face: '', state: 'needed', cost: Number(pm?.cost) || 0 }] });
       drawSigns();
     }));
     $$('.sign-row', el).forEach((row) => {
@@ -3260,7 +3287,7 @@ async function drawSheet(door) {
     $('#materials').innerHTML = list.length
       ? list.map((m, i) => `
         <div class="mat" data-i="${i}">
-          <div class="defect-top"><b>${esc(m.name)}</b>
+          <div class="defect-top"><b>${esc(m.name)}${m.forKey ? `<small class="mat-for">for: ${esc(m.forKey.slice(2))}</small>` : ''}</b>
             <span class="row-btns"><button class="btn ghost sm mat-dup" title="Add another size or type of this material">${icon('plus')} size</button>
             <button class="icon-btn sm mat-del" aria-label="Remove material">${icon('close')}</button></span></div>
           <label class="field"><span>Size / type</span><input class="mat-spec" id="mat-spec-${i}" value="${esc(m.spec || '')}" placeholder="e.g. 15 × 4 mm, white, combined" autocomplete="off"></label>
@@ -3532,7 +3559,8 @@ async function pickMaterials() {
     title: 'Add materials',
     body: `
       <div class="pick-list">
-        ${(lists.materials || []).map((m, i) => !m.name?.trim() ? "" : `
+        ${(lists.materials || []).map((m, i) => ({ m, i })).sort((a, b) => MAT_CATEGORIES.indexOf(matCat(a.m)) - MAT_CATEGORIES.indexOf(matCat(b.m))).map(({ m, i }, k, arr) => !m.name?.trim() ? "" : `
+          ${k === 0 || matCat(arr[k - 1].m) !== matCat(m) ? `<h4 class="pick-cat">${esc(matCat(m))}</h4>` : ''}
           <label class="pick">
             <input type="checkbox" name="m${i}" value="${i}">
             <span><b>${esc(m.name)}</b><small>${m.cost ? euro(m.cost) + ' per ' + esc(m.unit || 'item') : 'No price set · per ' + esc(m.unit || 'item')}</small></span>
@@ -3553,7 +3581,7 @@ async function pickMaterials() {
   if (r.value !== true) return null;
   const picked = Object.entries(r.data).filter(([k]) => /^m\d+$/.test(k)).map(([, v]) => {
     const m = lists.materials[Number(v)];
-    return { id: db.uid(), name: m.name, unit: m.unit || '', qty: 1, cost: Number(m.cost) || 0 };
+    return { id: db.uid(), name: m.name, unit: m.unit || '', qty: 1, cost: Number(m.cost) || 0, cat: matCat(m) };
   });
   const name = (r.data.cname || '').trim();
   if (name) {
@@ -3799,10 +3827,6 @@ async function renderSettings() {
         <label class="field"><span>One per line. Each project picks one; used to group and filter projects and as the report title.</span><textarea id="s-wtypes" rows="7">${esc((lists.workTypes || DEFAULT_WORK_TYPES).join('\n'))}</textarea></label>
       </section>
       <section class="panel">
-        <h2 class="h2">Sign types</h2>
-        <label class="field"><span>One per line. Tap these on a door to add signs with a quantity, which face, and whether they're fitted or needed.</span><textarea id="s-signs" rows="8">${esc((lists.signs || DEFAULT_SIGNS).join('\n'))}</textarea></label>
-      </section>
-      <section class="panel">
         <h2 class="h2">End of service questions</h2>
         <label class="field"><span>One per line. All must be answered (Yes / No / N/A) before a service can be closed.</span><textarea id="s-closeq" rows="10">${esc(closeQuestions(lists).join('\n'))}</textarea></label>
       </section>
@@ -3918,7 +3942,6 @@ async function renderSettings() {
 
   $('#s-rem').onchange = (e) => saveLists({ remedialText: e.target.value });
   $('#s-wtypes').onchange = (e) => saveLists({ workTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
-  $('#s-signs').onchange = (e) => saveLists({ signs: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) });
   $('#s-closeq').onchange = (e) => saveLists({ closeQuestions: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) });
   $('#s-cats').onchange = (e) => saveLists({ categories: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-risks').onchange = (e) => saveLists({ risks: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
@@ -3963,25 +3986,33 @@ async function renderSettings() {
   };
 
   const drawMats = () => {
-    $('#s-mats').innerHTML = (lists.materials || []).map((m, i) => `
+    const all = (lists.materials || []).map((m, i) => ({ m, i }));
+    const cats = [...new Set([...MAT_CATEGORIES, ...all.map(({ m }) => matCat(m))])];
+    $('#s-mats').innerHTML = cats.map((c) => {
+      const rows = all.filter(({ m }) => matCat(m) === c);
+      if (!rows.length) return '';
+      return `<h3 class="mat-cat">${esc(c)} <span class="muted">${rows.length}</span></h3>` + rows.map(({ m, i }) => `
       <div class="m-edit" data-i="${i}">
         <input class="me-name" id="me-name-${i}" value="${esc(m.name)}" aria-label="Material" placeholder="Material">
         <input class="me-unit" id="me-unit-${i}" value="${esc(m.unit)}" aria-label="Unit" placeholder="unit">
         <label class="me-cost"><span>€</span><input id="me-cost-${i}" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(m.cost || '')}" placeholder="0.00" aria-label="Unit cost in euro"></label>
+        <select class="me-cat" aria-label="Category">${cats.map((x) => `<option ${x === matCat(m) ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
         <button class="icon-btn sm me-del" aria-label="Remove">${icon('trash')}</button>
-      </div>`).join('') || '<p class="muted small">No materials.</p>';
+      </div>`).join('');
+    }).join('') || '<p class="muted small">No materials.</p>';
     $$('.m-edit').forEach((row) => {
       const i = Number(row.dataset.i);
       const upd = () => saveLists({
-        materials: lists.materials.map((m, j) => (j === i ? { ...m, name: $('.me-name', row).value, unit: $('.me-unit', row).value, cost: Number($('.me-cost input', row).value) || 0 } : m)),
+        materials: lists.materials.map((m, j) => (j === i ? { ...m, name: $('.me-name', row).value, unit: $('.me-unit', row).value, cost: Number($('.me-cost input', row).value) || 0, cat: $('.me-cat', row).value } : m)),
       });
       $$('input', row).forEach((inp) => (inp.onchange = upd));
+      $('.me-cat', row).onchange = async () => { await upd(); drawMats(); };
       $('.me-del', row).onclick = async () => { await saveLists({ materials: lists.materials.filter((_, j) => j !== i) }); drawMats(); };
     });
   };
   drawMats();
   $('#s-add-m').onclick = async () => {
-    await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), name: '', unit: 'each', cost: 0 }] });
+    await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), cat: 'Other', name: '', unit: 'each', cost: 0 }] });
     drawMats();
     $$('.me-name').at(-1)?.focus();
   };

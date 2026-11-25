@@ -18,14 +18,14 @@ const NOT_WORK = /^(no action required|refer to client|further investigation)/i;
 export function remedialItems(d) {
   const items = [];
   for (const x of d.defects || []) {
-    items.push({ key: 'd:' + x.label, text: x.remedial || x.label, sub: x.remedial ? x.label : '', qty: Number(x.qty) > 1 ? Number(x.qty) : 0 });
+    items.push({ key: 'd:' + x.label, text: (x.remedial || x.label) + (x.product ? ' – ' + x.product : ''), sub: x.remedial ? x.label : '', qty: Number(x.qty) > 1 ? Number(x.qty) : 0, part: x.product || '' });
   }
   for (const a of doorActions(d)) {
     if (NOT_WORK.test(a)) continue;
     items.push({ key: 'a:' + a, text: a, sub: 'Recommended action', qty: 0 });
   }
   for (const x of signsNeeded(d)) {
-    items.push({ key: 's:' + x.type + '|' + (x.face || ''), text: 'Supply and fit sign: ' + x.type, sub: x.face || 'Signage', qty: Number(x.qty) || 1, sign: true });
+    items.push({ key: 's:' + x.type + '|' + (x.face || ''), text: 'Supply and fit sign: ' + x.type, sub: x.face || 'Signage', qty: Number(x.qty) || 1, sign: true, part: x.type });
   }
   return items;
 }
