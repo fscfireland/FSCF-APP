@@ -113,7 +113,8 @@ async function loadLists() {
 // ---------- Inspection types ("kits") ----------
 // Fire doors use the main lists; dampers, fire alarm, emergency lighting and
 // extinguishers keep their own checklist, defects and item types in lists.kits.
-let kindNow = 'fd'; // the type of the drawing / pin on screen, or being edited in Settings
+let kindNow = 'fd'; // the type of the pin on screen, or being edited in Settings
+let planKind = 'fd'; // the type new pins on the drawing on screen will get
 function kitOf(kind) {
   if (!kind || kind === 'fd' || !DEFAULT_KITS[kind]) {
     return { id: 'fd', name: 'Fire doors', item: 'Door', report: 'Fire Door Inspection Report', questions: lists.questions || [], defects: lists.defects || [], doorTypes: lists.doorTypes || [] };
@@ -2029,6 +2030,7 @@ async function renderPlan() {
   planColl = plan?.collection || '';
   if (!plan) return go({ view: 'project', projectId: state.projectId, tab: 'plans' }, { replace: true });
   kindNow = kindOfPlan(plan);
+  planKind = kindNow;
   mode = null;
   selectedPin = null;
   app.innerHTML = `
@@ -2054,7 +2056,7 @@ async function renderPlan() {
       <div class="plan-toolbar">
         <button class="btn big" id="sel-toggle">${icon('cursor')} Select</button>
         <button class="btn big" id="mk-toggle">${icon('pencil')} Markup</button>
-        <button class="btn primary big" id="add-door">${icon('pin')} Add ${esc(kitOf(kindNow).item.toLowerCase())}</button>
+        <button class="btn primary big" id="add-door">${icon('pin')} Add ${esc(kitOf(planKind).item.toLowerCase())}</button>
         <button class="btn big" id="place-list" hidden>${icon('list')} Place <span id="place-n"></span></button>
       </div>
       <div class="mk-panel" id="mk-panel" hidden></div>
@@ -2727,7 +2729,7 @@ function setMode(m, doorId = null) {
   if (!banner) return;
   if (m === 'add') {
     banner.hidden = false;
-    banner.innerHTML = `<span>Tap the plan where the ${esc(kitOf(kindNow).item.toLowerCase())} is</span><button class="btn sm" id="cancel-mode">Cancel</button>`;
+    banner.innerHTML = `<span>Tap where the ${esc(kitOf(planKind).item.toLowerCase())} is</span><button type="button" class="kind-chip kind-pick k-${planKind}" id="add-kind" aria-label="New pin type: ${esc(kitOf(planKind).name)}. Tap to change">${esc(kitOf(planKind).name)} ${icon('down')}</button><button class="btn sm" id="cancel-mode">Cancel</button>`;
     add.classList.add('is-on');
     add.innerHTML = `${icon('close')} Cancel`;
   } else if (m === 'move') {
@@ -2742,9 +2744,23 @@ function setMode(m, doorId = null) {
   } else {
     banner.hidden = true;
     add.classList.remove('is-on');
-    add.innerHTML = `${icon('pin')} Add ${esc(kitOf(kindNow).item.toLowerCase())}`;
+    add.innerHTML = `${icon('pin')} Add ${esc(kitOf(planKind).item.toLowerCase())}`;
   }
   $('#cancel-mode')?.addEventListener('click', () => setMode(null));
+  // change the type for new pins right here; pins already placed are not touched
+  $('#add-kind')?.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    const k = await pickKind('What are you adding?', planKind);
+    if (!k || k === planKind) return;
+    const pl = await db.get('plans', state.planId);
+    // existing pins keep their own type
+    for (const d of await db.byIndex('doors', 'planId', pl.id)) if (!d.kind) await db.put('doors', { ...d, kind: kindOfPlan(pl) });
+    await db.put('plans', { ...pl, inspType: k });
+    planKind = k;
+    kindNow = k;
+    setMode('add');
+    toast(`New pins: ${kitOf(k).name.toLowerCase()}`);
+  });
   $('.viewer')?.classList.toggle('is-adding', m === 'add' || m === 'move');
   refreshPins();
 }
@@ -2767,7 +2783,7 @@ async function onPlanTap(x, y) {
   if (mode === 'add') {
     const pinNo = await db.nextPinNo(state.projectId);
     const door = await saveDoor({
-      id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y, kind: kindNow,
+      id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y, kind: planKind,
       ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
       zoneNo: lastZone.planId === state.planId ? lastZone.no : '', zoneName: lastZone.planId === state.planId ? lastZone.name : '',
       inspectedOn: '', inspectedBy: lists.inspector || '', category: lastCategory.planId === state.planId ? lastCategory.value : '',
