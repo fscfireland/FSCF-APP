@@ -6,7 +6,7 @@ import {
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
-  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat,
+  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -1700,6 +1700,10 @@ function renderExportTab(body, project, plans, allDoors) {
         <li><b>Inspection history</b>: every inspection of every door, by date</li>
       </ul>
       <p class="muted">${doors.length} doors · ${nDef} defects · materials ${euro(doors.reduce((t, d) => t + materialsTotal(d), 0))} ex VAT</p>
+      ${(() => {
+        const n = doors.filter((d) => (d.defects || []).some((x) => !(d.materials || []).some((m) => m.forKey === 'd:' + x.label) && defaultProductsFor(x, lists.materials || [], () => '').length)).length;
+        return n ? `<p class="fill-note">${icon('sheet')} <span>${n} door${n === 1 ? ' has' : 's have'} defects with no products yet. <button class="link-btn" id="fill-all">Add the usual products</button> so they're costed and on the pricing sheet.</span></p>` : '';
+      })()}
       <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
     </section>
     <section class="panel">
@@ -1760,6 +1764,11 @@ function renderExportTab(body, project, plans, allDoors) {
   $('#rf-clear')?.addEventListener('click', () => { state.rf = emptyFilter(); rerender(); });
   const noneMsg = () => toast('No doors match these filters. Change or clear the filters first.', 'error');
 
+  $('#fill-all')?.addEventListener('click', async () => {
+    const { added, nDoors } = await fillProjectMaterials(doors);
+    toast(`${added} product${added === 1 ? '' : 's'} added on ${nDoors} door${nDoors === 1 ? '' : 's'}. Check the quantities on each door`);
+    refresh();
+  });
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
     try {
@@ -2743,7 +2752,8 @@ async function drawSheet(door) {
 
       <section class="block">
         <div class="block-head"><h3>Materials</h3>
-          <button class="btn sm" id="add-material">${icon('plus')} Add material</button>
+          <span class="row-btns"><button class="btn ghost sm" id="fill-mats" hidden>${icon('check')} From defects</button>
+          <button class="btn sm" id="add-material">${icon('plus')} Add material</button></span>
         </div>
         <div id="materials"></div>
       </section>
@@ -2766,12 +2776,43 @@ async function drawSheet(door) {
       <div class="sheet-actions">
         ${!door.planId ? `<button class="btn primary" id="sh-place">${icon('pin')} Place on drawing</button>`
           : state.view === 'plan' ? `<button class="btn" id="sh-move">${icon('move')} Move pin</button>` : `<button class="btn" id="sh-show">${icon('plan')} Show on plan</button>`}
+        <button class="btn" id="sh-dup">${icon('plus')} Duplicate door</button>
         <button class="btn ghost danger-text" id="sh-del">${icon('trash')} Delete door</button>
       </div>
     </div>`;
 
   let current = door;
+  let redrawDefects = null;
+  // A failed checklist question adds its defect (and that defect's usual
+  // product); answering it again as pass / N/A takes them back off.
+  const syncChecks = (patch) => {
+    const checks = patch.checks;
+    const qs = lists.questions || [];
+    let defects = [...(patch.defects || current.defects || [])];
+    let mats = [...(patch.materials || current.materials || [])];
+    let changed = false;
+    for (const q of qs) {
+      const label = q.defect || QUESTION_DEFECT[q.id];
+      if (!label) continue;
+      const failed = checks[q.id]?.answer === 'fail';
+      const has = defects.find((x) => x.label === label);
+      if (failed && !has) {
+        const tmpl = (lists.defects || []).find((x) => x.label === label) || { label, remedial: '' };
+        const nd = { label, remedial: tmpl.remedial || '', qty: 1, fromQ: q.id };
+        defects.push(nd);
+        mats.push(...defaultProductsFor(nd, lists.materials || [], db.uid));
+        changed = true;
+      } else if (!failed && has?.fromQ === q.id) {
+        defects = defects.filter((x) => x !== has);
+        mats = mats.filter((m) => m.forKey !== 'd:' + label);
+        changed = true;
+      }
+    }
+    if (changed) { patch.defects = defects; patch.materials = mats; setTimeout(() => redrawDefects?.(), 0); }
+    return patch;
+  };
   const queue = (patch) => {
+    if ('checks' in patch) patch = syncChecks({ ...patch });
     current = { ...current, ...patch };
     pending = current;
     $('#saved').textContent = 'Saving…';
@@ -3050,12 +3091,15 @@ async function drawSheet(door) {
   $('#add-defect').onclick = async () => {
     const picked = await pickDefects(current.defects || []);
     if (!picked) return;
-    const defects = [...(current.defects || []), ...picked.map((d) => ({ ...d, qty: 1 }))];
-    const patch = { defects };
+    const fresh = picked.map((d) => ({ ...d, qty: 1 }));
+    const defects = [...(current.defects || []), ...fresh];
+    const patch = { defects, materials: [...(current.materials || []), ...fresh.flatMap((d) => defaultProductsFor(d, lists.materials || [], db.uid))] };
     if (picked.length) autoFail(patch);
     queue(patch);
     drawDefects();
+    drawMaterials();
   };
+  redrawDefects = () => { drawDefects(); drawMaterials(); };
 
   // inspection questions
   let arranging = false;
@@ -3354,6 +3398,21 @@ async function drawSheet(door) {
     });
   };
   drawMaterials();
+  const showFill = () => {
+    const missing = (current.defects || []).filter((x) => !(current.materials || []).some((m) => m.forKey === 'd:' + x.label) && defaultProductsFor(x, lists.materials || [], db.uid).length);
+    const b = $('#fill-mats');
+    b.hidden = !missing.length;
+    b.innerHTML = `${icon('check')} From defects (${missing.length})`;
+  };
+  showFill();
+  $('#fill-mats').onclick = () => {
+    const { materials, added } = fillDefectProducts(current, lists.materials || [], db.uid);
+    queue({ materials });
+    drawDefects();
+    drawMaterials();
+    showFill();
+    toast(`${added} product${added === 1 ? '' : 's'} added from the defects`);
+  };
   $('#add-material').onclick = async () => {
     const picked = await pickMaterials();
     if (!picked?.length) return;
@@ -3501,6 +3560,7 @@ async function drawSheet(door) {
   };
   $('#f-zone')?.addEventListener('change', learnZone);
   $('#f-zname')?.addEventListener('change', learnZone);
+  $('#sh-dup').onclick = () => duplicateDoor(current);
   $('#sh-del').onclick = async () => {
     if (await confirmBox('Delete door?', `Delete pin ${door.pinNo}${door.ref ? ' (' + door.ref + ')' : ''} and its photos?${state.view === 'plan' ? ' You can undo this from the drawing\'s Undo button until you leave the drawing.' : ' This cannot be undone.'}`)) {
       clearTimeout(saveTimer);
@@ -3520,6 +3580,63 @@ async function drawSheet(door) {
   };
 
   if (state.isNew) setTimeout(() => $('#f-ref')?.focus(), 250);
+}
+
+// Copy a door with all its details (status, checklist, defects, products,
+// actions, signs, notes) to a new pin beside it; only the name changes.
+// Photos, repair ticks, history and GPS belong to the original and are not copied.
+function nextRef(ref) {
+  const m = /^(.*?)(\d+)(\D*)$/.exec(ref || '');
+  if (!m) return ref ? ref + ' (copy)' : '';
+  return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0') + m[3];
+}
+async function duplicateDoor(src) {
+  await flushSave();
+  const d0 = (await db.get('doors', src.id)) || src;
+  const all = await db.projectDoors(d0.projectId);
+  let suggest = nextRef(d0.ref);
+  while (suggest && all.some((x) => x.ref === suggest)) suggest = nextRef(suggest);
+  const r = await dialog({
+    title: 'Duplicate door',
+    body: `<p>Makes a new pin next to pin ${d0.pinNo} with the same details: status, checklist, defects and products, actions, signs and notes. Photos are not copied.</p>
+      <label class="field"><span>New door ref / ID</span><input name="ref" value="${esc(suggest)}" required autocomplete="off"></label>
+      <label class="field"><span>Location / room</span><input name="location" value="${esc(d0.location || '')}" autocomplete="off"></label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Duplicate', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return;
+  const pinNo = await db.nextPinNo(d0.projectId);
+  const clone = JSON.parse(JSON.stringify({ ...d0, blob: undefined }));
+  for (const k of ['id', 'log', 'history', 'remedials', 'gps', 'createdAt', 'updatedAt', 'dirty']) delete clone[k];
+  const shift = (v, by) => (v == null ? v : Math.min(0.98, Math.max(0.02, v + by)));
+  const copy = await saveDoor({
+    ...clone,
+    id: db.uid(),
+    pinNo,
+    ref: r.data.ref.trim(),
+    location: r.data.location.trim(),
+    x: shift(d0.x, 0.03),
+    y: shift(d0.y, 0.03),
+    materials: (clone.materials || []).map((m) => ({ ...m, id: db.uid() })),
+  }, [`Copied from pin ${d0.pinNo}${d0.ref ? ' (' + d0.ref + ')' : ''}`]);
+  if (state.view === 'plan') pushUndo(`Pin ${pinNo} added`, () => db.deleteDoor(copy.id));
+  toast(`Pin ${pinNo} ${copy.ref ? '(' + copy.ref + ') ' : ''}created. Drag it into place if needed`);
+  go({ ...state, doorId: copy.id }, { replace: true });
+}
+
+// Whole project: give every defect that has no products its usual product
+async function fillProjectMaterials(doors) {
+  let added = 0;
+  let nDoors = 0;
+  for (const d0 of doors) {
+    const d = await db.get('doors', d0.id);
+    if (!d) continue;
+    const r = fillDefectProducts(d, lists.materials || [], db.uid);
+    if (!r.added) continue;
+    await saveDoor({ ...d, materials: r.materials }, [`${r.added} product(s) added from its defects`]);
+    added += r.added;
+    nDoors++;
+  }
+  return { added, nDoors };
 }
 
 async function flushSave() {

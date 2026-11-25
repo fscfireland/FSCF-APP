@@ -908,3 +908,5 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .def-prod-row .stepper { grid-column: 1; grid-row: 2; justify-self: start; }
 .def-prod-row .dp-spec { grid-column: 2 / 4; grid-row: 2; min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; min-width: 0; width: 100%; }
 .dp-add { justify-self: start; }
+.fill-note { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--st-noaccess) 14%, var(--surface)); font-size: 14px; }
+.fill-note .ico { flex: none; width: 18px; height: 18px; margin-top: 2px; color: var(--st-noaccess); }

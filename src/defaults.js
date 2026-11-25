@@ -392,3 +392,55 @@ export const DEFAULT_SIGNS = [
 export const SIGN_FACES = ['Both faces', 'Push side', 'Pull side', 'One face'];
 export const signsNeeded = (d) => (d.signs || []).filter((x) => x.state !== 'fitted' && Number(x.qty) > 0);
 export const signText = (x) => `${Number(x.qty) || 0} × ${x.type}${x.face ? ' (' + x.face.toLowerCase() + ')' : ''}`;
+
+// The defect a failed checklist question stands for (so a fail always leads to
+// a repair line and its materials). Custom questions can set q.defect.
+export const QUESTION_DEFECT = {
+  'q-close': 'Self-closer defective / not adjusted',
+  'q-gaps': 'Leaf-to-frame gaps outside 2–4 mm',
+  'q-seals': 'Smoke seals missing or damaged',
+  'q-hinges': 'Hinges: fewer than 3, missing screws or worn',
+  'q-iron': 'Lock or latch defective',
+  'q-glazing': 'Glazing not fire-rated or beads defective',
+  'q-leaf': 'Door leaf damaged',
+  'q-sign': 'Fire door signage missing',
+};
+
+// The usual product (and quantity) for a defect; the inspector can change it.
+const DEFAULT_PRODUCT = [
+  [/smoke seal/i, 'm-int15s', 3, ''],
+  [/intumescent strip/i, 'm-int15', 3, ''],
+  [/threshold/i, 'm-drop', 1, ''],
+  [/closer/i, 'm-closer', 1, ''],
+  [/hinge/i, 'm-hinge', 3, ''],
+  [/sign/i, 'm-sign', 2, 'both faces'],
+  [/hold-open|wedged/i, 'm-holdopen', 1, ''],
+  [/lock|latch|ironmongery/i, 'm-latch', 1, ''],
+  [/glazing|bead/i, 'm-glaze', 1, ''],
+  [/fire stop|wall not/i, 'm-mastic', 1, ''],
+  [/gaps|leaf damaged/i, 'm-lip', 1, ''],
+];
+export function defaultProductsFor(defect, materials, uid) {
+  const text = (defect.label || '') + ' ' + (defect.remedial || '');
+  if (!/supply|fit|replace|lip|fill/i.test(defect.remedial || '')) return []; // adjust-only work: labour, no parts
+  const cat = defectCat(defect);
+  const rule = DEFAULT_PRODUCT.find(([re]) => re.test(defect.label || '')) || DEFAULT_PRODUCT.find(([re]) => re.test(text));
+  let m = rule && materials.find((x) => x.id === rule[1] && x.name?.trim());
+  if (!m && cat) m = materials.find((x) => x.name?.trim() && matCat(x) === cat);
+  if (!m) return [];
+  return [{ id: uid(), name: m.name, unit: m.unit || 'each', cost: Number(m.cost) || 0, qty: rule && m.id === rule[1] ? rule[2] : 1, cat: matCat(m), forKey: 'd:' + defect.label, spec: rule && m.id === rule[1] ? rule[3] : '' }];
+}
+
+// Give every defect without products its usual product. Returns the new list
+// of materials (unchanged if nothing was missing).
+export function fillDefectProducts(d, materials, uid) {
+  const mats = [...(d.materials || [])];
+  let added = 0;
+  for (const x of d.defects || []) {
+    if (mats.some((m) => m.forKey === 'd:' + x.label)) continue;
+    const add = defaultProductsFor(x, materials, uid);
+    mats.push(...add);
+    added += add.length;
+  }
+  return { materials: mats, added };
+}
