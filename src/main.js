@@ -1,4 +1,4 @@
-// FSCF Doors — main app: screens, navigation and the door record.
+// FSCF Ireland — main app: screens, navigation and the door record.
 
 import * as db from './db.js';
 import {
@@ -211,7 +211,7 @@ async function renderProjects() {
 
   app.innerHTML = `
     <header class="bar">
-      <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Doors</b><small>Fire door inspections</small></div></div>
+      <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Ireland</b><small>Fire safety compliance &amp; facilities</small></div></div>
       <button class="icon-btn" id="settings" aria-label="Settings">${icon('gear')}</button>
     </header>
     <main class="page">
@@ -4089,7 +4089,7 @@ async function renderSettings() {
           <label class="btn">Restore from file<input type="file" accept="application/json,.json" id="s-restore" hidden></label>
         </div>
       </section>
-      <p class="muted small pad">FSCF Doors v0.1 · data stays on this device until cloud sync is set up.</p>
+      <p class="muted small pad">FSCF Ireland app · data stays on this device until cloud sync is set up.</p>
     </main>`;
   $('#back').onclick = back;
   $('#s-gps').onchange = (e) => saveLists({ gps: e.target.checked });

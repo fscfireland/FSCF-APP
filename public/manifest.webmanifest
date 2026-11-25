@@ -1,7 +1,7 @@
 {
-  "name": "FSCF Doors",
-  "short_name": "FSCF Doors",
-  "description": "Fire door inspections for FSCF Ireland",
+  "name": "FSCF Ireland",
+  "short_name": "FSCF Ireland",
+  "description": "FSCF Ireland: fire safety compliance & facilities — inspections, remedial works and reports",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -54,7 +54,7 @@ export async function backupProjects(projects, { library = false } = {}) {
 
 export async function restoreBackup(file) {
   const data = JSON.parse(await file.text());
-  if (data.format !== FORMAT) throw new Error('This file is not an FSCF Doors backup.');
+  if (data.format !== FORMAT) throw new Error('This file is not an FSCF Ireland app backup.');
   let n = 0;
   for (const store of ['projects', 'plans', 'doors', 'photos', 'files']) {
     for (const r of data[store] || []) {

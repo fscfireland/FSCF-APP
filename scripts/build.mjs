@@ -24,7 +24,7 @@ await build({
 // Single-file version for the Claude artifact preview
 const css = readFileSync(join(out, 'styles.css'), 'utf8');
 const js = readFileSync(join(out, 'app.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
-const artifact = `<title>FSCF Doors</title>
+const artifact = `<title>FSCF Ireland</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=IBM+Plex+Mono:wght@600;700&display=swap">
 <style>
