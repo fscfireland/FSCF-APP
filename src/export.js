@@ -3,7 +3,7 @@
 //         Material totals · Defect totals
 
 import * as db from './db.js';
-import { STATUSES, statusById, doorActions, materialsTotal, ANSWERS, useScheme } from './defaults.js';
+import { STATUSES, statusById, doorActions, materialsTotal, ANSWERS, useScheme, statusesInUse } from './defaults.js';
 import { loadSheetJS, saveFile, safeName } from './files.js';
 import { photoInView } from './history.js';
 import { doorViews } from './filters.js';
@@ -58,7 +58,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
     ['Exported', new Date().toLocaleString('en-IE')],
     [],
     ['Doors recorded', doors.length],
-    ...STATUSES.map((s) => [s.label, counts[s.id] || 0]),
+    ...statusesInUse(doors).map((s) => [s.label, counts[s.id] || 0]),
     [],
     ['Defects recorded', defectRows.length],
     ['Materials total (€ ex VAT)', matTotal],

@@ -523,3 +523,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .seg-btn.is-on { background: var(--ink); color: var(--bg); }
 .link-btn { border: 0; background: none; padding: 0; color: var(--st-repaired); font-weight: 600; text-decoration: underline; font-size: inherit; }
 .rf-count { margin: 12px 0 0; padding-top: 10px; border-top: 1px solid var(--line); }
+
+/* status schemes in Settings */
+.scheme-row { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.scheme-row > span:first-child { display: grid; gap: 5px; min-width: 0; }
+.scheme-sw { display: flex; flex-wrap: wrap; gap: 4px; }
+.scheme-row small { font-size: 12.5px; }
+.sc-group { display: grid; gap: 8px; }
+.sc-status { display: grid; grid-template-columns: 14px 1fr auto; gap: 10px; align-items: end; }
+.sc-dot { width: 14px; height: 14px; border-radius: 50%; margin-bottom: 15px; }
+.sc-inc { padding-bottom: 12px; }

@@ -47,6 +47,44 @@ export const SCHEMES = {
 };
 export const DEFAULT_SCHEME = 'passfail';
 
+// ---- Custom schemes (made in Settings) ----
+// Stored as { id, name, labels: {pass, fail, na, no_access, repaired},
+// include: {na, no_access, repaired}, answers: {pass, fail, na} }.
+// Colours stay tied to each role so plans and reports read the same.
+export const OPTIONAL_STATUSES = ['na', 'no_access', 'repaired'];
+const CUSTOM = {};
+
+export function buildCustomScheme(c) {
+  const base = SCHEMES.passfail;
+  const clean = (v, d) => (String(v ?? '').trim() || d);
+  const labels = { not_inspected: 'Not inspected' };
+  for (const k of ['pass', 'fail', ...OPTIONAL_STATUSES]) labels[k] = clean(c.labels?.[k], base.labels[k]);
+  const answers = { pass: clean(c.answers?.pass, labels.pass), fail: clean(c.answers?.fail, labels.fail), na: clean(c.answers?.na, 'N/A') };
+  const order = ['not_inspected', 'pass', 'fail', ...OPTIONAL_STATUSES.filter((k) => c.include?.[k] !== false)];
+  return {
+    id: c.id,
+    custom: true,
+    name: clean(c.name, 'Custom scheme'),
+    hint: order.slice(1).map((k) => labels[k]).join(', '),
+    order,
+    labels,
+    short: { ...labels, not_inspected: 'To do' },
+    answers,
+    rateLabel: labels.fail.toLowerCase(),
+    checkChart: `"${answers.fail}" answers by inspection check`,
+    checkChartSub: `Share of doors answered "${answers.fail}" on each check ("${answers.na}" answers excluded)`,
+    summary: (n, of, p) => `${n} of ${of} doors inspected (${p}%) were recorded as ${labels.fail}.`,
+  };
+}
+
+export function setCustomSchemes(list) {
+  for (const k of Object.keys(CUSTOM)) delete CUSTOM[k];
+  for (const c of list || []) CUSTOM[c.id] = buildCustomScheme(c);
+}
+
+export const allSchemes = () => [...Object.values(SCHEMES), ...Object.values(CUSTOM)];
+export const schemeById = (id) => SCHEMES[id] || CUSTOM[id] || null;
+
 const ALL_IDS = ['not_inspected', 'pass', 'fail', 'na', 'no_access', 'repaired'];
 
 // The active scheme. These are live bindings: every module that imports
@@ -56,9 +94,17 @@ export let STATUSES = [];
 export let statusById = {};
 export let ANSWERS = [];
 
+// The scheme's statuses, plus any status a door still has that the scheme
+// doesn't offer (e.g. "Repaired" after switching scheme), so totals add up.
+export function statusesInUse(doors) {
+  const extra = [...new Set(doors.map((d) => d.status || 'not_inspected'))]
+    .filter((id) => !STATUSES.some((s) => s.id === id) && statusById[id]);
+  return [...STATUSES, ...extra.map((id) => statusById[id])];
+}
+
 export function useScheme(projectOrId) {
   const id = typeof projectOrId === 'string' ? projectOrId : projectOrId?.scheme;
-  SCHEME = SCHEMES[id] || SCHEMES[DEFAULT_SCHEME];
+  SCHEME = SCHEMES[id] || CUSTOM[id] || SCHEMES[DEFAULT_SCHEME];
   const make = (sid) => ({ id: sid, label: SCHEME.labels[sid], short: SCHEME.short[sid], color: COLORS[sid] });
   statusById = Object.fromEntries(ALL_IDS.map((sid) => [sid, make(sid)]));
   STATUSES = SCHEME.order.map((sid) => statusById[sid]);

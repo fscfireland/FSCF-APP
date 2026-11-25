@@ -3,7 +3,7 @@
 // Built entirely on the phone (works offline once the library is cached).
 
 import * as db from './db.js';
-import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected } from './defaults.js';
+import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected, statusesInUse } from './defaults.js';
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
 import { isVideo, fmtDuration } from './media.js';
 import { photoInView } from './history.js';
@@ -341,7 +341,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   heading('Summary of findings', `${doors.length} door sets recorded across ${plans.length} plan(s).`);
 
   // Status pie + legend table
-  const parts = STATUSES.map((s) => ({ label: s.label, value: counts[s.id] || 0, color: fillFor(s.id), id: s.id })).filter((p) => p.value);
+  const parts = statusesInUse(doors).map((s) => ({ label: s.label, value: counts[s.id] || 0, color: fillFor(s.id), id: s.id })).filter((p) => p.value);
   font('bold', 11);
   text('Door status', M, y + 3);
   y += 6;

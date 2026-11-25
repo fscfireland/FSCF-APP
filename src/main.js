@@ -4,6 +4,7 @@ import * as db from './db.js';
 import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
+  setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -81,12 +82,14 @@ async function loadLists() {
     questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, inspector: '', ...(s || {}),
   };
   setActor(lists.inspector);
+  setCustomSchemes(lists.customSchemes);
   return lists;
 }
 
 async function saveLists(patch) {
   lists = await db.put('settings', { ...lists, ...patch });
   setActor(lists.inspector);
+  setCustomSchemes(lists.customSchemes);
 }
 
 // ---------- render ----------
@@ -186,7 +189,7 @@ function projectCard(p, doors) {
 
 async function editProject(existing) {
   const p = existing || { client: '', site: '', address: '', date: today(), scheme: lists.lastScheme || DEFAULT_SCHEME };
-  const cur = p.scheme || DEFAULT_SCHEME;
+  const cur = schemeById(p.scheme) ? p.scheme : DEFAULT_SCHEME;
   const r = await dialog({
     title: existing ? 'Project details' : 'New project',
     body: `
@@ -196,11 +199,12 @@ async function editProject(existing) {
       <label class="field"><span>Inspection date</span><input type="date" name="date" id="pf-date" value="${esc(p.date)}"></label>
       <fieldset class="scheme-set">
         <legend>Status scheme</legend>
-        ${Object.values(SCHEMES).map((sc) => `
+        ${allSchemes().map((sc) => `
           <label class="scheme-opt">
             <input type="radio" name="scheme" value="${sc.id}" ${sc.id === cur ? 'checked' : ''}>
             <span><b>${esc(sc.name)}</b><small>${esc(sc.hint)}</small></span>
           </label>`).join('')}
+        <small class="muted">Make your own wording in Settings → Status schemes.</small>
       </fieldset>`,
     buttons: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Create project', value: true, kind: 'primary' }],
   });
@@ -360,7 +364,7 @@ function renderDoorsTab(body, project, plans, doors) {
   body.innerHTML = `
     <div class="chips" role="group" aria-label="Filter by status">
       <button class="chip ${filter === 'all' ? 'is-on' : ''}" data-f="all">All <b>${doors.length}</b></button>
-      ${STATUSES.map((s) => `<button class="chip ${filter === s.id ? 'is-on' : ''}" data-f="${s.id}" style="--c:${s.color}"><i></i>${s.label} <b>${counts[s.id]}</b></button>`).join('')}
+      ${statusesInUse(doors).map((s) => `<button class="chip ${filter === s.id ? 'is-on' : ''}" data-f="${s.id}" style="--c:${s.color}"><i></i>${s.label} <b>${counts[s.id] || 0}</b></button>`).join('')}
     </div>
     <label class="search">${icon('search')}<input id="door-q" type="search" placeholder="Search door ref, room, type…" value="${esc(state.q || '')}"></label>
     ${doors.length ? '' : `<p class="muted pad">No doors yet. Open a plan and tap <b>Add door</b> to drop a pin.</p>`}
@@ -1273,6 +1277,52 @@ async function pickMaterials() {
   return picked;
 }
 
+// Create or edit a custom status scheme
+async function editScheme(existing) {
+  const base = existing || {
+    name: '',
+    labels: { pass: 'Compliant', fail: 'Non-compliant', na: 'Not applicable', no_access: 'No access', repaired: 'Remedied' },
+    include: { na: true, no_access: true, repaired: false },
+    answers: { pass: 'Yes', fail: 'No', na: 'N/A' },
+  };
+  const row = (k, label, colour, optional) => `
+    <div class="sc-status">
+      <span class="sc-dot" style="background:var(--st-${colour})"></span>
+      <label class="field"><span>${label}</span><input name="l_${k}" id="sc-l-${k}" value="${esc(base.labels?.[k] || '')}" required></label>
+      ${optional ? `<label class="check-line sc-inc"><input type="checkbox" name="i_${k}" id="sc-i-${k}" ${base.include?.[k] !== false ? 'checked' : ''}> Use</label>` : '<span></span>'}
+    </div>`;
+  const r = await dialog({
+    title: existing ? 'Edit status scheme' : 'New status scheme',
+    body: `
+      <label class="field"><span>Scheme name</span><input name="name" id="sc-name" required value="${esc(base.name)}" placeholder="e.g. Compliance survey"></label>
+      <div class="sc-group"><span class="rf-label">Door statuses</span>
+        ${row('pass', 'Good result (green)', 'pass', false)}
+        ${row('fail', 'Problem found (red)', 'fail', false)}
+        ${row('na', 'Not applicable (grey)', 'na', true)}
+        ${row('no_access', 'Could not access (orange)', 'noaccess', true)}
+        ${row('repaired', 'Fixed / remedied (blue)', 'repaired', true)}
+        <small class="muted">"Not inspected" is always there for doors still to do (hollow pin).</small>
+      </div>
+      <div class="sc-group"><span class="rf-label">Checklist answer buttons</span>
+        <div class="grid3">
+          <label class="field"><span>Good</span><input name="a_pass" id="sc-a-pass" value="${esc(base.answers?.pass || '')}" required></label>
+          <label class="field"><span>Problem</span><input name="a_fail" id="sc-a-fail" value="${esc(base.answers?.fail || '')}" required></label>
+          <label class="field"><span>Not applicable</span><input name="a_na" id="sc-a-na" value="${esc(base.answers?.na || '')}" required></label>
+        </div>
+      </div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Save scheme', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return null;
+  const d = r.data;
+  return {
+    id: existing?.id || 'cs-' + db.uid(),
+    name: d.name.trim(),
+    labels: Object.fromEntries(['pass', 'fail', ...OPTIONAL_STATUSES].map((k) => [k, (d['l_' + k] || '').trim()])),
+    include: Object.fromEntries(OPTIONAL_STATUSES.map((k) => [k, !!d['i_' + k]])),
+    answers: { pass: d.a_pass.trim(), fail: d.a_fail.trim(), na: d.a_na.trim() },
+  };
+}
+
 // Read-only view of an earlier inspection
 async function viewInspection(door, h, allPhotos, onDelete) {
   const st = statusById[h.status || 'not_inspected'];
@@ -1374,6 +1424,11 @@ async function renderSettings() {
         <label class="field"><span>Inspector name (fills "Inspected by")</span><input id="s-insp" value="${esc(lists.inspector || '')}" placeholder="e.g. Mark Crosby"></label>
       </section>
       <section class="panel">
+        <div class="block-head"><h2 class="h2">Status schemes</h2><button class="btn sm" id="s-add-scheme">${icon('plus')} New scheme</button></div>
+        <p class="muted small">The wording for door statuses and checklist answers. Each project picks one (in the project's details).</p>
+        <div id="s-schemes"></div>
+      </section>
+      <section class="panel">
         <div class="block-head"><h2 class="h2">Inspection questions</h2><button class="btn sm" id="s-add-q">${icon('plus')} Add</button></div>
         <p class="muted small">Asked of every door, answered Pass / Fail / N/A. Answers already given are kept if you edit or remove a question.</p>
         <div id="s-qs"></div>
@@ -1410,6 +1465,43 @@ async function renderSettings() {
   $('#back').onclick = back;
   $('#s-insp').onchange = (e) => saveLists({ inspector: e.target.value });
   $('#s-types').onchange = (e) => saveLists({ doorTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+  // status schemes
+  const drawSchemes = async () => {
+    const projects = await db.all('projects');
+    const used = (id) => projects.filter((p) => (p.scheme || DEFAULT_SCHEME) === id).length;
+    $('#s-schemes').innerHTML = allSchemes().map((sc) => `
+      <div class="scheme-row" data-id="${esc(sc.id)}">
+        <span><b>${esc(sc.name)}</b>
+          <span class="scheme-sw">${sc.order.slice(1).map((k) => `<span class="status-pill" style="--c:var(--st-${{ pass: 'pass', fail: 'fail', na: 'na', no_access: 'noaccess', repaired: 'repaired' }[k]})">${esc(sc.labels[k])}</span>`).join('')}</span>
+          <small class="muted">Checklist: ${esc([sc.answers.pass, sc.answers.fail, sc.answers.na].join(' / '))} · ${used(sc.id)} project(s)</small></span>
+        ${sc.custom ? `<span class="row-btns"><button class="btn sm sc-edit">Edit</button><button class="icon-btn sm sc-del" aria-label="Delete scheme">${icon('trash')}</button></span>` : '<span class="muted small">Built in</span>'}
+      </div>`).join('');
+    $$('.scheme-row').forEach((row) => {
+      const c = (lists.customSchemes || []).find((x) => x.id === row.dataset.id);
+      if (!c) return;
+      $('.sc-edit', row).onclick = async () => {
+        const next = await editScheme(c);
+        if (!next) return;
+        await saveLists({ customSchemes: lists.customSchemes.map((x) => (x.id === c.id ? next : x)) });
+        drawSchemes();
+      };
+      $('.sc-del', row).onclick = async () => {
+        const n = used(c.id);
+        if (!(await confirmBox('Delete scheme?', `Delete "${c.name}"?${n ? ` ${n} project(s) use it and will switch to Pass / Fail wording. Their records are kept.` : ''}`))) return;
+        await saveLists({ customSchemes: lists.customSchemes.filter((x) => x.id !== c.id) });
+        drawSchemes();
+      };
+    });
+  };
+  drawSchemes();
+  $('#s-add-scheme').onclick = async () => {
+    const next = await editScheme(null);
+    if (!next) return;
+    await saveLists({ customSchemes: [...(lists.customSchemes || []), next] });
+    drawSchemes();
+    toast('Scheme saved. Choose it in a project\'s details.');
+  };
+
   $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
 
   const drawQs = () => {
