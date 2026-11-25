@@ -601,3 +601,25 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
   background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,.12);
 }
 .plan-toolbar .btn.big { padding: 0 16px; }
+
+/* Repairs tab */
+.rep-intro textarea { font-size: 15px; }
+.rep-ack { display: grid; gap: 10px; margin-top: 12px; padding: 12px; border-radius: 10px; border: 2px dashed var(--line); }
+.rep-ack.is-done { border-style: solid; border-color: var(--st-pass); background: color-mix(in srgb, var(--st-pass) 8%, transparent); }
+.rep-check { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; cursor: pointer; }
+.rep-check input { width: 26px; height: 26px; margin: 0; accent-color: var(--st-pass); }
+.rep-check b { display: block; font-weight: 600; line-height: 1.35; }
+.rep-check small { display: block; color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+.rep-check.is-done b { text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--ink) 40%, transparent); color: var(--ink-2); }
+.rep-check .rep-by { color: var(--st-pass); font-weight: 600; }
+.rep-summary p { margin: 8px 0 10px; font-variant-numeric: tabular-nums; }
+.rep-bar { height: 10px; border-radius: 5px; background: var(--surface-2); overflow: hidden; }
+.rep-bar i { display: block; height: 100%; width: var(--w); background: var(--st-pass); border-radius: 5px; }
+.rep-door { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 10px; display: grid; gap: 10px; }
+.rep-door.is-complete { border-color: var(--st-pass); }
+.rep-head { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+.rep-title { min-width: 0; }
+.rep-title b { display: block; }
+.rep-title small { color: var(--ink-2); font-size: 12.5px; }
+.rep-count { font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.rep-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }

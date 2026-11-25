@@ -15,7 +15,7 @@ let actor = '';
 export const setActor = (name) => (actor = name || '');
 
 // Fields that belong to one inspection visit
-const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'notes', 'doorType', 'leaf', 'zoneNo', 'zoneName', 'risk', 'category', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
+const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'notes', 'doorType', 'leaf', 'zoneNo', 'zoneName', 'risk', 'category', 'remedials', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
 
 export function snapshotOf(d) {
   const snap = { id: db.uid(), savedAt: new Date().toISOString() };
@@ -77,6 +77,13 @@ export function diffDoor(prev, next) {
   const added = (a, b) => b.filter((x) => !a.includes(x));
   for (const l of added(labels(prev.defects), labels(next.defects))) add('', `Added defect: ${short(l)}`);
   for (const l of added(labels(next.defects), labels(prev.defects))) add('', `Removed defect: ${short(l)}`);
+
+  // remedial works ticked or unticked
+  const pr = prev.remedials || {};
+  const nr = next.remedials || {};
+  for (const k of new Set([...Object.keys(pr), ...Object.keys(nr)])) {
+    if (!!pr[k]?.done !== !!nr[k]?.done) add('', `Remedial ${nr[k]?.done ? 'done' : 'not done'}: ${short(k.slice(2), 60)}`);
+  }
 
   const pa = doorActions(prev);
   const na = doorActions(next);

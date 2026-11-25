@@ -10,8 +10,9 @@ import {
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
-import { exportProjectPdf } from './report.js';
+import { exportProjectPdf, exportRemedialPdf } from './report.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
+import { DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
 import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView } from './history.js';
@@ -304,7 +305,7 @@ async function renderProject() {
       <button class="icon-btn" id="proj-edit" aria-label="Project details">${icon('more')}</button>
     </header>
     <nav class="tabs" role="tablist">
-      ${[['plans', 'Plans', allPlans.length], ['doors', 'Doors', doors.length], ['export', 'Export', '']].map(([id, label, n]) =>
+      ${[['plans', 'Plans', allPlans.length], ['doors', 'Doors', doors.length], ['repairs', 'Repairs', ''], ['export', 'Export', '']].map(([id, label, n]) =>
         `<button role="tab" class="tab ${tab === id ? 'is-on' : ''}" data-tab="${id}" aria-selected="${tab === id}">${label}${n !== '' ? ` <span class="tab-n">${n}</span>` : ''}</button>`).join('')}
     </nav>
     <main class="page" id="tab-body"></main>
@@ -327,7 +328,133 @@ async function renderProject() {
     $('#coll-sel').onchange = (e) => pickCollection(project, e.target.value);
   }
   if (tab === 'doors') renderDoorsTab($('#tab-inner'), project, plans, doors);
+  else if (tab === 'repairs') renderRepairsTab($('#tab-inner'), project, plans, doors);
   else renderExportTab($('#tab-inner'), project, plans, doors);
+}
+
+// ---------- Repairs: remedial works list for the repairer ----------
+function renderRepairsTab(body, project, plans, doors) {
+  const instructions = project.remedialText ?? lists.remedialText ?? DEFAULT_REMEDIAL_TEXT;
+  const ack = project.remedialAck;
+  const show = state.repShow || 'outstanding';
+  const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
+  const prog = projectProgress(doors);
+  const withWork = doors.map((d) => ({ d, p: remedialProgress(d) })).filter(({ p }) => p.total);
+  const shown = withWork.filter(({ p }) => (show === 'all' ? true : show === 'done' ? p.complete : !p.complete));
+  const when = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  body.innerHTML = `
+    <section class="panel rep-intro">
+      <div class="block-head"><h2 class="h2">${icon('shield')} Instructions for the repairer</h2>
+        <button class="btn ghost sm" id="rep-reset">Use default wording</button></div>
+      <label class="field"><span>Shown at the top of the repair list and the printed sheet. Change it for this project, e.g. the standard to repair to and the competencies required.</span>
+        <textarea id="rep-text" rows="7">${esc(instructions)}</textarea></label>
+      <div class="rep-ack ${ack ? 'is-done' : ''}">
+        <label class="rep-check"><input type="checkbox" id="rep-ack" ${ack ? 'checked' : ''}>
+          <span><b>I have read these instructions and have the competencies required to carry out these repairs</b>
+          ${ack ? `<small>Confirmed by ${esc(ack.by || 'unknown')} on ${esc(when(ack.at))}</small>` : ''}</span></label>
+        ${ack ? '' : `<label class="field"><span>Repairer's name</span><input id="rep-name" value="${esc(lists.inspector || '')}" placeholder="Name of the person doing the repairs"></label>`}
+      </div>
+    </section>
+
+    <section class="panel rep-summary">
+      <div class="rep-bar"><i style="--w:${prog.items ? (prog.done / prog.items) * 100 : 0}%"></i></div>
+      <p><b>${prog.done} of ${prog.items}</b> repair items done · <b>${prog.doorsDone} of ${prog.doorsWith}</b> doors complete</p>
+      <div class="row-btns">
+        <button class="btn primary sm" id="rep-pdf">${icon('download')} Remedial works sheet (PDF)</button>
+      </div>
+    </section>
+
+    <div class="chips" role="group" aria-label="Show">
+      ${[['outstanding', 'Outstanding', withWork.filter(({ p }) => !p.complete).length], ['done', 'Complete', withWork.filter(({ p }) => p.complete).length], ['all', 'All', withWork.length]].map(([id, label, n]) =>
+        `<button class="chip rep-show ${show === id ? 'is-on' : ''}" data-s="${id}">${label} <b>${n}</b></button>`).join('')}
+    </div>
+    ${withWork.length ? '' : '<p class="muted pad">No remedial works yet. Defects and recommended actions recorded on doors appear here as a tick list.</p>'}
+    ${shown.map(({ d, p }) => {
+      const st = statusById[d.status || 'not_inspected'];
+      return `
+      <section class="rep-door ${p.complete ? 'is-complete' : ''}" data-id="${d.id}">
+        <div class="rep-head">
+          <span class="pin-badge ${st.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${st.color}">${d.pinNo ?? ''}</span>
+          <span class="rep-title"><b>${esc(d.ref || 'Door ' + d.pinNo)}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
+            <small>${esc([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planName[d.planId] || (d.planId ? '' : 'Not on a drawing')].filter(Boolean).join(' · '))}</small></span>
+          <span class="rep-count">${p.done}/${p.total}</span>
+        </div>
+        <ul class="rep-items">
+          ${p.items.map((it) => {
+            const r = d.remedials?.[it.key];
+            return `<li><label class="rep-check ${r?.done ? 'is-done' : ''}"><input type="checkbox" class="rep-tick" data-key="${esc(it.key)}" ${r?.done ? 'checked' : ''}>
+              <span><b>${esc(it.text)}${it.qty ? ` (×${it.qty})` : ''}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}${r?.done ? `<small class="rep-by">Done by ${esc(r.by || 'unknown')} · ${esc(when(r.at))}</small>` : ''}</span></label></li>`;
+          }).join('')}
+        </ul>
+        <div class="row-btns">
+          <button class="btn ghost sm rep-open">Open door</button>
+          ${p.complete && d.status !== 'repaired' && STATUSES.some((s) => s.id === 'repaired') ? `<button class="btn sm rep-repaired">${icon('check')} Set status to ${esc(statusById.repaired.label)}</button>` : ''}
+        </div>
+      </section>`;
+    }).join('')}`;
+
+  const saveProject = async (patch) => {
+    const cur = await db.get('projects', project.id);
+    Object.assign(project, await db.put('projects', { ...cur, ...patch }));
+  };
+  $('#rep-text').onchange = async (e) => {
+    // changing the instructions after they were confirmed asks for confirmation again
+    await saveProject({ remedialText: e.target.value, ...(project.remedialAck ? { remedialAck: null } : {}) });
+    if (ack) toast('Instructions changed: the repairer needs to confirm them again');
+    renderRepairsTab(body, project, plans, doors);
+  };
+  $('#rep-reset').onclick = async () => {
+    await saveProject({ remedialText: lists.remedialText ?? DEFAULT_REMEDIAL_TEXT, remedialAck: null });
+    renderRepairsTab(body, project, plans, doors);
+  };
+  $('#rep-ack').onchange = async (e) => {
+    if (e.target.checked) {
+      const by = ($('#rep-name')?.value || '').trim();
+      if (!by) {
+        e.target.checked = false;
+        return toast('Enter the repairer\'s name first.', 'error');
+      }
+      await saveProject({ remedialAck: { by, at: new Date().toISOString() } });
+    } else await saveProject({ remedialAck: null });
+    renderRepairsTab(body, project, plans, doors);
+  };
+  $$('.rep-show', body).forEach((b) => (b.onclick = () => { state.repShow = b.dataset.s; renderRepairsTab(body, project, plans, doors); }));
+  $$('.rep-door', body).forEach((sec) => {
+    const id = sec.dataset.id;
+    $$('.rep-tick', sec).forEach((cb) => (cb.onchange = async () => {
+      const d = await db.get('doors', id);
+      const remedials = { ...(d.remedials || {}) };
+      remedials[cb.dataset.key] = cb.checked ? { done: true, by: lists.inspector || project.remedialAck?.by || '', at: new Date().toISOString() } : { done: false };
+      const saved = await saveDoor({ ...d, remedials });
+      Object.assign(doors.find((x) => x.id === id), saved);
+      renderRepairsTab(body, project, plans, doors);
+    }));
+    $('.rep-open', sec).onclick = () => go({ ...state, doorId: id });
+    $('.rep-repaired', sec)?.addEventListener('click', async () => {
+      const d = await db.get('doors', id);
+      const saved = await saveDoor({ ...d, status: 'repaired' });
+      Object.assign(doors.find((x) => x.id === id), saved);
+      toast(`Door set to ${statusById.repaired.label}`);
+      renderRepairsTab(body, project, plans, doors);
+    });
+  });
+  $('#rep-pdf').onclick = async () => {
+    const list = (state.repShow || 'outstanding') === 'all' ? withWork : shown;
+    if (!list.length) return toast('No doors with remedial works to print.', 'error');
+    const b = busy('Building remedial works sheet…');
+    try {
+      const r = await exportRemedialPdf(project, lists, {
+        doors: list.map(({ d }) => d), plans, instructions, ack: project.remedialAck,
+        filterText: [state.collText, show === 'outstanding' ? 'Outstanding items' : show === 'done' ? 'Completed doors' : ''].filter(Boolean).join(' · '),
+      }, b.update);
+      b.done();
+      if (r === 'saved') toast('Remedial works sheet saved');
+    } catch (e) {
+      b.done();
+      console.error(e);
+      toast('Could not build the PDF: ' + e.message, 'error');
+    }
+  };
 }
 
 async function pickCollection(project, coll) {
@@ -2348,6 +2475,11 @@ async function renderSettings() {
         <div id="s-qs"></div>
       </section>
       <section class="panel">
+        <h2 class="h2">Remedial instructions (default)</h2>
+        <label class="field"><span>The starting wording for the repairer's instructions on new projects. Each project can change its own in the Repairs tab.</span>
+          <textarea id="s-rem" rows="8">${esc(lists.remedialText ?? DEFAULT_REMEDIAL_TEXT)}</textarea></label>
+      </section>
+      <section class="panel">
         <h2 class="h2">Door categories</h2>
         <label class="field"><span>One per line. Used to group and filter doors on drawings, the door list and reports.</span><textarea id="s-cats" rows="7">${esc((lists.categories || DEFAULT_CATEGORIES).join('\n'))}</textarea></label>
       </section>
@@ -2424,6 +2556,7 @@ async function renderSettings() {
     toast('Scheme saved. Choose it in a project\'s details.');
   };
 
+  $('#s-rem').onchange = (e) => saveLists({ remedialText: e.target.value });
   $('#s-cats').onchange = (e) => saveLists({ categories: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-risks').onchange = (e) => saveLists({ risks: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });

@@ -8,6 +8,7 @@ import { loadScript, saveFile, safeName, compressImage } from './files.js';
 import { isVideo, fmtDuration } from './media.js';
 import { photoInView } from './history.js';
 import { drawOnCanvas } from './markup.js';
+import { remedialItems } from './remedial.js';
 import { fmtDate } from './ui.js';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -709,4 +710,165 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   const blob = doc.output('blob');
   const filename = `FSCF_Report_${safeName(project.site || project.client)}_${project.date || new Date().toISOString().slice(0, 10)}${opts.filterText ? '_filtered' : ''}.pdf`;
   return saveFile(filename, blob);
+}
+
+
+// ---------------------------------------------------------------------------
+// Remedial works sheet: instructions with an acknowledgement box, the
+// drawings with pins, then a tick list per door for the repairer.
+export async function exportRemedialPdf(project, lists, opts = {}, onProgress = () => {}) {
+  onProgress('Loading PDF tools…');
+  const jsPDF = await loadJsPdf();
+  useScheme(project);
+  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+  const doors = opts.doors || [];
+  const plans = (opts.plans || []).filter((pl) => doors.some((d) => d.planId === pl.id));
+  const planById = Object.fromEntries((opts.plans || []).map((p) => [p.id, p]));
+  const reportDate = new Date().toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' });
+  let y = M;
+  const font = (style, size, color = C.ink) => {
+    doc.setFont('helvetica', style);
+    doc.setFontSize(size);
+    doc.setTextColor(...color);
+  };
+  const text = (s, x, yy, o) => doc.text(t(s), x, yy, o);
+  const tickBox = (x, yy, size, ticked) => {
+    doc.setDrawColor(...C.ink);
+    doc.setLineWidth(0.35);
+    doc.setFillColor(255, 255, 255);
+    doc.rect(x, yy, size, size, 'FD');
+    if (ticked) {
+      doc.setDrawColor(...STATUS_RGB.pass);
+      doc.setLineWidth(0.7);
+      doc.lines([[size * 0.25, size * 0.3], [size * 0.45, -size * 0.65]], x + size * 0.18, yy + size * 0.5);
+    }
+  };
+
+  // ---- title + instructions
+  doc.setFillColor(...C.accent);
+  doc.rect(0, 0, A4.w, 30, 'F');
+  font('bold', 10, [255, 255, 255]);
+  text('FSCF IRELAND', M, 12);
+  font('bold', 18, [255, 255, 255]);
+  text('Remedial works sheet', M, 23);
+  y = 40;
+  font('bold', 14);
+  doc.text(doc.splitTextToSize(t(project.site || 'Site'), CW), M, y);
+  y += 6;
+  font('normal', 9.5, C.ink2);
+  text([project.client, project.address, reportDate].filter(Boolean).join(' · '), M, y + 1);
+  y += 5;
+  if (opts.filterText) {
+    text(`Covers: ${doors.length} door(s) · ${opts.filterText}`, M, y + 1);
+    y += 5;
+  }
+  y += 4;
+  // instructions box
+  font('normal', 9.5, C.ink);
+  const lines = doc.splitTextToSize(t(opts.instructions || ''), CW - 10);
+  const boxH = lines.length * 4.3 + 42;
+  doc.setDrawColor(...C.ink);
+  doc.setLineWidth(0.4);
+  doc.setFillColor(...C.soft);
+  doc.roundedRect(M, y, CW, boxH, 2, 2, 'FD');
+  font('bold', 11);
+  text('Instructions for the repairer', M + 5, y + 7);
+  font('normal', 9.5, C.ink);
+  doc.text(lines, M + 5, y + 13);
+  let ay = y + 13 + lines.length * 4.3 + 4;
+  tickBox(M + 5, ay - 3.6, 5, !!opts.ack);
+  font('bold', 9.5);
+  text('I have read these instructions and have the competencies required to carry out these repairs', M + 13, ay);
+  ay += 9;
+  font('normal', 9, C.ink2);
+  const ackBy = opts.ack?.by || '';
+  const ackOn = opts.ack?.at ? new Date(opts.ack.at).toLocaleDateString('en-IE') : '';
+  text('Name:', M + 5, ay);
+  text('Signature:', M + 72, ay);
+  text('Date:', M + 135, ay);
+  font('bold', 9.5, C.ink);
+  if (ackBy) text(ackBy, M + 17, ay - 0.5);
+  if (ackOn) text(ackOn, M + 146, ay - 0.5);
+  doc.setDrawColor(...C.muted);
+  doc.setLineWidth(0.2);
+  doc.line(M + 16, ay + 1, M + 68, ay + 1);
+  doc.line(M + 90, ay + 1, M + 131, ay + 1);
+  doc.line(M + 145, ay + 1, M + CW - 5, ay + 1);
+  y += boxH + 8;
+
+  // summary
+  const all = doors.map((d) => ({ d, items: remedialItems(d) }));
+  const total = all.reduce((n, x) => n + x.items.length, 0);
+  const done = all.reduce((n, x) => n + x.items.filter((i) => x.d.remedials?.[i.key]?.done).length, 0);
+  font('normal', 10, C.ink);
+  text(`${doors.length} door(s) · ${total} repair item(s) · ${done} already done`, M, y);
+  y += 6;
+
+  // ---- drawings with pins so the doors can be found
+  for (const plan of plans) {
+    onProgress(`Marking up ${plan.name}…`);
+    const img = await planWithPins(plan, doors.filter((d) => d.planId === plan.id));
+    const landscape = img.w > img.h * 1.1;
+    doc.addPage('a4', landscape ? 'landscape' : 'portrait');
+    const pw = landscape ? A4.h : A4.w;
+    const ph = landscape ? A4.w : A4.h;
+    font('bold', 13);
+    text(`Plan: ${plan.name}`, M, M + 4);
+    const k = Math.min((pw - M * 2) / img.w, (ph - M * 2 - 12) / img.h);
+    doc.addImage(img.data, 'JPEG', M, M + 9, img.w * k, img.h * k, undefined, 'FAST');
+  }
+
+  // ---- tick list per door
+  doc.addPage('a4', 'portrait');
+  y = M;
+  font('bold', 14);
+  text('Remedial works by door', M, y + 4);
+  y += 10;
+  for (const [n, { d, items }] of all.entries()) {
+    onProgress(`Door ${n + 1} of ${all.length}…`);
+    if (y > A4.h - 50) {
+      doc.addPage('a4', 'portrait');
+      y = M;
+    }
+    doc.setFillColor(...C.soft);
+    doc.roundedRect(M, y, CW, 11, 1.5, 1.5, 'F');
+    font('bold', 10.5);
+    text(`Pin ${d.pinNo} · ${d.ref || 'No ref'}${d.location ? ' · ' + d.location : ''}`, M + 3, y + 7);
+    font('normal', 8.5, C.ink2);
+    text([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', planById[d.planId]?.name].filter(Boolean).join(' · '), A4.w - M - 3, y + 7, { align: 'right' });
+    y += 13;
+    doc.autoTable({
+      startY: y,
+      margin: { left: M, right: M, top: M },
+      head: [['Done', 'Work required', 'Defect / reason', 'Done by', 'Date']],
+      body: items.map((it) => {
+        const r = d.remedials?.[it.key];
+        return ['', t(it.text) + (it.qty ? ` (x${it.qty})` : ''), t(it.sub), t(r?.done ? r.by || '' : ''), r?.done && r.at ? new Date(r.at).toLocaleDateString('en-IE') : ''];
+      }),
+      styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: C.ink, lineColor: C.line, lineWidth: 0.15, minCellHeight: 8 },
+      headStyles: { fillColor: C.ink, textColor: [255, 255, 255], fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 12 }, 1: { cellWidth: 72, fontStyle: 'bold' }, 3: { cellWidth: 24 }, 4: { cellWidth: 20 } },
+      didDrawCell: (h) => {
+        if (h.section === 'body' && h.column.index === 0) {
+          const it = items[h.row.index];
+          tickBox(h.cell.x + 3.5, h.cell.y + 1.8, 4.5, !!d.remedials?.[it.key]?.done);
+        }
+      },
+    });
+    y = doc.lastAutoTable.finalY + 7;
+  }
+
+  // footer
+  const total2 = doc.getNumberOfPages();
+  for (let i = 1; i <= total2; i++) {
+    doc.setPage(i);
+    const pw = doc.internal.pageSize.getWidth();
+    const ph = doc.internal.pageSize.getHeight();
+    font('normal', 8, C.muted);
+    text(`Remedial works · ${project.site || ''}`, M, ph - 8);
+    text(`Page ${i} of ${total2}`, pw - M, ph - 8, { align: 'right' });
+  }
+  onProgress('Saving PDF…');
+  const blob = doc.output('blob');
+  return saveFile(`FSCF_Remedial_works_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.pdf`, blob);
 }
