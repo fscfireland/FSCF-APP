@@ -518,7 +518,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     // details + plan close-up side by side
     const detailRows = [
       ['Door type', d.doorType], ['Leaf configuration', d.leaf], ['Fire alarm zone', zoneText(d)], ['Risk rating', riskText(d)], ['Category', d.category],
-      ['Inspected on', fmtDate(d.inspectedOn)], ['Inspected by', d.inspectedBy],
+      ['Inspected on', fmtDate(d.inspectedOn)], ['Inspected by', d.inspectedBy], ['Next inspection due', fmtDate(d.nextDue)],
     ].filter((r) => r[1]);
     const cropW = 70;
     const cropH = 52.5;

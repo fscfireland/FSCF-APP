@@ -31,7 +31,10 @@ export class PlanViewer {
     this.markLayer.setAttribute('class', 'mk-layer');
     this.markLayer.setAttribute('preserveAspectRatio', 'none');
     this.drawHandler = null;
-    this.stage.append(this.img, this.markLayer, this.pinLayer);
+    this.selBox = document.createElement('div');
+    this.selBox.className = 'sel-box';
+    this.selBox.hidden = true;
+    this.stage.append(this.img, this.markLayer, this.pinLayer, this.selBox);
     this.el.append(this.stage);
 
     this._down = this._down.bind(this);
@@ -100,13 +103,13 @@ export class PlanViewer {
     this._apply();
   }
 
-  setPins(pins, selectedId) {
+  setPins(pins, selectedId, picked = null) {
     // pins: [{ id, x, y, label, color, title }]
     const frag = document.createDocumentFragment();
     for (const p of pins) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = 'pin' + (p.id === selectedId ? ' is-selected' : '') + (p.hollow ? ' is-hollow' : '');
+      b.className = 'pin' + (p.id === selectedId ? ' is-selected' : '') + (p.hollow ? ' is-hollow' : '') + (picked?.has(p.id) ? ' is-picked' : '');
       b.dataset.id = p.id;
       b.style.left = p.x * 100 + '%';
       b.style.top = p.y * 100 + '%';

@@ -788,6 +788,7 @@ async function renderPlan() {
         <button class="icon-btn" id="zfit" aria-label="Fit to screen">${icon('fit')}</button>
       </div>
       <div class="plan-toolbar">
+        <button class="btn big" id="sel-toggle">${icon('cursor')} Select</button>
         <button class="btn big" id="mk-toggle">${icon('pencil')} Markup</button>
         <button class="btn primary big" id="add-door">${icon('pin')} Add door</button>
         <button class="btn big" id="place-list" hidden>${icon('list')} Place <span id="place-n"></span></button>
@@ -817,6 +818,9 @@ async function renderPlan() {
   mk.draft = null;
   drawMarkups();
   $('#mk-toggle').onclick = () => setMarkup(true);
+  $('#sel-toggle').onclick = () => setSelecting(true);
+  picked.clear();
+  selecting = false;
   undoStack.length = 0;
   updateUndoBtn();
   $('#plan-undo').onclick = doUndo;
@@ -1016,6 +1020,174 @@ async function doUndo() {
   if (mk.on) drawMarkupPanel();
   updateUndoBtn();
   toast(`Undone: ${u.label}`);
+}
+
+// ---------- Select several pins and change them together ----------
+const picked = new Set();
+let selecting = false;
+
+function setSelecting(on) {
+  selecting = on;
+  if (on) {
+    setMode(null);
+    if (mk.on) setMarkup(false);
+  } else picked.clear();
+  $('.plan-toolbar').hidden = on;
+  viewer.drawHandler = on ? boxHandler : null;
+  drawSelectBar();
+  refreshPins();
+}
+
+async function visiblePins() {
+  return (await db.byIndex('doors', 'planId', state.planId)).filter(pinMatches);
+}
+
+function drawSelectBar() {
+  const banner = $('#banner');
+  if (!banner) return;
+  if (!selecting) {
+    banner.hidden = true;
+    $('#sel-panel')?.remove();
+    return;
+  }
+  banner.hidden = false;
+  banner.innerHTML = `<span>${picked.size ? `${picked.size} selected` : 'Drag a box over pins, or tap pins'}</span>`;
+  let panel = $('#sel-panel');
+  if (!panel) {
+    panel = document.createElement('div');
+    panel.id = 'sel-panel';
+    panel.className = 'sel-panel';
+    $('.plan-screen').append(panel);
+  }
+  panel.innerHTML = `
+    <button class="btn" id="sel-all">All${planFilter.cats.length || planFilter.statuses.length ? ' shown' : ''}</button>
+    <button class="btn" id="sel-none" ${picked.size ? '' : 'disabled'}>Clear</button>
+    <button class="btn primary" id="sel-edit" ${picked.size ? '' : 'disabled'}>${icon('pencil')} Edit ${picked.size || ''}</button>
+    <button class="btn ghost" id="sel-done">Done</button>`;
+  $('#sel-all').onclick = async () => {
+    for (const d of await visiblePins()) picked.add(d.id);
+    drawSelectBar();
+    refreshPins();
+  };
+  $('#sel-none').onclick = () => {
+    picked.clear();
+    drawSelectBar();
+    refreshPins();
+  };
+  $('#sel-done').onclick = () => setSelecting(false);
+  $('#sel-edit').onclick = bulkEdit;
+}
+
+// drag a box to select the pins inside it; a tap toggles one pin
+const boxHandler = {
+  start: null,
+  down(p, target) {
+    this.start = p;
+    this.target = target?.closest?.('.pin')?.dataset.id || null;
+    this.moved = false;
+  },
+  move(p) {
+    const a = this.start;
+    if (!a) return;
+    const dx = Math.abs(p.x - a.x) * viewer.w * viewer.s;
+    const dy = Math.abs(p.y - a.y) * viewer.h * viewer.s;
+    if (dx + dy > 10) this.moved = true;
+    if (!this.moved) return;
+    const box = viewer.selBox;
+    box.hidden = false;
+    box.style.left = Math.min(a.x, p.x) * 100 + '%';
+    box.style.top = Math.min(a.y, p.y) * 100 + '%';
+    box.style.width = Math.abs(p.x - a.x) * 100 + '%';
+    box.style.height = Math.abs(p.y - a.y) * 100 + '%';
+  },
+  async up(p) {
+    const a = this.start;
+    this.start = null;
+    viewer.selBox.hidden = true;
+    if (!a) return;
+    if (!this.moved) {
+      if (this.target) picked.has(this.target) ? picked.delete(this.target) : picked.add(this.target);
+    } else {
+      const [x1, x2] = [Math.min(a.x, p.x), Math.max(a.x, p.x)];
+      const [y1, y2] = [Math.min(a.y, p.y), Math.max(a.y, p.y)];
+      for (const d of await visiblePins()) if (d.x >= x1 && d.x <= x2 && d.y >= y1 && d.y <= y2) picked.add(d.id);
+    }
+    drawSelectBar();
+    refreshPins();
+  },
+  cancel() {
+    this.start = null;
+    viewer.selBox.hidden = true;
+  },
+};
+
+const KEEP = '__keep';
+async function bulkEdit() {
+  const ids = [...picked];
+  if (!ids.length) return;
+  const keepOpt = `<option value="${KEEP}" selected>— leave unchanged —</option>`;
+  const opts = (list, blankLabel) => keepOpt + (blankLabel != null ? `<option value="">${esc(blankLabel)}</option>` : '') + list.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join('');
+  const r = await dialog({
+    title: `Change ${ids.length} door${ids.length === 1 ? '' : 's'}`,
+    body: `
+      <p class="muted small">Only what you change here is updated. Everything else on each door (defects, photos, checklist, history) stays as it is.</p>
+      <div class="grid2">
+        <label class="field"><span>Category</span><select name="category" id="b-cat">${opts(lists.categories || DEFAULT_CATEGORIES, 'No category')}</select></label>
+        <label class="field"><span>Door type</span><select name="doorType" id="b-type">${opts(lists.doorTypes || [], 'No type')}</select></label>
+        <label class="field"><span>Leaf configuration</span><select name="leaf" id="b-leaf">${opts(LEAF_CONFIGS.filter(Boolean), 'Not set')}</select></label>
+        <label class="field"><span>Status</span><select name="status" id="b-status">${keepOpt}${STATUSES.map((s) => `<option value="${s.id}">${esc(s.label)}</option>`).join('')}</select></label>
+        <label class="field"><span>Risk rating</span><select name="risk" id="b-risk">${opts(lists.risks || DEFAULT_RISKS, NO_RISK)}</select></label>
+        <label class="field"><span>Inspected by</span><input name="inspectedBy" id="b-by" placeholder="leave unchanged"></label>
+        <label class="field"><span>Fire alarm zone no.</span><input name="zoneNo" id="b-zone" placeholder="leave unchanged"></label>
+        <label class="field"><span>Fire alarm zone name</span><input name="zoneName" id="b-zname" placeholder="leave unchanged (fills from zone list)"></label>
+        <label class="field"><span>Next inspection due</span><input type="date" name="nextDue" id="b-due"></label>
+      </div>
+      <fieldset class="scheme-set">
+        <legend>New inspection</legend>
+        <label class="field"><span>Start a new inspection on this date (optional)</span><input type="date" name="newInsp" id="b-new"></label>
+        <small class="muted">Each door's current inspection is kept in its history with its photos, and its details carry forward to the new date.</small>
+      </fieldset>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: `Update ${ids.length} door${ids.length === 1 ? '' : 's'}`, value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      // a zone number from the project's zone list fills the name
+      $('#b-zone', form).addEventListener('change', async (e) => {
+        const p = await db.get('projects', state.projectId);
+        const z = (p?.zones || []).find((x) => String(x.no) === e.target.value.trim());
+        if (z && !$('#b-zname', form).value) $('#b-zname', form).value = z.name;
+      });
+    },
+  });
+  if (r.value !== true) return;
+  const d = r.data;
+  const patch = {};
+  for (const k of ['category', 'doorType', 'leaf', 'status', 'risk']) if (d[k] !== KEEP) patch[k] = d[k];
+  for (const k of ['inspectedBy', 'zoneNo', 'zoneName', 'nextDue']) if ((d[k] || '').trim()) patch[k] = d[k].trim();
+  const newInsp = d.newInsp || '';
+  if (!Object.keys(patch).length && !newInsp) return toast('Nothing was changed.');
+  const b = busy(`Updating ${ids.length} doors…`);
+  const before = [];
+  try {
+    for (const id of ids) {
+      const cur = await db.get('doors', id);
+      if (!cur) continue;
+      before.push(cur);
+      let next = { ...cur, ...patch };
+      if (patch.status && patch.status !== 'not_inspected' && !cur.inspectedOn && !newInsp) next.inspectedOn = today();
+      if (newInsp) {
+        // keep the current inspection in history; carry everything forward
+        next = { ...next, history: [snapshotOf(cur), ...(cur.history || [])], inspectedOn: newInsp };
+        await tagPhotosForSnapshot(cur.id, cur.inspectedOn || '');
+      }
+      await saveDoor(next, [`Changed with ${ids.length - 1} other door${ids.length === 2 ? '' : 's'} (bulk edit)`]);
+    }
+  } finally {
+    b.done();
+  }
+  pushUndo(`Bulk change to ${before.length} doors`, async () => {
+    for (const prev of before) await saveDoor(prev, ['Bulk change undone']);
+  });
+  toast(`${before.length} door${before.length === 1 ? '' : 's'} updated`);
+  await refreshPins();
 }
 
 // ---------- Filter pins on the drawing ----------
@@ -1348,7 +1520,8 @@ async function refreshPins() {
       hollow: (d.status || 'not_inspected') === 'not_inspected',
       title: `Pin ${d.pinNo} ${d.ref || ''} ${statusById[d.status || 'not_inspected'].label}`,
     })),
-    selectedPin || state.doorId
+    selectedPin || state.doorId,
+    picked
   );
   const c = countStatuses(doors);
   const el = $('#plan-counts');
@@ -1481,6 +1654,7 @@ async function drawSheet(door) {
       <div class="grid2">
         <label class="field"><span>Inspected on</span><input type="date" id="f-on" data-k="inspectedOn" value="${esc(door.inspectedOn)}"></label>
         <label class="field"><span>Inspected by</span><input id="f-by" data-k="inspectedBy" value="${esc(door.inspectedBy)}" placeholder="Name"></label>
+        <label class="field"><span>Next inspection due</span><input type="date" id="f-due" data-k="nextDue" value="${esc(door.nextDue || '')}"></label>
       </div>
 
       <section class="block">

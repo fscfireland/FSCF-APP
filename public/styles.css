@@ -591,3 +591,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .bar-btns .icon-btn[disabled] { opacity: 0.3; }
 #plan-filter.is-on { background: var(--ink); color: var(--bg); }
 .pick-list.compact .pick { padding: 8px 10px; }
+
+/* selecting several pins */
+.sel-box { position: absolute; border: 2px dashed var(--st-repaired); background: rgba(21, 101, 192, 0.12); pointer-events: none; }
+.pin.is-picked .pin-head { outline: 3px solid var(--st-repaired); outline-offset: 2px; box-shadow: 0 0 0 6px rgba(21, 101, 192, 0.25); }
+.sel-panel {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 13; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+  padding: 10px max(10px, var(--safe-r)) calc(10px + var(--safe-b)) max(10px, var(--safe-l));
+  background: var(--surface); border-top: 1px solid var(--line); box-shadow: 0 -6px 20px rgba(0,0,0,.12);
+}
+.plan-toolbar .btn.big { padding: 0 16px; }

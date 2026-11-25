@@ -37,6 +37,7 @@ const TEXT_FIELDS = {
   risk: 'Risk rating',
   category: 'Category',
   inspectedBy: 'Inspected by',
+  nextDue: 'Next inspection due',
 };
 
 const short = (s, n = 48) => {
