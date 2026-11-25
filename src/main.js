@@ -26,6 +26,7 @@ import {
   splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
+import { BRAND_BANNER, BRAND_ROUND } from './brandlogo.js';
 import { LIB, DEFAULT_LIB_FOLDERS, fileFolders, guessFolder, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
 import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
 import { fmtSize as fmtBytes } from './media.js';
@@ -94,7 +95,7 @@ async function loadLists() {
   const s = await db.get('settings', 'lists');
   lists = {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
-    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, inspector: '', ...(s || {}),
+    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, inspector: '', logoBanner: BRAND_BANNER, logoRound: BRAND_ROUND, ...(s || {}),
   };
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
@@ -210,7 +211,13 @@ async function renderProjects() {
       <button class="icon-btn" id="settings" aria-label="Settings">${icon('gear')}</button>
     </header>
     <main class="page">
-      <div class="offline-note">${icon('check')} Saved on this phone — works with no signal</div>
+      ${(() => {
+        if (!projects.length) return `<div class="offline-note">${icon('check')} Saved on this device — works with no signal</div>`;
+        const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
+        const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
+        if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} Saved on this device · backed up ${days ? 'yesterday' : 'today'}</div>`;
+        return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Save a backup to Google Drive or email.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
+      })()}
       ${liveHtml}
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -236,6 +243,21 @@ async function renderProjects() {
     ${projects.length ? `<button class="fab" id="new-project">${icon('plus')} New project</button>` : ''}
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
+  $('#home-backup')?.addEventListener('click', async () => {
+    const b = busy('Preparing backup…');
+    try {
+      const { result, videosLeftOut } = await backupProjects(await db.all('projects'), { library: true });
+      b.done();
+      if (result === 'saved') {
+        await saveLists({ lastBackupAt: new Date().toISOString() });
+        toast(videosLeftOut ? `Backup saved (${videosLeftOut} large file(s) left out)` : 'Backup saved');
+        refresh();
+      }
+    } catch (e) {
+      b.done();
+      toast(e.message, 'error');
+    }
+  });
   $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'plan', projectId: c.dataset.pid, planId: c.dataset.plan })));
   $('#settings').onclick = () => go({ view: 'settings' });
   $$('#new-project, #new-project-2').forEach((b) => (b.onclick = () => editProject()));
@@ -1777,7 +1799,7 @@ function renderExportTab(body, project, plans, allDoors) {
     try {
       const { result, videosLeftOut } = await backupProjects([project]);
       b.done();
-      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
+      if (result === 'saved') saveLists({ lastBackupAt: new Date().toISOString() }), toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
@@ -3946,7 +3968,7 @@ async function renderSettings() {
     try {
       const { result, videosLeftOut } = await backupProjects(projects, { library: true });
       b.done();
-      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
+      if (result === 'saved') saveLists({ lastBackupAt: new Date().toISOString() }), toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
