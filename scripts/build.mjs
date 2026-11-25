@@ -21,6 +21,18 @@ await build({
   legalComments: 'none',
 });
 
+// The drawing reader (Anthropic SDK) is big, so it is its own file, loaded on demand
+await build({
+  entryPoints: ['src/drawingai.js'],
+  bundle: true,
+  format: 'iife',
+  globalName: 'FSCFReader',
+  target: ['es2020', 'safari14'],
+  outfile: join(out, 'reader.js'),
+  minify: true,
+  legalComments: 'none',
+});
+
 // Single-file version for the Claude artifact preview
 const css = readFileSync(join(out, 'styles.css'), 'utf8');
 const js = readFileSync(join(out, 'app.js'), 'utf8').replace(/<\/script/gi, '<\\/script');

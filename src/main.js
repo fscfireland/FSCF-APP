@@ -28,7 +28,13 @@ import {
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport.js';
-import { readFieldwire } from './fieldwire.js';
+import { readFieldwire, ratingToType } from './fieldwire.js';
+import { textDoors } from './drawingtext.js';
+import { loadScript } from './files.js';
+// The drawing reader (Claude vision) is a separate file, loaded when first used
+const reader = async () => { await loadScript('reader.js'); return window.FSCFReader; };
+const aiDoors = async (...a) => (await reader()).aiDoors(...a);
+const testKey = async (...a) => (await reader()).testKey(...a);
 import { BRAND_BANNER, BRAND_ROUND } from './brandlogo.js';
 import { LIB, DEFAULT_LIB_FOLDERS, fileFolders, guessFolder, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
 import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, sessionsOf, isRunning, elapsedMs, fmtDuration as fmtJobTime, pauseService, resumeService, saveSessions, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
@@ -284,7 +290,7 @@ async function renderProjects() {
         ${types.length > 1 ? `<div class="chips wrap">${['', ...types].map((t) => `<button class="chip type-chip ${(state.projType || '') === t ? 'is-on' : ''}" data-t="${esc(t)}">${esc(t || 'All types')} ${t ? `<b>${projects.filter((p) => (p.workType || '') === t).length}</b>` : ''}</button>`).join('')}</div>` : ''}
       </div>` : ''}
       <div id="project-groups">${groupedHtml}</div>
-      ${projects.length ? `<p class="fw-line"><label class="link-btn">${icon('upload')} New project from a Fieldwire report (PDF)<input type="file" class="fw-import" accept="application/pdf,.pdf" hidden></label></p>` : ''}
+      ${projects.length ? `<p class="fw-line"><label class="link-btn">${icon('plan')} New project from a drawing (PDF or photo)<input type="file" class="dw-import" accept="application/pdf,.pdf,image/*" hidden></label><br><label class="link-btn">${icon('upload')} New project from a Fieldwire report (PDF)<input type="file" class="fw-import" accept="application/pdf,.pdf" hidden></label></p>` : ''}
       ${projects.length ? '' : `
         <section class="empty">
           <div class="empty-ico">${icon('door')}</div>
@@ -293,6 +299,7 @@ async function renderProjects() {
           <div class="row-btns">
             <button class="btn primary" id="new-project-2">${icon('plus')} New project</button>
             <button class="btn" id="demo">Load demo project</button>
+            <label class="btn">${icon('plan')} From a drawing (PDF or photo)<input type="file" class="dw-import" accept="application/pdf,.pdf,image/*" hidden></label>
             <label class="btn">${icon('upload')} From a Fieldwire report<input type="file" class="fw-import" accept="application/pdf,.pdf" hidden></label>
           </div>
         </section>`}
@@ -317,6 +324,11 @@ async function renderProjects() {
   });
   $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'plan', projectId: c.dataset.pid, planId: c.dataset.plan })));
   $('#settings').onclick = () => go({ view: 'settings' });
+  $$('.dw-import').forEach((inp) => (inp.onchange = async (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (f) importFromDrawing(f);
+  }));
   $$('.fw-import').forEach((inp) => (inp.onchange = async (e) => {
     const f = e.target.files[0];
     e.target.value = '';
@@ -398,6 +410,135 @@ function projectCard(p, doors, coll = '', nLive = 0) {
 }
 
 // New project from a Fieldwire report PDF
+// ---------- Find fire doors on a compartment drawing ----------
+// Pins are added at each door found, numbered on from the project's refs,
+// with the rating as the door type and the room as the location.
+async function addFoundDoors(projectId, plan, found, kind, how) {
+  const all = await db.projectDoors(projectId);
+  let added = 0;
+  for (const f of found) {
+    const pinNo = await db.nextPinNo(projectId);
+    let ref = (f.ref || '').trim();
+    if (!ref || all.some((d) => (d.ref || '').toUpperCase() === ref.toUpperCase())) ref = nextFreeRef(all, plan.id, pinNo);
+    const door = await saveDoor({
+      id: db.uid(), projectId, planId: plan.id, pinNo, x: Math.min(0.99, Math.max(0.01, f.x)), y: Math.min(0.99, Math.max(0.01, f.y)), kind,
+      ref, location: (f.room || '').trim(), doorType: ratingToType(f.rating) || '', leaf: '', status: 'not_inspected',
+      defects: [], actions: [], checks: {}, materials: [], notes: f.rating ? `Rating on drawing: ${f.rating}` : '',
+      zoneNo: '', zoneName: '', risk: '', category: '', inspectedOn: '', inspectedBy: lists.inspector || '', found: how,
+    }, [`Pin added by the drawing reader (${how === 'ai' ? 'Claude vision' : 'drawing text'}). Check its position.`]);
+    all.push(door);
+    added++;
+  }
+  return added;
+}
+
+function noKeyDialog() {
+  return dialog({
+    title: 'Drawing reader not set up',
+    body: `<p>This drawing is a scan or flat image, so the doors can't be read from its text. The <b>drawing reader</b> uses Claude (Anthropic's AI) to look at the drawing and find the fire doors.</p>
+      <p class="small">It needs your own Anthropic API key, added once in <b>Settings › Drawing reader</b>. It costs roughly US$0.30–0.80 per drawing, billed by Anthropic.</p>`,
+    buttons: [{ label: 'Not now', value: false }, { label: 'Open Settings', value: 'set', kind: 'primary' }],
+  }).then((r) => { if (r.value === 'set') go({ view: 'settings' }); });
+}
+
+// From the drawing's menu: find doors on a drawing already in a project
+async function findDoorsOnPlan(plan) {
+  if (!lists.aiKey) return noKeyDialog();
+  const existing = await db.byIndex('doors', 'planId', plan.id);
+  const r = await dialog({
+    title: `Find fire doors on "${plan.name}"`,
+    body: `<p>Claude looks over the drawing and adds a pin at each fire door it finds, with the rating as the door type and the room as the location. Takes 1–4 minutes${priced() ? '; costs roughly US$0.30–0.80' : ''}.</p>
+      ${existing.length ? `<p class="small">This drawing already has ${existing.length} pin${existing.length === 1 ? '' : 's'}. Doors found right next to one of them are skipped.</p>` : ''}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Find doors', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return;
+  const bz = busy('Starting the drawing reader…');
+  try {
+    const p = await db.get('plans', plan.id);
+    const res = await aiDoors(p.blob, lists.aiKey, bz.update);
+    const fresh = res.doors.filter((f) => !existing.some((d) => d.x != null && Math.hypot(d.x - f.x, d.y - f.y) < 0.015));
+    const n = await addFoundDoors(plan.projectId, p, fresh, kindOfPlan(p), 'ai');
+    bz.done();
+    await dialog({
+      title: n ? `${n} door${n === 1 ? '' : 's'} added` : 'No new doors found',
+      body: `<p>${n ? 'Check each pin is in the right spot: press and hold a pin to drag it, and delete any that are not fire doors.' : 'Nothing new was found. You can add pins by hand with Add.'}</p>${priced() ? `<p class="muted small">Drawing reader cost about US$${res.costUsd.toFixed(2)}.</p>` : ''}`,
+      buttons: [{ label: 'OK', value: true, kind: 'primary' }],
+    });
+    go({ view: 'plan', projectId: plan.projectId, planId: plan.id });
+  } catch (err) {
+    bz.done();
+    console.error(err);
+    toast('Drawing reader: ' + (err.status === 401 ? 'the API key was not accepted. Check it in Settings.' : err.message), 'error');
+  }
+}
+
+// From the home page: a whole new project from a drawing
+async function importFromDrawing(file) {
+  const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+  const r = await dialog({
+    title: 'New project from a drawing',
+    body: `<p class="small">The app adds a drawing for each page and a pin at every fire door it can find, with its rating and room. For CAD PDFs the text is read on this phone for free; for scanned drawings and photos the <b>drawing reader</b> (Claude) is used${lists.aiKey ? '' : ' once it is set up in Settings'}.</p>
+      <label class="field"><span>Site</span><input name="site" required value="${esc(file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '))}"></label>
+      <div class="grid2"><label class="field"><span>Client</span><input name="client" placeholder="e.g. HSE"></label>
+        <label class="field"><span>Inspection date</span><input type="date" name="date" value="${today()}"></label></div>
+      <label class="field"><span>Address / Eircode</span><input name="address"></label>
+      <label class="field"><span>Inspection type</span><select name="kind">${kindIds().map((k) => `<option value="${k}" ${k === 'fd' ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
+      ${lists.aiKey ? `<label class="check-line"><input type="checkbox" name="ai" checked> Use the drawing reader for pages with no readable text${priced() ? ' (about US$0.30–0.80 a page)' : ''}</label>` : ''}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Create project', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return;
+  const kind = r.data.kind || 'fd';
+  const useAi = !!(lists.aiKey && r.data.ai);
+  const bz = busy('Reading the drawing…');
+  let cost = 0;
+  let total = 0;
+  const notes = [];
+  try {
+    const pages = await importDrawing(file, bz.update);
+    const text = isPdf ? await textDoors(file).catch(() => []) : [];
+    const project = await db.put('projects', {
+      id: db.uid(), site: r.data.site.trim() || file.name, client: r.data.client.trim(), address: r.data.address.trim(), date: r.data.date || today(),
+      workType: kindIds().includes(kind) && kind !== 'fd' ? kitOf(kind).name : 'Fire door inspection', scheme: lists.lastScheme || DEFAULT_SCHEME, zones: [], nextPin: 1,
+    });
+    let first = null;
+    let needAi = 0;
+    for (const [i, pg] of pages.entries()) {
+      const plan = await db.put('plans', { id: db.uid(), projectId: project.id, order: i, sourceName: file.name, collection: '', inspType: kind, ...pg });
+      first ||= plan;
+      const t = text[i];
+      if (t?.doors.length) {
+        total += await addFoundDoors(project.id, plan, t.doors, kind, 'text');
+        notes.push(`${plan.name}: ${t.doors.length} from the drawing's text`);
+      } else if (useAi) {
+        bz.update(`Page ${i + 1} of ${pages.length}: starting the drawing reader…`);
+        const res = await aiDoors(pg.blob, lists.aiKey, (m) => bz.update(`Page ${i + 1} of ${pages.length}: ${m}`));
+        cost += res.costUsd;
+        total += await addFoundDoors(project.id, plan, res.doors, kind, 'ai');
+        notes.push(`${plan.name}: ${res.doors.length} found by the drawing reader`);
+        if (i === 0 && res.site && !r.data.site.trim()) await db.put('projects', { ...(await db.get('projects', project.id)), site: res.site });
+      } else {
+        needAi++;
+        notes.push(`${plan.name}: no readable text, pins not added`);
+      }
+    }
+    await addBlob(project.id, file, file.name, 'Drawings', { notes: 'Drawing this project was created from' }).catch(() => {});
+    bz.done();
+    await dialog({
+      title: total ? `${total} door${total === 1 ? '' : 's'} found` : 'Project created',
+      body: `<ul class="sheet-list small">${notes.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
+        ${total ? '<p>Each door has a pin, numbered from 001, with the rating as its door type and the room as its location. <b>Check each one</b>: press and hold a pin to drag it into place, and delete any that are not fire doors.</p>' : ''}
+        ${needAi && !lists.aiKey ? '<p class="small">Scanned pages need the drawing reader. Set it up in <b>Settings › Drawing reader</b>, then open the drawing\'s menu (⋯ on the Plans tab) and tap <b>Find doors</b>.</p>' : ''}
+        ${cost && priced() ? `<p class="muted small">Drawing reader cost about US$${cost.toFixed(2)}.</p>` : ''}`,
+      buttons: [{ label: 'Open the drawing', value: true, kind: 'primary' }],
+    });
+    go({ view: 'plan', projectId: project.id, planId: first.id });
+  } catch (err) {
+    bz.done();
+    console.error(err);
+    toast('Could not finish: ' + (err.status === 401 ? 'the drawing reader key was not accepted. Check it in Settings.' : err.message), 'error');
+  }
+}
+
 async function importFieldwire(file) {
   const b = busy('Reading the Fieldwire report…');
   let fw;
@@ -1859,7 +2000,7 @@ async function planMenu(plan, colls = []) {
         <small class="muted">Sets the checklist, defects and item types for every pin on this drawing.</small></label>
       ${colls.length > 1 || plan.collection ? `<label class="field"><span>Collection</span>
         <select name="coll" id="plan-coll">${collOptions(colls, plan.collection || '', { folders: false })}</select></label>` : ''}`,
-    buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Remove pins…', value: 'pins', kind: 'ghost' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
+    buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Remove pins…', value: 'pins', kind: 'ghost' }, { label: 'Find doors…', value: 'find', kind: 'ghost' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
     await setPlanKind(plan, r.data.kind || kindOfPlan(plan));
@@ -1867,6 +2008,8 @@ async function planMenu(plan, colls = []) {
     refresh();
   } else if (r.value === 'pins') {
     await removePins(plan);
+  } else if (r.value === 'find') {
+    await findDoorsOnPlan(plan);
   } else if (r.value === 'delete') {
     const doors = await db.byIndex('doors', 'planId', plan.id);
     if (await confirmBox('Delete plan?', `This deletes "${plan.name}" and the ${doors.length} door record(s) pinned on it, with their photos. This cannot be undone.`)) {
@@ -4450,6 +4593,16 @@ async function renderSettings() {
         <p class="muted small">The wording for door statuses and checklist answers. Each project picks one (in the project's details).</p>
         <div id="s-schemes"></div>
       </section>
+      <div class="set-group"><h2>Drawing reader</h2></div>
+      <section class="panel">
+        <p class="muted small">Finds the fire doors on scanned drawings and photos of drawings, using Claude (Anthropic's AI). Add your own Anthropic API key: make one at console.anthropic.com › API keys, and add some credit there. The key stays on this phone and is sent only to Anthropic. Roughly US$0.30–0.80 per drawing.</p>
+        ${lists.aiKey ? `<p class="small"><b>Key saved</b> (ending …${esc(lists.aiKey.slice(-4))})</p>` : ''}
+        <label class="field"><span>${lists.aiKey ? 'Replace key' : 'Anthropic API key'}</span><input id="s-aikey" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
+        <div class="row-btns">
+          <button class="btn" id="s-aikey-save">Save key</button>
+          ${lists.aiKey ? '<button class="btn ghost danger-text" id="s-aikey-del">Remove key</button>' : ''}
+        </div>
+      </section>
       <div class="set-group"><h2>Backup</h2></div>
       <section class="panel">
         <h2 class="h2">Backup &amp; restore</h2>
@@ -4463,6 +4616,26 @@ async function renderSettings() {
     </main>`;
   $('#back').onclick = back;
   $('#s-gps').onchange = (e) => saveLists({ gps: e.target.checked });
+  $('#s-aikey-save').onclick = async () => {
+    const k = $('#s-aikey').value.trim();
+    if (!k) return toast('Paste the key first', 'error');
+    const b = busy('Checking the key…');
+    try {
+      await testKey(k);
+      b.done();
+      await saveLists({ aiKey: k });
+      toast('Drawing reader is ready');
+      refresh();
+    } catch (err) {
+      b.done();
+      toast(err.status === 401 ? 'That key was not accepted. Check it and try again.' : 'Could not check the key: ' + err.message, 'error');
+    }
+  };
+  $('#s-aikey-del')?.addEventListener('click', async () => {
+    if (!(await confirmBox('Remove key?', 'The drawing reader stops working on this phone until a key is added again.'))) return;
+    await saveLists({ aiKey: '' });
+    refresh();
+  });
   $('#s-sign').onclick = async () => {
     const sig = await signaturePad({ title: 'My signature', name: lists.inspector || '', askName: false });
     if (sig) {

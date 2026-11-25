@@ -27,7 +27,7 @@ export async function loadSheetJS() {
   return window.XLSX;
 }
 
-async function loadPdfJs() {
+export async function loadPdfJs() {
   await loadScript(PDFJS);
   const lib = window.pdfjsLib;
   if (!lib.GlobalWorkerOptions.workerPort && !lib.GlobalWorkerOptions.workerSrc) {
