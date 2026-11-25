@@ -4361,7 +4361,21 @@ async function start() {
   }
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.claude) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    // When a new version has been published, offer a one-tap refresh
+    const hadController = !!navigator.serviceWorker.controller;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || $('#update-bar')) return;
+      const bar = document.createElement('div');
+      bar.id = 'update-bar';
+      bar.className = 'update-bar';
+      bar.innerHTML = `<span>${icon('check')} A new version of the app is ready</span><button class="btn sm primary" type="button">Update now</button>`;
+      bar.querySelector('button').onclick = async () => { await flushSave(); location.reload(); };
+      document.body.append(bar);
+    });
+    navigator.serviceWorker.register('sw.js').then((reg) => {
+      // check for a newer version whenever the app is brought back to the front
+      document.addEventListener('visibilitychange', () => document.visibilityState === 'visible' && reg.update().catch(() => {}));
+    }).catch(() => {});
   }
 }
 window.addEventListener('pagehide', flushSave);

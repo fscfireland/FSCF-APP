@@ -939,3 +939,6 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .thumb-inner img { width: 100%; height: 100%; object-fit: fill; }
 .tpin { position: absolute; transform: translate(-50%, -50%); min-width: 16px; height: 16px; padding: 0 3px; border-radius: 8px; background: var(--pin); color: #fff; border: 1.5px solid #fff; font: 700 9px/13px var(--font); font-style: normal; text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,.35); pointer-events: none; }
 .tpin.is-hollow { background: #fff; color: var(--pin); border-color: var(--pin); }
+.update-bar { position: fixed; left: 12px; right: 12px; bottom: calc(14px + var(--safe-b)); z-index: 95; display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 10px 10px 14px; border-radius: 14px; background: var(--ink); color: var(--bg); box-shadow: var(--shadow); font-weight: 600; font-size: 14px; }
+.update-bar span { display: flex; align-items: center; gap: 6px; }
+.update-bar .ico { color: var(--st-pass); }
