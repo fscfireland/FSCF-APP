@@ -118,6 +118,7 @@ async function saveLists(patch) {
 
 // ---------- render ----------
 async function render() {
+  document.body.classList.toggle('prices-locked', !priced());
   const key = viewKey(state);
   if (key !== mountedKey) {
     mountedKey = key;
@@ -175,7 +176,7 @@ async function renderProjects() {
         <span class="lc-main"><b>${esc(p.site || 'Untitled site')}</b>
           <small class="lc-plan">${icon('plan')} ${esc(planSvcName(plan))}</small>
           <small>${esc([p.workType, p.client].filter(Boolean).join(' · '))}</small>
-          <small>${isRunning(sv) ? '<span class="live-dot" aria-hidden="true"></span> Live' : '⏸ Paused'} · started ${esc(fmtWhen(sv.startedAt))} · ${timerChip(p, planKey(plan.id)).replace('<button type="button" class="svc-timer svc-act" data-act="time"', '<span class="svc-timer"').replace('</button>', '</span>')}</small></span>
+          <small>${isRunning(sv) ? '<span class="live-dot" aria-hidden="true"></span> Live' : '⏸ Paused'} · started ${esc(fmtWhen(sv.startedAt))} ${timerChip(p, planKey(plan.id)).replace('<button type="button" class="svc-timer svc-act" data-act="time"', '<span class="svc-timer">· </span><span class="svc-timer"').replace('</button>', '</span>')}</small></span>
         <span class="lc-prog"><b>${total ? Math.round((done / total) * 100) : 0}%</b><small>${done}/${total} doors</small>
           <i style="--p:${total ? (done / total) * 100 : 0}%"></i></span>
       </button>`).join('')}
@@ -212,7 +213,10 @@ async function renderProjects() {
   app.innerHTML = `
     <header class="bar">
       <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Ireland</b><small>Fire safety compliance &amp; facilities</small></div></div>
-      <button class="icon-btn" id="settings" aria-label="Settings">${icon('gear')}</button>
+      <span class="bar-btns">
+        ${lists.libPin ? `<button class="icon-btn owner-lock ${priced() ? 'is-open' : ''}" id="owner-lock" aria-label="${priced() ? 'Lock prices' : 'Unlock prices'}">${icon('shield')}<span>${priced() ? 'Unlocked' : 'Locked'}</span></button>` : ''}
+        <button class="icon-btn" id="settings" aria-label="Settings">${icon('gear')}</button>
+      </span>
     </header>
     <main class="page">
       ${(() => {
@@ -264,6 +268,9 @@ async function renderProjects() {
   });
   $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'plan', projectId: c.dataset.pid, planId: c.dataset.plan })));
   $('#settings').onclick = () => go({ view: 'settings' });
+  $('#owner-lock')?.addEventListener('click', () => {
+    if (priced()) { libUnlocked = false; toast('Locked: prices and time hidden'); refresh(); } else unlockOwner();
+  });
   $$('#new-project, #new-project-2').forEach((b) => (b.onclick = () => editProject()));
   const demo = $('#demo');
   if (demo) demo.onclick = loadDemo;
@@ -591,6 +598,7 @@ function bindSvc(root, project, plans, after = refresh) {
       after();
       noteWeather(project.id);
     } else if (b.dataset.act === 'time') {
+      if (!priced() && !(await unlockOwner())) return;
       await timeLog(fresh, plan, after);
     } else if (b.dataset.act === 'end') {
       const doors = (await db.byIndex('doors', 'planId', plan.id)).sort((a, c) => (a.pinNo || 0) - (c.pinNo || 0));
@@ -1037,10 +1045,28 @@ async function sendToProject(rec) {
 
 // ---------- My files: private library with an optional PIN ----------
 let libUnlocked = false;
+// Owner lock: with an Owner PIN set, prices, costs, totals and time on the
+// job are hidden until the PIN is entered. It locks again when the app is
+// closed or put in the background. With no PIN, everything shows.
+const priced = () => !lists?.libPin || libUnlocked;
+async function unlockOwner() {
+  if (!lists.libPin) return true;
+  const r = await dialog({
+    title: 'Owner PIN',
+    body: '<p>Enter your PIN to show prices, costs and time on the job.</p><label class="field"><span>PIN</span><input name="pin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" required></label>',
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Unlock', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return false;
+  if ((await pinHash(r.data.pin)) !== lists.libPin) { toast('Wrong PIN', 'error'); return false; }
+  libUnlocked = true;
+  toast('Unlocked: prices showing');
+  refresh();
+  return true;
+}
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && lists?.libPin) {
     libUnlocked = false;
-    if (state.view === 'library') refresh();
+    refresh();
   }
 });
 async function pinHash(pin) {
@@ -1058,7 +1084,7 @@ async function renderLibrary() {
     </header>
     <main class="page" id="lib-body"></main>`;
   $('#back').onclick = back;
-  $('#lib-lock').onclick = libPinMenu;
+  $('#lib-lock').onclick = () => libPinMenu();
   const body = $('#lib-body');
   if (locked) {
     body.innerHTML = `
@@ -1085,13 +1111,13 @@ async function renderLibrary() {
   renderFilesTab(body, libProject(), files, { lib: true, rerender: renderLibrary });
 }
 
-async function libPinMenu() {
+async function libPinMenu(fromSettings = false) {
   const has = !!lists.libPin;
   if (has && !libUnlocked) return toast('Unlock with your PIN first');
   const r = await dialog({
-    title: has ? 'PIN lock' : 'Lock My files with a PIN',
+    title: has ? 'Owner PIN' : 'Set an owner PIN',
     body: `
-      <p>${has ? 'My files asks for this PIN each time the app is opened or switched back to.' : 'Ask for a PIN before showing My files, e.g. if someone else uses this phone.'}</p>
+      <p>${has ? 'Your prices, costs, time on the job and My files ask for this PIN each time the app is opened or switched back to.' : 'Hide your prices, costs, time on the job and My files behind a PIN, e.g. if someone else uses this phone or app.'}</p>
       <label class="field"><span>${has ? 'New PIN (to change it)' : 'PIN (4 to 8 digits)'}</span><input name="pin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" pattern="[0-9]{4,8}" ${has ? '' : 'required'}></label>
       <label class="field"><span>Type it again</span><input name="pin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" ${has ? '' : 'required'}></label>
       <p class="muted small">If you forget it, the files can't be shown. Keep a backup (Settings › Backup).</p>`,
@@ -1099,12 +1125,12 @@ async function libPinMenu() {
       ? [{ label: 'Close', value: false }, { label: 'Remove PIN', value: 'remove' }, { label: 'Lock now', value: 'lock' }, { label: 'Change PIN', value: true, kind: 'primary' }]
       : [{ label: 'Cancel', value: false }, { label: 'Set PIN', value: true, kind: 'primary' }],
   });
-  if (r.value === 'lock') { libUnlocked = false; return renderLibrary(); }
+  if (r.value === 'lock') { libUnlocked = false; return fromSettings ? null : renderLibrary(); }
   if (r.value === 'remove') {
     if (!(await confirmBox('Remove the PIN?', 'My files will open without a PIN.', 'Remove', false))) return;
     await saveLists({ libPin: '' });
     toast('PIN removed');
-    return renderLibrary();
+    return fromSettings ? null : renderLibrary();
   }
   if (r.value !== true) return;
   const { pin, pin2 } = r.data;
@@ -1113,7 +1139,7 @@ async function libPinMenu() {
   await saveLists({ libPin: await pinHash(pin) });
   libUnlocked = true;
   toast('PIN set');
-  renderLibrary();
+  if (!fromSettings) renderLibrary();
 }
 
 // Files attached to one drawing (or its collection), shown on the drawing screen
@@ -1394,10 +1420,16 @@ function renderPlansTab(body, project, plans, doors, active) {
   for (const d of doors) n[d.planId] = (n[d.planId] || 0) + 1;
   const colls = listCollections(plans);
   const named = colls.length > 1 || (colls[0] ?? '') !== '';
-  const card = (p) => `
+  const pinsOn = (pl) => doors.filter((d) => d.planId === pl.id && d.x != null);
+  const card = (p) => {
+    const wide = (p.width || 4) / (p.height || 3) >= 4 / 3;
+    return `
         <div class="plan-card">
           <button class="plan-open" data-id="${p.id}">
-            <img alt="" src="${objUrl(p.thumb || p.blob)}">
+            <span class="thumb-inner" style="${wide ? 'width:100%' : 'height:100%'};aspect-ratio:${p.width || 4} / ${p.height || 3}">
+              <img alt="" src="${objUrl(p.thumb || p.blob)}">
+              ${pinsOn(p).map((d) => { const st = statusById[d.status || 'not_inspected'] || statusById.not_inspected; return `<i class="tpin ${st.id === 'not_inspected' ? 'is-hollow' : ''}" style="left:${(d.x * 100).toFixed(2)}%;top:${(d.y * 100).toFixed(2)}%;--pin:${st.color}">${d.pinNo ?? ''}</i>`; }).join('')}
+            </span>
           </button>
           <div class="plan-meta">
             <div><b>${esc(p.name)}</b><small>${n[p.id] || 0} doors pinned</small></div>
@@ -1405,6 +1437,7 @@ function renderPlansTab(body, project, plans, doors, active) {
           </div>
           <div class="plan-svc">${svcControls(project, p)}</div>
         </div>`;
+  };
   const group = (c) => {
     const ps = plansIn(plans, c);
     const pins = ps.reduce((t, p) => t + (n[p.id] || 0), 0);
@@ -1705,7 +1738,7 @@ function doorRow(d, planName) {
         <span class="status-pill" style="--c:${s.color}">${s.short}</span>
         ${nDef ? `<small>${nDef} defect${nDef > 1 ? 's' : ''}</small>` : ''}
         ${signsNeeded(d).length ? `<small>${signsNeeded(d).reduce((a, x) => a + (Number(x.qty) || 0), 0)} sign${signsNeeded(d).reduce((a, x) => a + (Number(x.qty) || 0), 0) === 1 ? '' : 's'} needed</small>` : ''}
-        ${materialsTotal(d) ? `<small class="money">${euro(materialsTotal(d))}</small>` : ''}
+        ${priced() && materialsTotal(d) ? `<small class="money">${euro(materialsTotal(d))}</small>` : ''}
       </span>
     </button>`;
 }
@@ -1779,7 +1812,7 @@ function renderExportTab(body, project, plans, allDoors) {
         <li><b>Defect totals</b>: how many of each defect</li>
         <li><b>Inspection history</b>: every inspection of every door, by date</li>
       </ul>
-      <p class="muted">${doors.length} doors · ${nDef} defects · materials ${euro(doors.reduce((t, d) => t + materialsTotal(d), 0))} ex VAT</p>
+      <p class="muted">${doors.length} doors · ${nDef} defects${priced() ? ` · materials ${euro(doors.reduce((t, d) => t + materialsTotal(d), 0))} ex VAT` : ' · prices hidden (locked)'}</p>
       ${(() => {
         const n = doors.filter((d) => (d.defects || []).some((x) => !(d.materials || []).some((m) => m.forKey === 'd:' + x.label) && defaultProductsFor(x, lists.materials || [], () => '').length)).length;
         return n ? `<p class="fill-note">${icon('sheet')} <span>${n} door${n === 1 ? ' has' : 's have'} defects with no products yet. <button class="link-btn" id="fill-all">Add the usual products</button> so they're costed and on the pricing sheet.</span></p>` : '';
@@ -1811,7 +1844,7 @@ function renderExportTab(body, project, plans, allDoors) {
       <div class="opt-list">
         <label class="check-line"><input type="checkbox" id="pdf-photos" checked> Include photos</label>
         <label class="check-line"><input type="checkbox" id="pdf-pass" checked> Include pages for doors marked ${esc(statusById.pass.label)} or ${esc(statusById.na.label)}</label>
-        <label class="check-line"><input type="checkbox" id="pdf-costs"> Include material costs <span class="muted">(leave off for the client copy)</span></label>
+        <label class="check-line"><input type="checkbox" id="pdf-costs" ${priced() ? '' : 'disabled'}> Include material costs${priced() ? '' : ' <span class="muted">(unlock with your PIN first)</span>'} <span class="muted">(leave off for the client copy)</span></label>
       </div>
       <button class="btn primary" id="pdf">${icon('download')} Export PDF report</button>
     </section>
@@ -1853,7 +1886,7 @@ function renderExportTab(body, project, plans, allDoors) {
     const b = busy('Building Excel workbook…');
     try {
       if (!doors.length) return b.done(), noneMsg();
-      const r = await exportProjectXlsx(project, questions, { doors, filterText });
+      const r = await exportProjectXlsx(project, questions, { doors, filterText, hideCosts: !priced() });
       b.done();
       if (r === 'saved') toast('Excel file saved');
     } catch (e) {
@@ -1876,7 +1909,7 @@ function renderExportTab(body, project, plans, allDoors) {
     const b = busy('Building PDF report…');
     try {
       if (!doors.length) return b.done(), noneMsg();
-      const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: $('#pdf-costs').checked, doors, filterText, plans };
+      const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: priced() && $('#pdf-costs').checked, doors, filterText, plans };
       const r = await exportProjectPdf(project, lists, opts, b.update);
       b.done();
       if (r === 'saved') toast('PDF report saved');
@@ -3112,7 +3145,7 @@ async function drawSheet(door) {
             ${linked.map((m) => `
               <div class="def-prod-row" data-id="${esc(m.id)}">
                 <select class="dp-name" aria-label="Product">
-                  ${opts.map((o) => `<option value="${esc(o.id)}" ${o.name === m.name ? 'selected' : ''}>${esc(o.name)}${o.cost ? ' – ' + euro(o.cost) : ''}</option>`).join('')}
+                  ${opts.map((o) => `<option value="${esc(o.id)}" ${o.name === m.name ? 'selected' : ''}>${esc(o.name)}${o.cost && priced() ? ' – ' + euro(o.cost) : ''}</option>`).join('')}
                   ${!opts.some((o) => o.name === m.name) ? `<option value="" selected>${esc(m.name)}</option>` : ''}
                 </select>
                 <span class="stepper"><button type="button" class="dp-minus" aria-label="One fewer">−</button><input class="dp-qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(m.qty ?? 1)}" aria-label="Quantity"><button type="button" class="dp-plus" aria-label="One more">+</button></span>
@@ -3444,7 +3477,7 @@ async function drawSheet(door) {
           <label class="field"><span>Size / type</span><input class="mat-spec" id="mat-spec-${i}" value="${esc(m.spec || '')}" placeholder="e.g. 15 × 4 mm, white, combined" autocomplete="off"></label>
           <div class="mat-fields">
             <label class="field"><span>Qty${m.unit ? ' (' + esc(m.unit) + ')' : ''}</span><input type="number" inputmode="decimal" min="0" step="any" class="mat-qty" id="mat-qty-${i}" value="${esc(m.qty ?? 1)}"></label>
-            <label class="field"><span>Unit cost €</span><input type="number" inputmode="decimal" min="0" step="0.01" class="mat-cost" id="mat-cost-${i}" value="${esc(m.cost ?? 0)}"></label>
+            <label class="field money-f"><span>Unit cost €</span><input type="number" inputmode="decimal" min="0" step="0.01" class="mat-cost" id="mat-cost-${i}" value="${esc(m.cost ?? 0)}"></label>
             <div class="mat-line"><span>Line</span><b class="mat-total">${euro((Number(m.qty) || 0) * (Number(m.cost) || 0))}</b></div>
           </div>
         </div>`).join('') + `<div class="mat-sum"><span>Materials total <small class="muted">ex VAT</small></span><b id="mat-sum">${euro(materialsTotal(current))}</b></div>`
@@ -3787,7 +3820,7 @@ async function pickMaterials() {
           ${k === 0 || matCat(arr[k - 1].m) !== matCat(m) ? `<h4 class="pick-cat">${esc(matCat(m))}</h4>` : ''}
           <label class="pick">
             <input type="checkbox" name="m${i}" value="${i}">
-            <span><b>${esc(m.name)}</b><small>${m.cost ? euro(m.cost) + ' per ' + esc(m.unit || 'item') : 'No price set · per ' + esc(m.unit || 'item')}</small></span>
+            <span><b>${esc(m.name)}</b><small>${!priced() ? 'per ' + esc(m.unit || 'item') : m.cost ? euro(m.cost) + ' per ' + esc(m.unit || 'item') : 'No price set · per ' + esc(m.unit || 'item')}</small></span>
           </label>`).join('')}
       </div>
       <fieldset class="custom-mat">
@@ -4067,6 +4100,14 @@ async function renderSettings() {
         <label class="field"><span>One per line (each door can have several)</span><textarea id="s-actions" rows="8">${esc((lists.actions || []).join('\n'))}</textarea></label>
       </section>
       <section class="panel">
+        <h2 class="h2">${icon('shield')} Owner PIN</h2>
+        <p class="muted small">${lists.libPin
+          ? 'Prices, costs, totals, your time on the job and My files are hidden until this PIN is entered. They lock again when the app is closed.'
+          : 'Set a PIN so anyone else using this app or phone cannot see your prices, costs, time on the job or My files.'}</p>
+        <div class="row-btns"><button class="btn sm" id="s-owner-pin">${lists.libPin ? 'Change or remove PIN' : 'Set an owner PIN'}</button>
+        ${lists.libPin ? `<button class="btn ghost sm" id="s-owner-toggle">${priced() ? 'Lock now' : 'Unlock'}</button>` : ''}</div>
+      </section>
+      <section class="panel" ${priced() ? '' : 'hidden'}>
         <div class="block-head"><h2 class="h2">Materials &amp; prices</h2><button class="btn sm" id="s-add-m">${icon('plus')} Add</button></div>
         <p class="muted small">Your unit prices (€ ex VAT). They pre-fill doors when you add a material; changing a price here does not change doors already recorded.</p>
         <div id="s-mats"></div>
@@ -4234,7 +4275,15 @@ async function renderSettings() {
       $('.me-del', row).onclick = async () => { await saveLists({ materials: lists.materials.filter((_, j) => j !== i) }); drawMats(); };
     });
   };
-  drawMats();
+  if (priced()) drawMats();
+  $('#s-owner-pin').onclick = async () => {
+    if (lists.libPin && !priced() && !(await unlockOwner())) return;
+    await libPinMenu(true);
+    refresh();
+  };
+  $('#s-owner-toggle')?.addEventListener('click', () => {
+    if (priced()) { libUnlocked = false; toast('Locked'); refresh(); } else unlockOwner();
+  });
   $('#s-add-m').onclick = async () => {
     await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), cat: 'Other', name: '', unit: 'each', cost: 0 }] });
     drawMats();

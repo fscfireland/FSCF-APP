@@ -17,7 +17,11 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   const scheme = useScheme(project);
   const answerLabel = Object.fromEntries(ANSWERS.map((a) => [a.id, a.label]));
   // filtered doors (each as at the inspection being reported) or all, as now
-  const doors = opts.doors || (await db.projectDoors(project.id)).map((d) => ({ ...d, _current: true }));
+  let doors = opts.doors || (await db.projectDoors(project.id)).map((d) => ({ ...d, _current: true }));
+  if (opts.hideCosts) {
+    // the app is locked: leave our prices out of the workbook
+    doors = doors.map((d) => ({ ...d, materials: (d.materials || []).map((m) => ({ ...m, cost: 0 })), signs: (d.signs || []).map((x) => ({ ...x, cost: 0 })) }));
+  }
   const byId = Object.fromEntries(doors.map((d) => [d.id, d]));
   const plans = await db.projectPlans(project.id);
   const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
@@ -62,7 +66,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
     ...statusesInUse(doors).map((s) => [s.label, counts[s.id] || 0, doors.length ? `${Math.round(((counts[s.id] || 0) / doors.length) * 100)}%` : '0%']),
     [],
     ['Defects recorded', defectRows.length],
-    ['Materials total (€ ex VAT)', matTotal],
+    opts.hideCosts ? ['Materials total', 'Prices left out (app locked)'] : ['Materials total (€ ex VAT)', matTotal],
   ];
   const ws0 = XLSX.utils.aoa_to_sheet(summary);
   ws0[`B${summary.length}`].z = EURO;
