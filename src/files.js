@@ -110,6 +110,40 @@ export async function compressImage(file, maxSide, quality) {
   return { blob, thumb, width: w, height: h };
 }
 
+// The text of a PDF as lines (top to bottom), for reading checklists out of
+// reports. Reads at most `maxPages` pages.
+export async function pdfLines(file, maxPages = 40) {
+  const pdfjs = await loadPdfJs();
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const lines = [];
+  try {
+    for (let i = 1; i <= Math.min(pdf.numPages, maxPages); i++) {
+      const page = await pdf.getPage(i);
+      const tc = await page.getTextContent();
+      const rows = new Map();
+      for (const it of tc.items) {
+        if (!it.str) continue;
+        const y = Math.round(it.transform[5] / 2) * 2;
+        (rows.get(y) || rows.set(y, []).get(y)).push(it);
+      }
+      for (const y of [...rows.keys()].sort((a, b) => b - a)) {
+        lines.push(rows.get(y).sort((a, b) => a.transform[4] - b.transform[4]).map((x) => x.str).join(' ').replace(/\s+/g, ' ').trim());
+      }
+      page.cleanup();
+    }
+  } finally {
+    await pdf.destroy();
+  }
+  // join wrapped question lines: a line that doesn't end a sentence continues on the next
+  const out = [];
+  for (const l of lines) {
+    const prev = out[out.length - 1];
+    if (prev && !/[?.:)]$/.test(prev) && /^[a-z(]/.test(l)) out[out.length - 1] = prev + ' ' + l;
+    else out.push(l);
+  }
+  return out;
+}
+
 // Small picture of a PDF's first page, for the Files list.
 export async function pdfThumb(file) {
   const pdfjs = await loadPdfJs();

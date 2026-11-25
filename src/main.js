@@ -27,6 +27,7 @@ import {
   splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
+import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport.js';
 import { BRAND_BANNER, BRAND_ROUND } from './brandlogo.js';
 import { LIB, DEFAULT_LIB_FOLDERS, fileFolders, guessFolder, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
 import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, sessionsOf, isRunning, elapsedMs, fmtDuration as fmtJobTime, pauseService, resumeService, saveSessions, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
@@ -4209,6 +4210,8 @@ async function renderSettings() {
           <select id="s-kind">${kindIds().map((k) => `<option value="${k}" ${k === kindNow ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
         <p class="muted small">The questions, ${esc(kitOf(kindNow).item.toLowerCase())} types, defects and products below are for <b>${esc(kitOf(kindNow).name.toLowerCase())}</b> only. Each drawing's type is set from its label on the Plans tab.</p>
         <div class="row-btns"><button type="button" class="btn sm" id="s-kit-new">${icon('plus')} New checklist from this one</button>
+          <label class="btn sm">${icon('upload')} Import checklist<input type="file" id="s-kit-import" accept=".pdf,.xlsx,.xls,.csv,.txt,.json,application/pdf" hidden></label>
+          <button type="button" class="btn ghost sm" id="s-kit-dl">${icon('download')} Download this checklist</button>
           ${templateOf(kindNow) ? `<button type="button" class="btn ghost sm danger-text" id="s-kit-del">${icon('trash')} Remove this checklist</button>` : ''}</div>
         ${templateOf(kindNow) ? `<label class="field"><span>Checklist name</span><input id="s-kname" value="${esc(kitOf(kindNow).name)}"></label>` : ''}
         ${kindNow !== 'fd' ? `<div class="grid2"><label class="field"><span>Name of each item</span><input id="s-kitem" value="${esc(kitOf(kindNow).item)}"></label><label class="field"><span>Report title</span><input id="s-kreport" value="${esc(kitOf(kindNow).report)}"></label></div>` : ''}
@@ -4374,6 +4377,43 @@ async function renderSettings() {
     });
     state.setKind = id;
     toast('Checklist created');
+    refresh();
+  };
+  $('#s-kit-dl').onclick = () => {
+    const k = kitOf(kindNow);
+    downloadChecklist({ ...k, questions: k.questions.map((q) => ({ ...q, defect: q.defect || QUESTION_DEFECT[q.id] || '' })), baseName: kitOf(k.base || 'fd').name }).catch((e) => toast(e.message, 'error'));
+  };
+  $('#s-kit-import').onchange = async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    const b = busy('Reading the checklist…');
+    let got;
+    try { got = await readChecklistFile(file); } catch (err) { b.done(); return toast('Could not read that file: ' + err.message, 'error'); }
+    b.done();
+    if (!got.questions?.length) return toast("No checklist questions found in that file. Try an Excel or text file with one question per line.", 'error');
+    const r = await dialog({
+      title: 'Import checklist',
+      body: `<p>Found <b>${got.questions.length}</b> question${got.questions.length === 1 ? '' : 's'} in ${esc(file.name)}. Untick any you don't want.</p>
+        <label class="field"><span>Checklist name</span><input name="name" required value="${esc(got.name || '')}" placeholder="e.g. Fire doors – 29 point check"></label>
+        <label class="field"><span>Inspection type it belongs to</span><select name="base">${KIND_IDS.map((k) => `<option value="${k}" ${k === (got.base || kitOf(kindNow).base || 'fd') ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select>
+          <small class="muted">It uses that type's ${'item'} types, defects and prices.</small></label>
+        <div class="pick-list imp-qs">${got.questions.map((q, i) => `<label class="pick"><input type="checkbox" name="q${i}" checked><span><b>${i + 1}. ${esc(q.text)}</b></span></label>`).join('')}</div>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Create checklist', value: true, kind: 'primary' }],
+    });
+    if (r.value !== true) return;
+    const base = r.data.base || 'fd';
+    const bk = kitOf(base);
+    const id = 'c-' + db.uid().slice(0, 8);
+    const qs = got.questions.filter((_, i) => r.data['q' + i]).map((q, i) => ({ id: `${id}-${i + 1}`, text: q.text, defect: q.defect || guessDefect(q.text, got.defects || bk.defects) || undefined }));
+    const name = r.data.name.trim() || got.name || 'Imported checklist';
+    await saveLists({
+      customKits: [...(lists.customKits || []), { id, base, name }],
+      kits: { ...(lists.kits || {}), [id]: { name, item: got.item || bk.item, report: got.report || `${name} Report`, questions: qs, ...(got.defects ? { defects: got.defects } : {}), ...(got.doorTypes ? { doorTypes: got.doorTypes } : {}) } },
+    });
+    state.setKind = id;
+    openFolds.add('qs');
+    toast(`"${name}" created with ${qs.length} questions`);
     refresh();
   };
   $('#s-kit-del')?.addEventListener('click', async () => {

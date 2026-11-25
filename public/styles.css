@@ -976,3 +976,4 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .panel.fold.is-closed > :not(:first-child) { display: none !important; }
 .panel.fold.is-closed { padding-bottom: 14px; }
 .panel.fold.is-closed > .block-head .btn { display: none; }
+.imp-qs { max-height: 45vh; overflow: auto; }
