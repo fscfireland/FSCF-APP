@@ -178,6 +178,10 @@ export function doorActions(d) {
 // Risk ratings offered on each door (editable in Settings). A door with no
 // rating shows "No risk assessment".
 export const DEFAULT_RISKS = ['Low', 'Medium', 'High'];
+
+// Categories: another way to group doors (like Fieldwire categories), used to
+// filter pins on a drawing, the door list and reports. Editable in Settings.
+export const DEFAULT_CATEGORIES = ['Escape route', 'Stair core', 'Corridor', 'Bedroom', 'Communal room', 'Kitchen', 'Store / plant', 'Riser / service cupboard', 'Final exit'];
 export const NO_RISK = 'No risk assessment';
 export const riskText = (d) => d.risk || NO_RISK;
 

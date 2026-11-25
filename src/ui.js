@@ -6,6 +6,7 @@ export const esc = escapeHtml;
 const P = {
   back: '<path d="M15 5l-7 7 7 7"/>',
   up: '<path d="M5 15l7-7 7 7"/>',
+  filter: '<path d="M3 5h18l-7 8v6l-4 2v-8z"/>',
   pencil: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
   cursor: '<path d="M6 3l13 8-6 1.5L10 19z"/>',
   lineTool: '<path d="M5 19L19 5"/>',

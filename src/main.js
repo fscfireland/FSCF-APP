@@ -5,7 +5,7 @@ import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
-  DEFAULT_RISKS, NO_RISK, parseZones, zonesToText,
+  DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -85,7 +85,7 @@ async function loadLists() {
   const s = await db.get('settings', 'lists');
   lists = {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
-    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, inspector: '', ...(s || {}),
+    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, inspector: '', ...(s || {}),
   };
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
@@ -521,7 +521,8 @@ function renderDoorsTab(body, project, plans, doors) {
   const counts = countStatuses(doors);
   const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
   const shown = doors.filter((d) => (filter === 'all' || (d.status || 'not_inspected') === filter) &&
-    (!q || [d.ref, d.location, d.doorType, String(d.pinNo), planName[d.planId], d.zoneNo && 'zone ' + d.zoneNo, d.zoneName].join(' ').toLowerCase().includes(q)));
+    (!state.catF || (d.category || '') === state.catF.slice(1)) &&
+    (!q || [d.ref, d.location, d.doorType, String(d.pinNo), planName[d.planId], d.zoneNo && 'zone ' + d.zoneNo, d.zoneName, d.category].join(' ').toLowerCase().includes(q)));
   body.innerHTML = `
     <div class="row-btns import-row">
       <label class="btn sm">${icon('upload')} Import doors from Excel<input type="file" id="imp-file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" hidden></label>
@@ -531,6 +532,14 @@ function renderDoorsTab(body, project, plans, doors) {
       <button class="chip ${filter === 'all' ? 'is-on' : ''}" data-f="all">All <b>${doors.length}</b></button>
       ${statusesInUse(doors).map((s) => `<button class="chip ${filter === s.id ? 'is-on' : ''}" data-f="${s.id}" style="--c:${s.color}"><i></i>${s.label} <b>${counts[s.id] || 0}</b></button>`).join('')}
     </div>
+    ${(() => {
+      const used = [...new Set(doors.map((d) => d.category || ''))];
+      if (used.length < 2 && !used[0]) return '';
+      return `<div class="chips" role="group" aria-label="Filter by category">
+        <button class="chip cat-chip ${!state.catF ? 'is-on' : ''}" data-cat="">All categories</button>
+        ${used.sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)).map((c) => `<button class="chip cat-chip ${state.catF === '=' + c ? 'is-on' : ''}" data-cat="=${esc(c)}">${esc(c || 'No category')} <b>${doors.filter((d) => (d.category || '') === c).length}</b></button>`).join('')}
+      </div>`;
+    })()}
     <label class="search">${icon('search')}<input id="door-q" type="search" placeholder="Search door ref, room, type, zone…" value="${esc(state.q || '')}"></label>
     ${doors.length ? '' : `<p class="muted pad">No doors yet. Open a plan and tap <b>Add door</b> to drop a pin.</p>`}
     <div class="door-table" role="table">
@@ -538,7 +547,8 @@ function renderDoorsTab(body, project, plans, doors) {
     </div>
     ${doors.length && !shown.length ? '<p class="muted pad">No doors match this filter.</p>' : ''}
   `;
-  $$('.chip', body).forEach((c) => (c.onclick = () => { state.filter = c.dataset.f; renderDoorsTab(body, project, plans, doors); }));
+  $$('.chip:not(.cat-chip)', body).forEach((c) => (c.onclick = () => { state.filter = c.dataset.f; renderDoorsTab(body, project, plans, doors); }));
+  $$('.cat-chip', body).forEach((c) => (c.onclick = () => { state.catF = c.dataset.cat; renderDoorsTab(body, project, plans, doors); }));
   $('#imp-template').onclick = () => downloadTemplate().catch((e) => toast(e.message, 'error'));
   $('#imp-file').onchange = (e) => {
     const f = e.target.files[0];
@@ -567,7 +577,7 @@ function doorRow(d, planName) {
       <span class="pin-badge ${s.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${s.color}">${d.pinNo ?? ''}</span>
       <span class="dr-main">
         <b>${esc(d.ref || 'No ref')}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
-        <small>${esc([d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', d.risk ? 'Risk: ' + d.risk : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}${d.planId ? '' : ' <span class="unplaced">Not on a drawing</span>'}</small>
+        <small>${esc([d.category, d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', d.risk ? 'Risk: ' + d.risk : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}${d.planId ? '' : ' <span class="unplaced">Not on a drawing</span>'}</small>
       </span>
       <span class="dr-side">
         <span class="status-pill" style="--c:${s.color}">${s.short}</span>
@@ -613,6 +623,8 @@ function renderExportTab(body, project, plans, allDoors) {
         <div class="chips wrap">${opts.types.map((t) => chip('types', t, t, f.types.includes(t))).join('')}</div></div>
       ${opts.zones.length > 1 || (opts.zones[0] && opts.zones[0].key !== '(no zone)') ? `<div class="rf-group"><span class="rf-label">Fire alarm zone</span>
         <div class="chips wrap">${opts.zones.map((z) => chip('zones', z.key, z.label, (f.zones || []).includes(z.key))).join('')}</div></div>` : ''}
+      ${opts.cats.length > 1 || (opts.cats[0] ?? '') !== '' ? `<div class="rf-group"><span class="rf-label">Category</span>
+        <div class="chips wrap">${opts.cats.map((c) => chip('cats', c, c || 'No category', (f.cats || []).includes(c))).join('')}</div></div>` : ''}
       ${opts.risks.length > 1 || (opts.risks[0] ?? '') !== '' ? `<div class="rf-group"><span class="rf-label">Risk rating</span>
         <div class="chips wrap">${opts.risks.map((r) => chip('risks', r, r || NO_RISK, (f.risks || []).includes(r))).join('')}</div></div>` : ''}
       ${plans.length > 1 ? `<div class="rf-group"><span class="rf-label">Plan / level</span>
@@ -744,6 +756,7 @@ function renderExportTab(body, project, plans, allDoors) {
 let mode = null; // null | 'add' | 'move'
 // The fire alarm zone last entered on a plan, so neighbouring doors get it too
 const lastZone = { planId: '', no: '', name: '' };
+const lastCategory = { planId: '', value: '' }; // new pins on a drawing get the last category used there
 let planColl = ''; // collection of the plan on screen
 let placingId = null; // an imported door waiting to be placed as a pin
 let placingLabel = '';
@@ -761,7 +774,11 @@ async function renderPlan() {
       <header class="bar overlay">
         <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
         <div class="bar-title"><b>${esc(plan.name)}</b><small id="plan-counts"></small></div>
-        <button class="icon-btn" id="to-list" aria-label="Door list">${icon('list')}</button>
+        <span class="bar-btns">
+          <button class="icon-btn" id="plan-undo" aria-label="Undo" disabled>${icon('undo')}</button>
+          <button class="icon-btn" id="plan-filter" aria-label="Filter pins">${icon('filter')}</button>
+          <button class="icon-btn" id="to-list" aria-label="Door list">${icon('list')}</button>
+        </span>
       </header>
       <div class="viewer" id="viewer"></div>
       <div class="mode-banner" id="banner" hidden></div>
@@ -787,6 +804,7 @@ async function renderPlan() {
     },
     onPinDrag: async (id, x, y) => {
       const d = await db.get('doors', id);
+      pushUndo(`Pin ${d.pinNo} moved`, async () => saveDoor({ ...(await db.get('doors', id)), x: d.x, y: d.y }));
       await saveDoor({ ...d, x, y });
       toast('Pin moved');
       setMode(null);
@@ -799,6 +817,10 @@ async function renderPlan() {
   mk.draft = null;
   drawMarkups();
   $('#mk-toggle').onclick = () => setMarkup(true);
+  undoStack.length = 0;
+  updateUndoBtn();
+  $('#plan-undo').onclick = doUndo;
+  $('#plan-filter').onclick = pickPlanFilter;
   $('#place-list').onclick = pickDoorToPlace;
   updatePlaceButton();
   $('#zin').onclick = () => viewer.zoomBy(1.6);
@@ -918,7 +940,7 @@ async function importDoors(project, file, coll) {
     await saveDoor({
       id: db.uid(), projectId: project.id, planId: null, collection: coll, pinNo, x: null, y: null,
       ref: row.ref, location, doorType: matchListValue(row.doorType, lists.doorTypes || []), leaf: matchListValue(row.leaf, LEAF_CONFIGS.filter(Boolean)),
-      zoneNo: row.zoneNo.replace(/^zone\s*/i, ''), zoneName: row.zoneName, risk: matchListValue(row.risk, lists.risks || DEFAULT_RISKS),
+      zoneNo: row.zoneNo.replace(/^zone\s*/i, ''), zoneName: row.zoneName, risk: matchListValue(row.risk, lists.risks || DEFAULT_RISKS), category: matchListValue(row.category, lists.categories || DEFAULT_CATEGORIES),
       status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: row.notes, inspectedOn: '', inspectedBy: '',
     }, [`Imported from ${file.name}`]);
     const no = row.zoneNo.replace(/^zone\s*/i, '');
@@ -943,13 +965,87 @@ function drawMarkups() {
   renderSvg(viewer.markLayer, curPlan, curPlan.markups || [], mk.selected, mk.draft);
 }
 
-async function savePlanMarkups(patch) {
+async function savePlanMarkups(patch, label = 'Markup changed') {
+  if (!undoing) {
+    const prev = { markups: curPlan.markups || [], scale: curPlan.scale ?? null };
+    pushUndo(label, () => savePlanMarkups(prev));
+  }
   curPlan = await db.put('plans', { ...curPlan, ...patch });
   drawMarkups();
 }
 
 async function addMarkup(m) {
-  await savePlanMarkups({ markups: [...(curPlan.markups || []), { id: db.uid(), createdAt: new Date().toISOString(), color: mk.color, ...m }] });
+  const name = { line: 'Line', arrow: 'Arrow', pen: 'Pen drawing', text: 'Text bubble', rect: 'Shaded box', area: 'Shaded area', measure: 'Measurement' }[m.type] || 'Markup';
+  await savePlanMarkups({ markups: [...(curPlan.markups || []), { id: db.uid(), createdAt: new Date().toISOString(), color: mk.color, ...m }] }, `${name} added`);
+}
+
+// ---------- Undo on the drawing ----------
+// Steps back through pins added, moved, placed or deleted and markup changes
+// made on this drawing (cleared when you leave the drawing).
+const undoStack = [];
+let undoing = false;
+
+function pushUndo(label, run) {
+  if (undoing) return;
+  undoStack.push({ label, run });
+  if (undoStack.length > 60) undoStack.shift();
+  updateUndoBtn();
+}
+
+function updateUndoBtn() {
+  const b = $('#plan-undo');
+  if (!b) return;
+  b.disabled = !undoStack.length;
+  b.title = undoStack.length ? `Undo: ${undoStack[undoStack.length - 1].label}` : 'Nothing to undo';
+}
+
+async function doUndo() {
+  const u = undoStack.pop();
+  if (!u) return toast('Nothing to undo');
+  undoing = true;
+  try {
+    await u.run();
+  } finally {
+    undoing = false;
+  }
+  if (curPlan) curPlan = (await db.get('plans', curPlan.id)) || curPlan;
+  mk.selected = null;
+  drawMarkups();
+  await refreshPins();
+  updatePlaceButton();
+  if (mk.on) drawMarkupPanel();
+  updateUndoBtn();
+  toast(`Undone: ${u.label}`);
+}
+
+// ---------- Filter pins on the drawing ----------
+const planFilter = { cats: [], statuses: [] }; // kept while moving between drawings
+const pinMatches = (d) =>
+  (!planFilter.cats.length || planFilter.cats.includes(d.category || '')) &&
+  (!planFilter.statuses.length || planFilter.statuses.includes(d.status || 'not_inspected'));
+
+async function pickPlanFilter() {
+  const all = await db.byIndex('doors', 'planId', state.planId);
+  const cats = [...new Set([...(lists.categories || []), ...all.map((d) => d.category || '')])].sort((a, b) => (a === '') - (b === '') || 0);
+  const count = (fn) => all.filter(fn).length;
+  const r = await dialog({
+    title: 'Show pins',
+    body: `
+      <div class="rf-group"><span class="rf-label">Category</span>
+        <div class="pick-list compact">${cats.map((c, i) => `<label class="pick"><input type="checkbox" name="c${i}" value="${esc(c)}" ${planFilter.cats.includes(c) ? 'checked' : ''}><span><b>${esc(c || 'No category')}</b><small>${count((d) => (d.category || '') === c)} on this drawing</small></span></label>`).join('')}</div></div>
+      <div class="rf-group"><span class="rf-label">Status</span>
+        <div class="pick-list compact">${statusesInUse(all).map((st) => `<label class="pick"><input type="checkbox" name="s_${st.id}" value="${st.id}" ${planFilter.statuses.includes(st.id) ? 'checked' : ''}><span><b>${esc(st.label)}</b><small>${count((d) => (d.status || 'not_inspected') === st.id)} on this drawing</small></span></label>`).join('')}</div></div>
+      <p class="muted small">Nothing ticked shows every pin. The filter stays on as you move between drawings.</p>`,
+    buttons: [{ label: 'Show all', value: 'clear' }, { label: 'Apply', value: true, kind: 'primary' }],
+  });
+  if (r.value === 'clear') {
+    planFilter.cats = [];
+    planFilter.statuses = [];
+  } else if (r.value === true) {
+    planFilter.cats = Object.entries(r.data).filter(([k]) => /^c\d+$/.test(k)).map(([, v]) => v);
+    planFilter.statuses = Object.entries(r.data).filter(([k]) => k.startsWith('s_')).map(([, v]) => v);
+  } else return;
+  await refreshPins();
 }
 
 const TOOL_HINT = {
@@ -1019,27 +1115,23 @@ function drawMarkupPanel() {
   }));
   $$('.mk-color', panel).forEach((b) => (b.onclick = async () => {
     mk.color = b.dataset.c;
-    if (sel) await savePlanMarkups({ markups: curPlan.markups.map((m) => (m.id === sel.id ? { ...m, color: mk.color } : m)) });
+    if (sel) await savePlanMarkups({ markups: curPlan.markups.map((m) => (m.id === sel.id ? { ...m, color: mk.color } : m)) }, 'Colour changed');
     drawMarkupPanel();
   }));
   $$('.mk-size', panel).forEach((b) => (b.onclick = () => { mk.size = b.dataset.s; drawMarkupPanel(); }));
   $('#mk-done').onclick = () => setMarkup(false);
   $('#mk-undo').onclick = async () => {
     if (mk.draft?.pts?.length) {
+      // still tapping the corners of an area: remove the last corner
       mk.draft.pts.pop();
       if (!mk.draft.pts.length) mk.draft = null;
       drawMarkups();
       return drawMarkupPanel();
     }
-    const list = [...(curPlan.markups || [])].sort((a, b) => (a.createdAt || '').localeCompare(b.createdAt || ''));
-    const last = list.pop();
-    if (!last) return toast('Nothing to undo');
-    await savePlanMarkups({ markups: curPlan.markups.filter((m) => m.id !== last.id), ...(last.guide ? { scale: null } : {}) });
-    mk.selected = null;
-    drawMarkupPanel();
+    await doUndo();
   };
   $('#mk-del')?.addEventListener('click', async () => {
-    await savePlanMarkups({ markups: curPlan.markups.filter((m) => m.id !== sel.id), ...(sel.guide ? { scale: null } : {}) });
+    await savePlanMarkups({ markups: curPlan.markups.filter((m) => m.id !== sel.id), ...(sel.guide ? { scale: null } : {}) }, 'Markup deleted');
     mk.selected = null;
     drawMarkupPanel();
   });
@@ -1216,6 +1308,7 @@ async function onPlanTap(x, y) {
     setMode(null);
     if (d) {
       await saveDoor({ ...d, planId: state.planId, x, y });
+      pushUndo(`Pin ${d.pinNo} placed`, async () => saveDoor({ ...(await db.get('doors', d.id)), planId: null, x: null, y: null }));
       toast(`Pin ${d.pinNo} placed`);
       await refreshPins();
       updatePlaceButton();
@@ -1228,12 +1321,14 @@ async function onPlanTap(x, y) {
       id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y,
       ref: '', location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
       zoneNo: lastZone.planId === state.planId ? lastZone.no : '', zoneName: lastZone.planId === state.planId ? lastZone.name : '',
-      inspectedOn: '', inspectedBy: lists.inspector || '',
+      inspectedOn: '', inspectedBy: lists.inspector || '', category: lastCategory.planId === state.planId ? lastCategory.value : '',
     });
+    pushUndo(`Pin ${pinNo} added`, () => db.deleteDoor(door.id));
     setMode(null);
     go({ ...state, doorId: door.id, isNew: true });
   } else if (mode === 'move' && selectedPin) {
     const d = await db.get('doors', selectedPin);
+    pushUndo(`Pin ${d.pinNo} moved`, async () => saveDoor({ ...(await db.get('doors', d.id)), x: d.x, y: d.y }));
     await saveDoor({ ...d, x, y });
     toast('Pin moved');
     setMode(null);
@@ -1242,7 +1337,10 @@ async function onPlanTap(x, y) {
 
 async function refreshPins() {
   if (!viewer) return;
-  const doors = (await db.byIndex('doors', 'planId', state.planId)).sort((a, b) => a.pinNo - b.pinNo);
+  const all = (await db.byIndex('doors', 'planId', state.planId)).sort((a, b) => a.pinNo - b.pinNo);
+  const doors = all.filter(pinMatches);
+  const filtered = doors.length !== all.length || planFilter.cats.length || planFilter.statuses.length;
+  $('#plan-filter')?.classList.toggle('is-on', !!(planFilter.cats.length || planFilter.statuses.length));
   viewer.setPins(
     doors.map((d) => ({
       id: d.id, x: d.x, y: d.y, label: d.pinNo,
@@ -1254,7 +1352,9 @@ async function refreshPins() {
   );
   const c = countStatuses(doors);
   const el = $('#plan-counts');
-  if (el) el.textContent = `${planColl ? planColl + ' · ' : ''}${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
+  if (el) el.textContent = filtered
+    ? `Showing ${doors.length} of ${all.length} · ${[...planFilter.cats.map((x) => x || 'No category'), ...planFilter.statuses.map((x) => statusById[x]?.short || x)].join(', ')}`
+    : `${planColl ? planColl + ' · ' : ''}${doors.length} doors · ${c.fail || 0} ${statusById.fail.short.toLowerCase()} · ${c.not_inspected || 0} to do`;
 }
 
 // ---------- Door record sheet ----------
@@ -1326,6 +1426,9 @@ async function drawSheet(door) {
         <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
         <label class="field"><span>Fire alarm zone name</span><input id="f-zname" data-k="zoneName" value="${esc(door.zoneName)}" placeholder="e.g. East wing ground floor" autocomplete="off" list="zone-names"></label>
       </div>
+      <label class="field"><span>Category</span>
+        <select id="f-cat" data-k="category">${['', ...new Set([...(lists.categories || DEFAULT_CATEGORIES), door.category].filter(Boolean))].map((c) => `<option value="${esc(c)}" ${c === (door.category || '') ? 'selected' : ''}>${esc(c || 'No category')}</option>`).join('')}</select>
+      </label>
       <label class="field"><span>Risk rating</span>
         <select id="f-risk" data-k="risk">${['', ...new Set([...(lists.risks || DEFAULT_RISKS), door.risk].filter(Boolean))].map((r) => `<option value="${esc(r)}" ${r === (door.risk || '') ? 'selected' : ''}>${esc(r || NO_RISK)}</option>`).join('')}</select>
       </label>
@@ -1486,6 +1589,7 @@ async function drawSheet(door) {
         }
         Object.assign(lastZone, { planId: door.planId, no: $('#f-zone').value, name: $('#f-zname').value });
       }
+      if (inp.dataset.k === 'category') Object.assign(lastCategory, { planId: door.planId, value: inp.value });
     });
   });
 
@@ -1795,11 +1899,19 @@ async function drawSheet(door) {
   $('#f-zone')?.addEventListener('change', learnZone);
   $('#f-zname')?.addEventListener('change', learnZone);
   $('#sh-del').onclick = async () => {
-    if (await confirmBox('Delete door?', `Delete pin ${door.pinNo}${door.ref ? ' (' + door.ref + ')' : ''} and its photos? This cannot be undone.`)) {
+    if (await confirmBox('Delete door?', `Delete pin ${door.pinNo}${door.ref ? ' (' + door.ref + ')' : ''} and its photos?${state.view === 'plan' ? ' You can undo this from the drawing\'s Undo button until you leave the drawing.' : ' This cannot be undone.'}`)) {
       clearTimeout(saveTimer);
       pending = null;
+      const keep = await db.get('doors', door.id);
+      const keepPhotos = await db.doorPhotos(door.id);
       await db.deleteDoor(door.id);
-      toast('Door deleted');
+      if (state.view === 'plan' && keep) {
+        pushUndo(`Pin ${keep.pinNo} deleted`, async () => {
+          await db.put('doors', keep);
+          for (const ph of keepPhotos) await db.put('photos', ph);
+        });
+      }
+      toast(state.view === 'plan' ? 'Door deleted (Undo at the top brings it back)' : 'Door deleted');
       back();
     }
   };
@@ -2062,6 +2174,10 @@ async function renderSettings() {
         <div id="s-qs"></div>
       </section>
       <section class="panel">
+        <h2 class="h2">Door categories</h2>
+        <label class="field"><span>One per line. Used to group and filter doors on drawings, the door list and reports.</span><textarea id="s-cats" rows="7">${esc((lists.categories || DEFAULT_CATEGORIES).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel">
         <h2 class="h2">Risk ratings</h2>
         <label class="field"><span>One per line. Doors start with "${esc(NO_RISK)}" until a rating is picked.</span><textarea id="s-risks" rows="4">${esc((lists.risks || DEFAULT_RISKS).join('\n'))}</textarea></label>
       </section>
@@ -2134,6 +2250,7 @@ async function renderSettings() {
     toast('Scheme saved. Choose it in a project\'s details.');
   };
 
+  $('#s-cats').onchange = (e) => saveLists({ categories: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-risks').onchange = (e) => saveLists({ risks: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
 

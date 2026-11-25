@@ -6,10 +6,10 @@
 import { statusById } from './defaults.js';
 import { fmtDate } from './ui.js';
 
-export const emptyFilter = () => ({ dateMode: 'all', from: '', to: '', statuses: [], types: [], zones: [], risks: [], plans: [], defect: '', check: '' });
+export const emptyFilter = () => ({ dateMode: 'all', from: '', to: '', statuses: [], types: [], zones: [], risks: [], cats: [], plans: [], defect: '', check: '' });
 
 export const isFiltered = (f) =>
-  !!f && (f.dateMode !== 'all' || f.statuses.length || f.types.length || (f.zones || []).length || (f.risks || []).length || f.plans.length || f.defect || f.check);
+  !!f && (f.dateMode !== 'all' || f.statuses.length || f.types.length || (f.zones || []).length || (f.risks || []).length || (f.cats || []).length || f.plans.length || f.defect || f.check);
 
 // Every inspection of a door: the current record first, then history
 export function doorViews(d) {
@@ -39,6 +39,7 @@ export function applyFilter(doors, f) {
     if (f.types.length && !f.types.includes(v.doorType || '(no type)')) continue;
     if ((f.zones || []).length && !f.zones.includes(zoneKey(v))) continue;
     if ((f.risks || []).length && !f.risks.includes(v.risk || '')) continue;
+    if ((f.cats || []).length && !f.cats.includes(v.category || '')) continue;
     if (f.plans.length && !f.plans.includes(v.planId)) continue;
     if (f.defect && !(v.defects || []).some((x) => x.label === f.defect)) continue;
     if (f.check && v.checks?.[f.check]?.answer !== 'fail') continue;
@@ -58,10 +59,12 @@ export function filterOptions(doors, questions) {
   const dates = new Set();
   const zones = new Map();
   const risks = new Set();
+  const cats = new Set();
   for (const d of doors) {
     for (const v of doorViews(d)) {
       types.add(v.doorType || '(no type)');
       risks.add(v.risk || '');
+      cats.add(v.category || '');
       const zk = zoneKey(v);
       if (!zones.has(zk) || (!zones.get(zk) && v.zoneName)) zones.set(zk, v.zoneNo ? `Zone ${v.zoneNo}${v.zoneName ? ' – ' + v.zoneName : ''}` : v.zoneName || 'No zone');
       for (const x of v.defects || []) defects.add(x.label);
@@ -72,6 +75,7 @@ export function filterOptions(doors, questions) {
   return {
     types: [...types].sort(),
     risks: [...risks],
+    cats: [...cats].sort((a, b) => (a === '') - (b === '') || a.localeCompare(b)),
     zones: [...zones.entries()].sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true })).map(([key, label]) => ({ key, label })),
     defects: [...defects].sort(),
     checks: [...checks.entries()].map(([id, text]) => ({ id, text })),
@@ -88,6 +92,7 @@ export function describeFilter(f, plans, questions) {
   if (f.statuses.length) parts.push(f.statuses.map((s) => statusById[s]?.label || s).join(' / '));
   if (f.types.length) parts.push(f.types.join(' / '));
   if ((f.zones || []).length) parts.push(f.zones.map((z) => (z === '(no zone)' ? 'No zone' : /^\d/.test(z) ? `Zone ${z}` : z)).join(' / '));
+  if ((f.cats || []).length) parts.push(f.cats.map((c) => c || 'No category').join(' / '));
   if ((f.risks || []).length) parts.push('Risk: ' + f.risks.map((r) => r || 'No risk assessment').join(' / '));
   if (f.plans.length) parts.push(f.plans.map((id) => plans.find((p) => p.id === id)?.name || 'plan').join(' / '));
   if (f.defect) parts.push(`Defect: ${f.defect}`);

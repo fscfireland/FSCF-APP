@@ -71,7 +71,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   // --- Doors (one row per door)
   const doorHeader = [
     'Pin', 'Door ref', 'Plan / level', 'Location / room', 'Door type', 'Leaf config', 'Status',
-    'Recommended actions', `Questions: ${ANSWERS[1].label}`, 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Videos', 'Video links', 'Notes', 'Inspected on', 'Inspected by', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'On a drawing',
+    'Recommended actions', `Questions: ${ANSWERS[1].label}`, 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Videos', 'Video links', 'Notes', 'Inspected on', 'Inspected by', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'On a drawing', 'Category',
   ];
   const doorRows = doors.map((d) => [
     d.pinNo ?? '',
@@ -97,10 +97,11 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
     d.zoneName || '',
     riskText(d),
     d.planId ? 'Yes' : 'No',
+    d.category || '',
   ]);
   const ws1 = XLSX.utils.aoa_to_sheet([doorHeader, ...doorRows]);
   moneyCols(ws1, ['M'], 2, doorRows.length + 1);
-  ws1['!cols'] = [6, 12, 18, 22, 18, 14, 13, 40, 9, 8, 50, 50, 12, 7, 7, 30, 30, 12, 14, 10, 26, 18, 10].map((wch) => ({ wch }));
+  ws1['!cols'] = [6, 12, 18, 22, 18, 14, 13, 40, 9, 8, 50, 50, 12, 7, 7, 30, 30, 12, 14, 10, 26, 18, 10, 18].map((wch) => ({ wch }));
   ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, doorRows.length), c: doorHeader.length - 1 } }) };
   XLSX.utils.book_append_sheet(wb, ws1, 'Doors');
 

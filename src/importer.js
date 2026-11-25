@@ -15,19 +15,20 @@ const FIELDS = [
   { key: 'risk', label: 'Risk rating', re: /risk/i },
   { key: 'doorType', label: 'Door type', re: /type|rating|fire\s*resistance|^fd/i },
   { key: 'leaf', label: 'Leaf configuration', re: /leaf|config|single|double/i },
+  { key: 'category', label: 'Category', re: /categor|group/i },
   { key: 'notes', label: 'Notes', re: /note|comment|remark/i },
 ];
 
-const TEMPLATE_HEADERS = ['Door ref', 'Location / room', 'Floor / level', 'Door type', 'Leaf configuration', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'Notes'];
+const TEMPLATE_HEADERS = ['Door ref', 'Location / room', 'Floor / level', 'Door type', 'Leaf configuration', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'Category', 'Notes'];
 
 export async function downloadTemplate() {
   const XLSX = await loadSheetJS();
   const ws = XLSX.utils.aoa_to_sheet([
     TEMPLATE_HEADERS,
-    ['GF-001', 'Bedroom 1', 'Ground floor', 'FD30S', 'Single leaf', '1', 'East wing ground floor', '', ''],
-    ['GF-002', 'Corridor to stairs', 'Ground floor', 'FD60S', 'Double leaf', '2', 'Stair core', 'Medium', 'Hold-open device fitted'],
+    ['GF-001', 'Bedroom 1', 'Ground floor', 'FD30S', 'Single leaf', '1', 'East wing ground floor', '', 'Bedroom', ''],
+    ['GF-002', 'Corridor to stairs', 'Ground floor', 'FD60S', 'Double leaf', '2', 'Stair core', 'Medium', 'Stair core', 'Hold-open device fitted'],
   ]);
-  ws['!cols'] = [12, 24, 16, 14, 16, 12, 26, 12, 30].map((wch) => ({ wch }));
+  ws['!cols'] = [12, 24, 16, 14, 16, 12, 26, 12, 18, 30].map((wch) => ({ wch }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Doors');
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });

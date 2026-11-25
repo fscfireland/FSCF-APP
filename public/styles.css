@@ -585,3 +585,9 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 
 .import-row { margin-bottom: 10px; }
 .unplaced { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: color-mix(in srgb, var(--st-noaccess) 18%, transparent); color: var(--ink); font-size: 11.5px; font-weight: 650; }
+
+/* plan header: undo, filter, list */
+.bar-btns { display: flex; gap: 0; }
+.bar-btns .icon-btn[disabled] { opacity: 0.3; }
+#plan-filter.is-on { background: var(--ink); color: var(--bg); }
+.pick-list.compact .pick { padding: 8px 10px; }
