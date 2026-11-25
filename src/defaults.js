@@ -444,3 +444,27 @@ export function fillDefectProducts(d, materials, uid) {
   }
   return { materials: mats, added };
 }
+
+// Everything a door has failed on that isn't costed yet:
+//  - failed checklist questions with no defect recorded, and
+//  - defects with no products.
+export function uncostedFails(d, questions, materials) {
+  const labels = new Set((d.defects || []).map((x) => x.label));
+  const qs = (questions || []).filter((q) => (d.checks || {})[q.id]?.answer === 'fail' && (q.defect || QUESTION_DEFECT[q.id]) && !labels.has(q.defect || QUESTION_DEFECT[q.id]));
+  const defs = (d.defects || []).filter((x) => !(d.materials || []).some((m) => m.forKey === 'd:' + x.label) && defaultProductsFor(x, materials, () => '').length);
+  return { qs, defs, count: qs.length + defs.length };
+}
+
+// Cost every fail on a door: add the defect for each failed checklist
+// question, then the usual product for every defect that has none.
+export function costAllFails(d, questions, defectList, materials, uid) {
+  const { qs } = uncostedFails(d, questions, materials);
+  const defects = [...(d.defects || [])];
+  for (const q of qs) {
+    const label = q.defect || QUESTION_DEFECT[q.id];
+    const tmpl = (defectList || []).find((x) => x.label === label) || { label, remedial: '' };
+    defects.push({ label, remedial: tmpl.remedial || '', qty: 1, fromQ: q.id });
+  }
+  const r = fillDefectProducts({ ...d, defects }, materials, uid);
+  return { defects, materials: r.materials, addedDefects: qs.length, addedProducts: r.added };
+}

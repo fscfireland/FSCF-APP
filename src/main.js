@@ -6,7 +6,7 @@ import {
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
-  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts,
+  DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -1814,8 +1814,8 @@ function renderExportTab(body, project, plans, allDoors) {
       </ul>
       <p class="muted">${doors.length} doors · ${nDef} defects${priced() ? ` · materials ${euro(doors.reduce((t, d) => t + materialsTotal(d), 0))} ex VAT` : ' · prices hidden (locked)'}</p>
       ${(() => {
-        const n = doors.filter((d) => (d.defects || []).some((x) => !(d.materials || []).some((m) => m.forKey === 'd:' + x.label) && defaultProductsFor(x, lists.materials || [], () => '').length)).length;
-        return n ? `<p class="fill-note">${icon('sheet')} <span>${n} door${n === 1 ? ' has' : 's have'} defects with no products yet. <button class="link-btn" id="fill-all">Add the usual products</button> so they're costed and on the pricing sheet.</span></p>` : '';
+        const n = doors.filter((d) => uncostedFails(d, lists.questions || [], lists.materials || []).count).length;
+        return n ? `<p class="fill-note">${icon('sheet')} <span>${n} door${n === 1 ? ' has' : 's have'} fails that aren't costed yet (failed checks with no defect, or defects with no product). <button class="link-btn" id="fill-all">Cost all fails</button> so they're on the repairs and pricing sheets.</span></p>` : '';
       })()}
       <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
     </section>
@@ -1879,7 +1879,7 @@ function renderExportTab(body, project, plans, allDoors) {
 
   $('#fill-all')?.addEventListener('click', async () => {
     const { added, nDoors } = await fillProjectMaterials(doors);
-    toast(`${added} product${added === 1 ? '' : 's'} added on ${nDoors} door${nDoors === 1 ? '' : 's'}. Check the quantities on each door`);
+    toast(`${added} item${added === 1 ? '' : 's'} added on ${nDoors} door${nDoors === 1 ? '' : 's'}. Check the products and quantities on each door`);
     refresh();
   });
   $('#xlsx').onclick = async () => {
@@ -2847,6 +2847,7 @@ async function drawSheet(door) {
         <div class="block-head"><h3>Defects &amp; remedial work <span class="muted" id="def-n"></span></h3>
           <button class="btn sm" id="add-defect">${icon('plus')} Add defect</button>
         </div>
+        <p class="fill-note" id="cost-fails" hidden></p>
         <div id="defects"></div>
       </section>
 
@@ -3212,7 +3213,7 @@ async function drawSheet(door) {
     drawDefects();
     drawMaterials();
   };
-  redrawDefects = () => { drawDefects(); drawMaterials(); };
+  redrawDefects = () => { drawDefects(); drawMaterials(); showFill?.(); };
 
   // inspection questions
   let arranging = false;
@@ -3512,20 +3513,25 @@ async function drawSheet(door) {
   };
   drawMaterials();
   const showFill = () => {
-    const missing = (current.defects || []).filter((x) => !(current.materials || []).some((m) => m.forKey === 'd:' + x.label) && defaultProductsFor(x, lists.materials || [], db.uid).length);
+    const u = uncostedFails(current, lists.questions || [], lists.materials || []);
     const b = $('#fill-mats');
-    b.hidden = !missing.length;
-    b.innerHTML = `${icon('check')} From defects (${missing.length})`;
+    b.hidden = !u.count;
+    b.innerHTML = `${icon('check')} Cost all fails (${u.count})`;
+    const n = $('#cost-fails');
+    n.hidden = !u.count;
+    n.innerHTML = u.count ? `${icon('sheet')}<span>${[u.qs.length ? `${u.qs.length} failed check${u.qs.length > 1 ? 's have' : ' has'} no defect` : '', u.defs.length ? `${u.defs.length} defect${u.defs.length > 1 ? 's have' : ' has'} no product` : ''].filter(Boolean).join(' and ')}, so ${u.count > 1 ? "they're" : "it's"} not on the repairs or pricing yet. <button type="button" class="link-btn cost-fails-btn">Cost all fails</button></span>` : '';
+    $('.cost-fails-btn', n)?.addEventListener('click', costFails);
   };
-  showFill();
-  $('#fill-mats').onclick = () => {
-    const { materials, added } = fillDefectProducts(current, lists.materials || [], db.uid);
-    queue({ materials });
+  const costFails = () => {
+    const r = costAllFails(current, lists.questions || [], lists.defects || [], lists.materials || [], db.uid);
+    queue({ defects: r.defects, materials: r.materials });
     drawDefects();
     drawMaterials();
     showFill();
-    toast(`${added} product${added === 1 ? '' : 's'} added from the defects`);
+    toast([r.addedDefects ? `${r.addedDefects} defect${r.addedDefects > 1 ? 's' : ''}` : '', r.addedProducts ? `${r.addedProducts} product${r.addedProducts > 1 ? 's' : ''}` : ''].filter(Boolean).join(' and ') + ' added');
   };
+  showFill();
+  $('#fill-mats').onclick = costFails;
   $('#add-material').onclick = async () => {
     const picked = await pickMaterials();
     if (!picked?.length) return;
@@ -3743,10 +3749,10 @@ async function fillProjectMaterials(doors) {
   for (const d0 of doors) {
     const d = await db.get('doors', d0.id);
     if (!d) continue;
-    const r = fillDefectProducts(d, lists.materials || [], db.uid);
-    if (!r.added) continue;
-    await saveDoor({ ...d, materials: r.materials }, [`${r.added} product(s) added from its defects`]);
-    added += r.added;
+    const r = costAllFails(d, lists.questions || [], lists.defects || [], lists.materials || [], db.uid);
+    if (!r.addedDefects && !r.addedProducts) continue;
+    await saveDoor({ ...d, defects: r.defects, materials: r.materials }, [`Fails costed: ${r.addedDefects} defect(s), ${r.addedProducts} product(s) added`]);
+    added += r.addedDefects + r.addedProducts;
     nDoors++;
   }
   return { added, nDoors };
