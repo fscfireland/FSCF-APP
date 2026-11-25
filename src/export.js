@@ -3,7 +3,7 @@
 //         Material totals · Defect totals
 
 import * as db from './db.js';
-import { STATUSES, statusById, doorActions, materialsTotal, ANSWERS, useScheme, statusesInUse, matLabel, riskText } from './defaults.js';
+import { STATUSES, statusById, doorActions, materialsTotal, ANSWERS, useScheme, statusesInUse, matLabel, riskText, signText } from './defaults.js';
 import { loadSheetJS, saveFile, safeName } from './files.js';
 import { photoInView } from './history.js';
 import { doorViews } from './filters.js';
@@ -177,6 +177,32 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   ws4['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: totalRow - 1, c: mHeader.length - 1 } });
   ws4['!cols'] = [6, 12, 22, 45, 9, 7, 13, 13].map((wch) => ({ wch }));
   XLSX.utils.book_append_sheet(wb, ws4, 'Materials');
+
+  // --- Signs: every sign on every door, then the order list for signs still needed
+  const sRows = [];
+  for (const d of doors) {
+    for (const x of d.signs || []) {
+      sRows.push([d.pinNo ?? '', d.ref || '', d.location || '', x.type, x.face || '', Number(x.qty) || 0, x.state === 'fitted' ? 'Fitted' : 'Needed']);
+    }
+  }
+  if (sRows.length) {
+    const wsS = XLSX.utils.aoa_to_sheet([['Pin', 'Door ref', 'Location / room', 'Sign', 'Face', 'Qty', 'Status'], ...sRows]);
+    wsS['!cols'] = [6, 12, 22, 34, 12, 6, 9].map((wch) => ({ wch }));
+    XLSX.utils.book_append_sheet(wb, wsS, 'Signs');
+    const st = new Map();
+    for (const d of doors) {
+      for (const x of d.signs || []) {
+        const r = st.get(x.type) || { needed: 0, fitted: 0, doors: new Set() };
+        r[x.state === 'fitted' ? 'fitted' : 'needed'] += Number(x.qty) || 0;
+        r.doors.add(d.id);
+        st.set(x.type, r);
+      }
+    }
+    const wsST = XLSX.utils.aoa_to_sheet([['Sign', 'Doors', 'Needed (to order)', 'Already fitted'],
+      ...[...st.entries()].sort((a, b) => b[1].needed - a[1].needed).map(([k, r]) => [k, r.doors.size, r.needed, r.fitted])]);
+    wsST['!cols'] = [34, 7, 16, 14].map((wch) => ({ wch }));
+    XLSX.utils.book_append_sheet(wb, wsST, 'Sign totals');
+  }
 
   // --- Material totals: the order list for the whole site
   const mt = new Map();

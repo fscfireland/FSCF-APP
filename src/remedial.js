@@ -4,7 +4,7 @@
 // `remedials: { [key]: { done, by, at } }`, so they sync, show in the change
 // log and carry forward with a new inspection.
 
-import { doorActions } from './defaults.js';
+import { doorActions, signsNeeded } from './defaults.js';
 
 export const DEFAULT_REMEDIAL_TEXT = `All remedial works are to be carried out by a competent person with demonstrable training and experience in the installation and maintenance of fire door sets (for example, an operative of a third-party certified installer).
 
@@ -23,6 +23,9 @@ export function remedialItems(d) {
   for (const a of doorActions(d)) {
     if (NOT_WORK.test(a)) continue;
     items.push({ key: 'a:' + a, text: a, sub: 'Recommended action', qty: 0 });
+  }
+  for (const x of signsNeeded(d)) {
+    items.push({ key: 's:' + x.type + '|' + (x.face || ''), text: 'Supply and fit sign: ' + x.type, sub: x.face || 'Signage', qty: Number(x.qty) || 1, sign: true });
   }
   return items;
 }

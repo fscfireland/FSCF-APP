@@ -327,3 +327,18 @@ export function drawDemoPlan() {
   label('DEMO — Ground floor (example drawing)', 120, 70);
   return c;
 }
+
+// ---------- Fire safety signs on each door ----------
+// door.signs = [{ type, qty, face, state: 'needed' | 'fitted' }]
+export const DEFAULT_SIGNS = [
+  'Automatic fire door keep shut',
+  'Fire door keep shut',
+  'Fire door keep locked',
+  'Fire exit keep clear',
+  'Push bar to open',
+  'Turn to the right',
+  'Turn to the left',
+];
+export const SIGN_FACES = ['Both faces', 'Push side', 'Pull side', 'One face'];
+export const signsNeeded = (d) => (d.signs || []).filter((x) => x.state !== 'fitted' && Number(x.qty) > 0);
+export const signText = (x) => `${Number(x.qty) || 0} × ${x.type}${x.face ? ' (' + x.face.toLowerCase() + ')' : ''}`;

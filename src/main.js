@@ -6,6 +6,7 @@ import {
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
+  DEFAULT_SIGNS, SIGN_FACES, signsNeeded,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -1622,6 +1623,7 @@ function doorRow(d, planName) {
       <span class="dr-side">
         <span class="status-pill" style="--c:${s.color}">${s.short}</span>
         ${nDef ? `<small>${nDef} defect${nDef > 1 ? 's' : ''}</small>` : ''}
+        ${signsNeeded(d).length ? `<small>${signsNeeded(d).reduce((a, x) => a + (Number(x.qty) || 0), 0)} sign${signsNeeded(d).reduce((a, x) => a + (Number(x.qty) || 0), 0) === 1 ? '' : 's'} needed</small>` : ''}
         ${materialsTotal(d) ? `<small class="money">${euro(materialsTotal(d))}</small>` : ''}
       </span>
     </button>`;
@@ -2733,6 +2735,12 @@ async function drawSheet(door) {
       </section>
 
       <section class="block">
+        <div class="block-head"><h3>Signs <span class="muted" id="sign-n"></span></h3></div>
+        <div class="sign-add" id="sign-add"></div>
+        <div id="signs"></div>
+      </section>
+
+      <section class="block">
         <div class="block-head"><h3>Materials</h3>
           <button class="btn sm" id="add-material">${icon('plus')} Add material</button>
         </div>
@@ -3202,6 +3210,49 @@ async function drawSheet(door) {
     queue({ actions: [...doorActions(current), ...picked], action: '' });
     drawActions();
   };
+
+  // fire safety signs: several types per door, each with a quantity
+  const drawSigns = () => {
+    const list = current.signs || [];
+    const types = [...new Set([...(lists.signs || DEFAULT_SIGNS), ...list.map((x) => x.type)])];
+    const need = signsNeeded(current).reduce((a, x) => a + (Number(x.qty) || 0), 0);
+    $('#sign-n').textContent = list.length ? `${need} needed` : '';
+    $('#sign-add').innerHTML = types.map((t) => `<button type="button" class="chip sign-chip ${list.some((x) => x.type === t) ? 'is-on' : ''}" data-t="${esc(t)}">${icon('plus')} ${esc(t)}</button>`).join('')
+      + `<button type="button" class="chip sign-chip" data-t="">${icon('pencil')} Other…</button>`;
+    $('#signs').innerHTML = list.length ? list.map((x, i) => `
+      <div class="sign-row ${x.state === 'fitted' ? 'is-fitted' : ''}" data-i="${i}">
+        <div class="sign-top"><b>${esc(x.type)}</b><button class="icon-btn sm sign-del" aria-label="Remove sign">${icon('close')}</button></div>
+        <div class="sign-ctl">
+          <span class="stepper"><button type="button" class="sign-minus" aria-label="One fewer">−</button><input class="sign-qty" type="number" inputmode="numeric" min="0" value="${esc(x.qty ?? 1)}" aria-label="Quantity"><button type="button" class="sign-plus" aria-label="One more">+</button></span>
+          <select class="sign-face" aria-label="Which face">${['', ...SIGN_FACES].map((f) => `<option value="${esc(f)}" ${f === (x.face || '') ? 'selected' : ''}>${f || 'Face…'}</option>`).join('')}</select>
+          <span class="seg sign-state" role="group"><button type="button" class="seg-btn ${x.state !== 'fitted' ? 'is-on' : ''}" data-s="needed">Needed</button><button type="button" class="seg-btn ${x.state === 'fitted' ? 'is-on' : ''}" data-s="fitted">Fitted</button></span>
+        </div>
+      </div>`).join('') : '<p class="muted small">No signs recorded. Tap a sign above to add it; tap again for another face.</p>';
+    const set = (i, patch) => queue({ signs: current.signs.map((x, j) => (j === i ? { ...x, ...patch } : x)) });
+    $$('.sign-chip', el).forEach((c) => (c.onclick = async () => {
+      let t = c.dataset.t;
+      if (!t) {
+        const r = await dialog({ title: 'Other sign', body: '<label class="field"><span>Sign wording</span><input name="t" required placeholder="e.g. Fire escape route"></label><label class="check-line"><input type="checkbox" name="keep" checked> Add to my sign list</label>', buttons: [{ label: 'Cancel', value: false }, { label: 'Add', value: true, kind: 'primary' }] });
+        if (r.value !== true || !r.data.t.trim()) return;
+        t = r.data.t.trim();
+        if (r.data.keep && !(lists.signs || DEFAULT_SIGNS).includes(t)) await saveLists({ signs: [...(lists.signs || DEFAULT_SIGNS), t] });
+      }
+      queue({ signs: [...(current.signs || []), { type: t, qty: 1, face: '', state: 'needed' }] });
+      drawSigns();
+    }));
+    $$('.sign-row', el).forEach((row) => {
+      const i = Number(row.dataset.i);
+      const qty = $('.sign-qty', row);
+      const setQty = (n) => { qty.value = Math.max(0, n); set(i, { qty: Number(qty.value) }); $('#sign-n').textContent = `${signsNeeded(current).reduce((a, x) => a + (Number(x.qty) || 0), 0)} needed`; };
+      qty.oninput = () => setQty(Number(qty.value) || 0);
+      $('.sign-minus', row).onclick = () => setQty((Number(qty.value) || 0) - 1);
+      $('.sign-plus', row).onclick = () => setQty((Number(qty.value) || 0) + 1);
+      $('.sign-face', row).onchange = (e) => set(i, { face: e.target.value });
+      $$('.sign-state .seg-btn', row).forEach((b) => (b.onclick = () => { set(i, { state: b.dataset.s }); drawSigns(); }));
+      $('.sign-del', row).onclick = () => { queue({ signs: current.signs.filter((_, j) => j !== i) }); drawSigns(); };
+    });
+  };
+  drawSigns();
 
   // materials with costs
   const drawMaterials = () => {
@@ -3748,6 +3799,10 @@ async function renderSettings() {
         <label class="field"><span>One per line. Each project picks one; used to group and filter projects and as the report title.</span><textarea id="s-wtypes" rows="7">${esc((lists.workTypes || DEFAULT_WORK_TYPES).join('\n'))}</textarea></label>
       </section>
       <section class="panel">
+        <h2 class="h2">Sign types</h2>
+        <label class="field"><span>One per line. Tap these on a door to add signs with a quantity, which face, and whether they're fitted or needed.</span><textarea id="s-signs" rows="8">${esc((lists.signs || DEFAULT_SIGNS).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel">
         <h2 class="h2">End of service questions</h2>
         <label class="field"><span>One per line. All must be answered (Yes / No / N/A) before a service can be closed.</span><textarea id="s-closeq" rows="10">${esc(closeQuestions(lists).join('\n'))}</textarea></label>
       </section>
@@ -3863,6 +3918,7 @@ async function renderSettings() {
 
   $('#s-rem').onchange = (e) => saveLists({ remedialText: e.target.value });
   $('#s-wtypes').onchange = (e) => saveLists({ workTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+  $('#s-signs').onchange = (e) => saveLists({ signs: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) });
   $('#s-closeq').onchange = (e) => saveLists({ closeQuestions: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) });
   $('#s-cats').onchange = (e) => saveLists({ categories: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-risks').onchange = (e) => saveLists({ risks: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });

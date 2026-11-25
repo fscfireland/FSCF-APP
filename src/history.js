@@ -15,7 +15,7 @@ let actor = '';
 export const setActor = (name) => (actor = name || '');
 
 // Fields that belong to one inspection visit
-const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'notes', 'doorType', 'leaf', 'zoneNo', 'zoneName', 'risk', 'category', 'remedials', 'gps', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
+const SNAP_FIELDS = ['status', 'checks', 'defects', 'actions', 'materials', 'signs', 'notes', 'doorType', 'leaf', 'zoneNo', 'zoneName', 'risk', 'category', 'remedials', 'gps', 'ref', 'location', 'inspectedOn', 'inspectedBy'];
 
 export function snapshotOf(d) {
   const snap = { id: db.uid(), savedAt: new Date().toISOString() };

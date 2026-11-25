@@ -3,7 +3,7 @@
 // Built entirely on the phone (works offline once the library is cached).
 
 import * as db from './db.js';
-import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected, statusesInUse, matLabel, zoneText, riskText } from './defaults.js';
+import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected, statusesInUse, matLabel, zoneText, riskText, signText } from './defaults.js';
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
 import { isVideo, fmtDuration } from './media.js';
 import { photoInView } from './history.js';
@@ -584,6 +584,32 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     text(`Materials total: ${euro(tot)} ex VAT`, A4.w - M, y, { align: 'right' });
   }
 
+  // Signage summary: what is needed across the site
+  {
+    const st = new Map();
+    for (const d of doors) {
+      for (const x of d.signs || []) {
+        const r = st.get(x.type) || { needed: 0, fitted: 0, doors: new Set() };
+        r[x.state === 'fitted' ? 'fitted' : 'needed'] += Number(x.qty) || 0;
+        r.doors.add(d.id);
+        st.set(x.type, r);
+      }
+    }
+    if (st.size) {
+      y = (doc.lastAutoTable?.finalY || y) + 12;
+      if (y > A4.h - M - 50) { doc.addPage('a4', 'portrait'); y = M + 10; }
+      heading('Signage', 'Fire safety signs recorded on the doors. "Needed" signs are missing or need replacing.');
+      doc.autoTable({
+        startY: y, margin: { left: M, right: M, top: M + 10 },
+        head: [['Sign', 'Doors', 'Needed', 'Fitted']],
+        body: [...st.entries()].sort((a, b) => b[1].needed - a[1].needed).map(([k, r]) => [t(k), String(r.doors.size), String(r.needed), String(r.fitted)]),
+        styles: { font: 'helvetica', fontSize: 9, cellPadding: 1.8, textColor: C.ink, lineColor: C.line, lineWidth: 0.15 },
+        headStyles: { fillColor: C.ink, textColor: [255, 255, 255], fontStyle: 'bold' },
+        columnStyles: { 1: { halign: 'center', cellWidth: 18 }, 2: { halign: 'center', cellWidth: 20, fontStyle: 'bold' }, 3: { halign: 'center', cellWidth: 18 } },
+      });
+    }
+  }
+
   // ---------- 5. Door pages ----------
   const detailDoors = doors.filter((d) => passDetail || !['pass', 'na'].includes(d.status || 'not_inspected'));
   let n = 0;
@@ -700,6 +726,23 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
         styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.6, textColor: C.ink, lineColor: C.line, lineWidth: 0.15 },
         headStyles: { fillColor: STATUS_RGB.fail, textColor: [255, 255, 255], fontStyle: 'bold' },
         columnStyles: { 0: { cellWidth: 70, fontStyle: 'bold' } },
+      });
+      y = doc.lastAutoTable.finalY + 5;
+    }
+
+    // Signs
+    if ((d.signs || []).length) {
+      doc.autoTable({
+        startY: y,
+        margin: { left: M, right: M, top: M + 10 },
+        head: [['Sign', 'Face', 'Qty', 'Status']],
+        body: d.signs.map((x) => [t(x.type), t(x.face || ''), String(Number(x.qty) || 0), x.state === 'fitted' ? 'Fitted' : 'Needed']),
+        styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.6, textColor: C.ink, lineColor: C.line, lineWidth: 0.15 },
+        headStyles: { fillColor: C.soft, textColor: C.ink, fontStyle: 'bold' },
+        columnStyles: { 2: { cellWidth: 12, halign: 'center' }, 3: { cellWidth: 20, fontStyle: 'bold' } },
+        didParseCell: (h) => {
+          if (h.section === 'body' && h.column.index === 3) h.cell.styles.textColor = d.signs[h.row.index].state === 'fitted' ? STATUS_RGB.pass : STATUS_RGB.fail;
+        },
       });
       y = doc.lastAutoTable.finalY + 5;
     }
