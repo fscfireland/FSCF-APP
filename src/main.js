@@ -1690,10 +1690,28 @@ async function pickKind(title, current) {
 }
 async function setPlanKind(plan, newKind) {
   if (newKind === kindOfPlan(plan)) return;
-  // pins already on the drawing keep the type they were inspected under
-  for (const d of await db.byIndex('doors', 'planId', plan.id)) if (!d.kind) await db.put('doors', { ...d, kind: kindOfPlan(plan) });
+  const oldKind = kindOfPlan(plan);
+  const pins = await db.byIndex('doors', 'planId', plan.id);
+  const nNew = kitOf(newKind).name.toLowerCase();
+  let moveAll = true;
+  if (pins.length) {
+    const inspected = pins.filter((d) => (d.status || 'not_inspected') !== 'not_inspected' || Object.keys(d.checks || {}).length).length;
+    const r = await dialog({
+      title: `Change the pins too?`,
+      body: `<p>There ${pins.length === 1 ? 'is 1 pin' : `are ${pins.length} pins`} on "${esc(plan.name)}" already${inspected ? ` (${inspected} inspected)` : ''}.</p>
+        <p>Change ${pins.length === 1 ? 'it' : 'them'} to <b>${esc(nNew)}</b> as well, or keep ${pins.length === 1 ? 'it' : 'them'} as ${esc(kitOf(oldKind).name.toLowerCase())}? New pins will be ${esc(nNew)} either way.</p>`,
+      buttons: [{ label: `Keep as ${kitOf(oldKind).name.toLowerCase()}`, value: 'keep' }, { label: `Change ${pins.length === 1 ? 'it' : 'all'}`, value: 'move', kind: 'primary' }],
+    });
+    if (r.value == null) return false;
+    moveAll = r.value === 'move';
+  }
+  for (const d of pins) {
+    if (moveAll) { if (d.kind !== newKind) await db.put('doors', { ...d, kind: newKind }); }
+    else if (!d.kind) await db.put('doors', { ...d, kind: oldKind });
+  }
   await db.put('plans', { ...(await db.get('plans', plan.id)), inspType: newKind });
   toast(`${plan.name}: ${kitOf(newKind).name}`);
+  return true;
 }
 
 async function planMenu(plan, colls = []) {
@@ -2843,7 +2861,7 @@ async function drawSheet(door) {
     <div class="sheet-grip" aria-hidden="true"></div>
     <header class="sheet-head">
       <span class="pin-badge lg ${s.id === 'not_inspected' ? 'is-hollow' : ''}" id="sh-badge" style="--pin:${s.color}">${door.pinNo}</span>
-      <div class="sheet-title"><b id="sh-title">${esc(door.ref || K.item + ' ' + door.pinNo)}</b><small>${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
+      <div class="sheet-title"><b id="sh-title">${esc(door.ref || K.item + ' ' + door.pinNo)}</b><small><button type="button" class="kind-chip kind-pick k-${kindNow}" id="sh-kind" aria-label="Inspection type: ${esc(K.name)}. Tap to change">${esc(K.name)} ${icon('down')}</button> ${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
       <button class="icon-btn" id="sh-close" aria-label="Close">${icon('close')}</button>
     </header>
     <div class="sheet-body">
@@ -3064,6 +3082,17 @@ async function drawSheet(door) {
   };
 
   $('#sh-close').onclick = () => back();
+  $('#sh-kind').onclick = async () => {
+    const k = await pickKind(`What is pin ${door.pinNo}?`, kindNow);
+    if (!k || k === kindNow) return;
+    if ((current.status || 'not_inspected') !== 'not_inspected' || Object.keys(current.checks || {}).length) {
+      if (!(await confirmBox('Change this pin\'s type?', `This pin already has ${esc(K.name.toLowerCase())} answers. They are kept on the record, and the ${esc(kitOf(k).name.toLowerCase())} checks are added.`, 'Change type', false))) return;
+    }
+    queue({ kind: k });
+    await flushSave();
+    await drawSheet(await db.get('doors', door.id));
+    if (state.view === 'plan') refreshPins();
+  };
   $$('input[name=status]', el).forEach((r) => (r.onchange = () => {
     setStatus(r.value);
     // back to "Not inspected" with a checklist: work the result out again
