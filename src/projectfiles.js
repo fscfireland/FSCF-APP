@@ -94,3 +94,15 @@ export async function openFile(rec) {
 export function downloadFile(rec) {
   return saveFile(rec.name, rec.blob);
 }
+
+// Save a file the app made itself (closed report, declaration photo).
+export async function addBlob(projectId, blob, name, folder, extra = {}) {
+  const rec = { id: db.uid(), projectId, name, folder, type: blob.type || '', size: blob.size, blob, notes: '', ...extra };
+  try {
+    if (rec.type.startsWith('image/')) rec.thumb = (await compressImage(blob, 320, 0.75)).blob;
+    else if (rec.type === 'application/pdf') Object.assign(rec, await pdfThumb(blob));
+  } catch {
+    /* no preview */
+  }
+  return db.put('files', rec);
+}

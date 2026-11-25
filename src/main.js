@@ -26,7 +26,8 @@ import {
   splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
-import { fileFolders, fileKind, KIND_LABEL, projectFiles, addFiles, openFile, downloadFile } from './projectfiles.js';
+import { fileFolders, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
+import { DEFAULT_CLOSE_QUESTIONS, CLOSE_ANSWERS, closeQuestions, closeKey, closeoutOf, saveCloseout, siteLocation, fetchWeather, weatherLine, inspectionDates } from './closeout.js';
 import { fmtSize as fmtBytes } from './media.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
 
@@ -377,6 +378,7 @@ async function renderProject() {
   const plans = plansIn(allPlans, coll);
   const planIds = new Set(plans.map((p) => p.id));
   const doors = allDoors.filter((d) => planIds.has(d.planId) || (!d.planId && inColl(d.collection || '', coll)));
+  state.curColl = coll;
   state.collText = colls.length > 1 ? (coll === '*' ? 'All collections' : collLabel(coll)) : '';
 
   app.innerHTML = `
@@ -412,6 +414,182 @@ async function renderProject() {
   if (tab === 'doors') renderDoorsTab($('#tab-inner'), project, plans, doors);
   else if (tab === 'repairs') renderRepairsTab($('#tab-inner'), project, plans, doors);
   else renderExportTab($('#tab-inner'), project, plans, doors);
+}
+
+// ---------- End of service close-out ----------
+async function closeService(project, coll, doors, plans) {
+  const key = closeKey(coll);
+  const questions = closeQuestions(lists);
+  const p0 = await db.get('projects', project.id);
+  const draft = { answers: {}, declIds: [], reason: '', weather: null, closedBy: lists.inspector || '', ...(p0.closeDrafts?.[key] || {}) };
+  const dates = inspectionDates(doors);
+  const declFiles = (await Promise.all((draft.declIds || []).map((id) => db.get('files', id)))).filter(Boolean);
+  let weather = draft.weather;
+  const thumbUrls = [];
+  const declHtml = () => declFiles.map((f) => {
+    const u = URL.createObjectURL(f.thumb || f.blob);
+    thumbUrls.push(u);
+    return `<span class="co-decl"><img src="${u}" alt="Declaration sheet"><button type="button" class="co-decl-x" data-id="${f.id}" aria-label="Remove photo">${icon('close')}</button></span>`;
+  }).join('');
+  const wxRows = () => dates.map((d) => {
+    const w = weather?.days?.find((x) => x.date === d);
+    return `<label class="co-wx"><span>${esc(new Date(d + 'T12:00').toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' }))}</span>
+      <input name="wx_${d}" value="${esc(w ? weatherLine(w) : '')}" placeholder="e.g. Dry, 8–12 °C, light wind"></label>`;
+  }).join('');
+
+  const saveDraft = async (data) => {
+    const answers = {};
+    questions.forEach((q, i) => {
+      if (data['q' + i] || data['n' + i]) answers[q] = { a: data['q' + i] || '', note: (data['n' + i] || '').trim() };
+    });
+    const p = await db.get('projects', project.id);
+    const d = { answers, declIds: declFiles.map((f) => f.id), reason: (data.reason || '').trim(), weather: collectWeather(data), closedBy: (data.closedBy || '').trim() };
+    await db.put('projects', { ...p, closeDrafts: { ...(p.closeDrafts || {}), [key]: d } });
+    return d;
+  };
+  const collectWeather = (data) => {
+    if (!weather && !dates.some((d) => data['wx_' + d])) return null;
+    return {
+      ...(weather || {}),
+      days: dates.map((d) => {
+        const auto = weather?.days?.find((x) => x.date === d);
+        const typed = (data['wx_' + d] || '').trim();
+        if (auto && typed === weatherLine({ ...auto, manual: '' })) return { ...auto, manual: '' };
+        return { ...(auto || { date: d }), manual: typed };
+      }),
+    };
+  };
+
+  const r = await dialog({
+    title: 'End of service',
+    body: `
+      <p>${doors.length} door${doors.length === 1 ? '' : 's'}${coll && coll !== '*' ? ` in <b>${esc(collLabel(coll))}</b>` : ''} · inspected ${esc(dates.map((d) => fmtDate(d)).join(', '))}. Answer every question to close.</p>
+      <div class="co-qs">
+        ${questions.map((q, i) => {
+          const a = draft.answers[q] || {};
+          return `<fieldset class="co-q"><legend><b>${i + 1}.</b> ${esc(q)}</legend>
+            <div class="co-ans">${CLOSE_ANSWERS.map((o) => `<label class="co-opt co-${o.id}"><input type="radio" name="q${i}" value="${o.id}" ${a.a === o.id ? 'checked' : ''} required><span>${o.label}</span></label>`).join('')}</div>
+            <input class="co-note" name="n${i}" value="${esc(a.note || '')}" placeholder="Note (optional)">
+          </fieldset>`;
+        }).join('')}
+      </div>
+      <h3 class="co-h">${icon('camera')} Signed declaration sheet</h3>
+      <div class="co-decls" id="co-decls">${declHtml()}</div>
+      <div class="row-btns">
+        <label class="btn sm">${icon('camera')} Take photo<input type="file" id="co-cam" accept="image/*" capture="environment" hidden></label>
+        <label class="btn ghost sm">${icon('image')} From library<input type="file" id="co-lib" accept="image/*" multiple hidden></label>
+      </div>
+      <input class="co-valid" id="co-decl-ok" tabindex="-1" aria-hidden="true" required value="${declFiles.length || draft.reason ? 'ok' : ''}">
+      <details class="co-nodecl" ${draft.reason ? 'open' : ''}><summary>No signed sheet available?</summary>
+        <label class="field"><span>Reason (printed on the report)</span><input name="reason" id="co-reason" value="${esc(draft.reason || '')}" placeholder="e.g. Client not on site; sheet to follow by email"></label></details>
+      <h3 class="co-h">${icon('cloud')} Weather on the inspection days</h3>
+      <p class="muted small" id="co-wx-status">${weather?.place ? `For ${esc(weather.place)}. You can type over any line.` : 'Looking up the weather…'}</p>
+      <div id="co-wx">${wxRows()}</div>
+      <button type="button" class="btn ghost sm" id="co-wx-get">${icon('undo')} Get weather again</button>
+      <label class="field"><span>Closed by</span><input name="closedBy" value="${esc(draft.closedBy || lists.inspector || '')}" placeholder="Your name"></label>`,
+    buttons: [{ label: 'Save for later', value: false }, { label: 'Close service', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      const ok = $('#co-decl-ok', form);
+      const setValid = () => {
+        const v = declFiles.length || $('#co-reason', form).value.trim();
+        ok.value = v ? 'ok' : '';
+        ok.setCustomValidity(v ? '' : 'Add a photo of the signed declaration sheet, or give the reason there isn\'t one.');
+      };
+      setValid();
+      $('#co-reason', form).oninput = setValid;
+      const redrawDecl = () => {
+        $('#co-decls', form).innerHTML = declHtml();
+        $$('.co-decl-x', form).forEach((b) => (b.onclick = async () => {
+          const i = declFiles.findIndex((f) => f.id === b.dataset.id);
+          if (i >= 0) { await db.remove('files', declFiles[i].id); declFiles.splice(i, 1); }
+          redrawDecl();
+          setValid();
+        }));
+      };
+      redrawDecl();
+      const addDecl = async (e) => {
+        const list = [...e.target.files];
+        e.target.value = '';
+        for (const file of list) {
+          try {
+            const img = await compressImage(file, 2400, 0.85);
+            const n = declFiles.length + 1;
+            const rec = await addBlob(project.id, img.blob, `Client declaration – ${project.site || 'site'}${coll && coll !== '*' ? ' – ' + collLabel(coll) : ''} – ${today()}${n > 1 ? ' (' + n + ')' : ''}.jpg`, 'Certificates', { notes: 'Signed end-of-service declaration' });
+            declFiles.push(rec);
+          } catch (err) {
+            toast('Could not use that photo: ' + err.message, 'error');
+          }
+        }
+        redrawDecl();
+        setValid();
+        await saveDraft(Object.fromEntries(new FormData(form).entries()));
+      };
+      $('#co-cam', form).onchange = addDecl;
+      $('#co-lib', form).onchange = addDecl;
+      const getWx = async () => {
+        const st = $('#co-wx-status', form);
+        st.textContent = 'Looking up the weather…';
+        try {
+          let loc = await siteLocation(await db.get('projects', project.id), doors);
+          if (!loc) {
+            st.textContent = 'Finding your location…';
+            const g = await getPosition({ timeout: 12000 });
+            if (g) {
+              loc = { lat: g.lat, lng: g.lng, place: 'Phone location' };
+              const p = await db.get('projects', project.id);
+              await db.put('projects', { ...p, siteGps: { lat: g.lat, lng: g.lng, place: 'Site position' } });
+            }
+          }
+          if (!loc) throw new Error('No site location. Add a town or county to the project address, or allow location.');
+          const days = await fetchWeather(loc, dates);
+          weather = { place: loc.place, lat: loc.lat, lng: loc.lng, source: 'Open-Meteo', days };
+          $('#co-wx', form).innerHTML = wxRows();
+          st.textContent = `For ${loc.place}. You can type over any line.`;
+        } catch (err) {
+          st.textContent = (/fetch|network|load failed/i.test(err.message) ? 'No internet, so the weather could not be looked up.' : err.message) + ' Type it in instead.';
+        }
+      };
+      $('#co-wx-get', form).onclick = getWx;
+      if (!weather) getWx();
+    },
+  });
+  thumbUrls.forEach((u) => URL.revokeObjectURL(u));
+  const d = await saveDraft(r.data);
+  if (r.value !== true) {
+    if (r.value === false) toast('Close-out saved for later');
+    return renderProject();
+  }
+  const b = busy('Closing the service…');
+  try {
+    const p = await db.get('projects', project.id);
+    const closedAt = new Date().toISOString();
+    const rec = { closedAt, closedBy: d.closedBy, coll: coll && coll !== '*' ? collLabel(coll) : '', questions, answers: d.answers, declIds: d.declIds, declaration: { reason: declFiles.length ? '' : d.reason }, weather: d.weather };
+    b.update('Building the final PDF report…');
+    const pdf = await exportProjectPdf(p, lists, { photos: true, passDetail: true, costs: false, doors, plans, filterText: '', returnBlob: true, closeout: { ...rec, declarationBlobs: declFiles.map((f) => f.blob) } }, b.update);
+    const stamp = closedAt.slice(0, 10);
+    const label = [p.site || p.client || 'Project', rec.coll].filter(Boolean).join(' – ');
+    const pdfRec = await addBlob(p.id, pdf.blob, `Closed report – ${label} – ${stamp}.pdf`, 'Reports', { notes: `Final report, service closed ${fmtDate(stamp)}${rec.closedBy ? ' by ' + rec.closedBy : ''}` });
+    b.update('Building the Excel workbook…');
+    let xlsRec = null;
+    try {
+      const qs = (lists.questions || []).filter((q) => q.text?.trim() && !q.hidden);
+      const xl = await exportProjectXlsx(p, qs, { doors, filterText: '', returnBlob: true });
+      xlsRec = await addBlob(p.id, xl.blob, `Closed report – ${label} – ${stamp}.xlsx`, 'Reports', { notes: 'Excel for the closed service' });
+    } catch (e) {
+      console.warn('Excel not saved', e);
+    }
+    const p2 = await db.get('projects', project.id);
+    const drafts = { ...(p2.closeDrafts || {}) };
+    delete drafts[key];
+    await db.put('projects', { ...p2, closeDrafts: drafts, closeouts: { ...(p2.closeouts || {}), [key]: { ...rec, reportFileId: pdfRec.id, excelFileId: xlsRec?.id || null } } });
+    b.done();
+    toast('Service closed. Report saved in Files › Reports');
+  } catch (e) {
+    b.done();
+    console.error(e);
+    toast('Could not close: ' + e.message, 'error');
+  }
+  renderProject();
 }
 
 // ---------- Files: certificates, manuals, quotes and other documents ----------
@@ -1099,7 +1277,24 @@ function renderExportTab(body, project, plans, allDoors) {
   const nDef = doors.reduce((a, d) => a + (d.defects || []).length, 0);
   const chip = (group, value, label, on, color) =>
     `<button class="chip ${on ? 'is-on' : ''}" data-g="${group}" data-v="${esc(value)}" ${color ? `style="--c:${color}"` : ''}>${color ? '<i></i>' : ''}${esc(label)}</button>`;
+  const co = closeoutOf(project, state.curColl);
+  const draft = project.closeDrafts?.[closeKey(state.curColl)];
+  const nQ = closeQuestions(lists).length;
+  const nAns = draft ? closeQuestions(lists).filter((q) => draft.answers?.[q]?.a).length : 0;
   body.innerHTML = `
+    <section class="panel closeout-panel ${co ? 'is-closed' : ''}">
+      <h2 class="h2">${icon(co ? 'check' : 'shield')} ${co ? 'Service closed' : 'Close out this service'}</h2>
+      ${co
+        ? `<p>Closed <b>${esc(fmtDate(co.closedAt.slice(0, 10)))}</b>${co.closedBy ? ` by ${esc(co.closedBy)}` : ''}. ${co.reportFileId ? 'The report and Excel were saved in <b>Files › Reports</b>.' : ''}</p>
+           <div class="row-btns">
+             ${co.reportFileId ? `<button class="btn primary sm" id="co-view">${icon('report')} Open closed report</button>` : ''}
+             <button class="btn sm" id="co-files">${icon('folder')} Files</button>
+             <button class="btn ghost sm" id="co-reopen">Reopen</button>
+           </div>`
+        : `<p>When the work is finished, answer the ${nQ} end-of-service questions, photograph the client's signed declaration sheet and record the weather. Closing saves the final PDF report and Excel into <b>Files › Reports</b>.</p>
+           ${draft ? `<p class="muted small">${nAns} of ${nQ} questions answered so far${draft.declIds?.length ? ' · declaration photo taken' : ''}.</p>` : ''}
+           <button class="btn primary" id="co-start">${icon('check')} ${draft ? 'Continue close-out' : 'Close out service'}</button>`}
+    </section>
     <section class="panel filter-panel">
       <div class="block-head"><h2 class="h2">${icon('search')} Report filters</h2>
         ${isFiltered(f) ? '<button class="btn ghost sm" id="rf-clear">Clear filters</button>' : ''}</div>
@@ -1259,6 +1454,24 @@ function renderExportTab(body, project, plans, allDoors) {
       toast(e.message, 'error');
     }
   };
+  $('#co-start')?.addEventListener('click', () => closeService(project, state.curColl, allDoors, plans));
+  $('#co-files')?.addEventListener('click', () => { state.fileF = 'Reports'; go({ ...state, tab: 'files' }, { replace: true }); });
+  $('#co-view')?.addEventListener('click', async () => {
+    const f = await db.get('files', co.reportFileId);
+    if (!f) return toast('The report file was deleted from Files', 'error');
+    openFile(f).catch((e) => toast(e.message, 'error'));
+  });
+  $('#co-reopen')?.addEventListener('click', async () => {
+    if (!(await confirmBox('Reopen this service?', 'Your close-out answers are kept so you can close it again. The report already saved in Files stays there.', 'Reopen', false))) return;
+    const p = await db.get('projects', project.id);
+    const k = closeKey(state.curColl);
+    const c = p.closeouts?.[k];
+    const closeouts = { ...(p.closeouts || {}) };
+    delete closeouts[k];
+    await db.put('projects', { ...p, closeouts, closeDrafts: { ...(p.closeDrafts || {}), [k]: { answers: c.answers, declIds: c.declIds, reason: c.declaration?.reason || '', weather: c.weather, closedBy: c.closedBy } } });
+    toast('Service reopened');
+    renderProject();
+  });
   $('#del-proj').onclick = async () => {
     if (await confirmBox('Delete project?', `This deletes "${project.site}", its ${plans.length} plan(s), ${doors.length} door record(s) and all photos from this phone. This cannot be undone.`)) {
       await db.deleteProject(project.id);
@@ -3185,6 +3398,10 @@ async function renderSettings() {
         <label class="field"><span>One per line. Each project picks one; used to group and filter projects and as the report title.</span><textarea id="s-wtypes" rows="7">${esc((lists.workTypes || DEFAULT_WORK_TYPES).join('\n'))}</textarea></label>
       </section>
       <section class="panel">
+        <h2 class="h2">End of service questions</h2>
+        <label class="field"><span>One per line. All must be answered (Yes / No / N/A) before a service can be closed.</span><textarea id="s-closeq" rows="10">${esc(closeQuestions(lists).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel">
         <h2 class="h2">Door categories</h2>
         <label class="field"><span>One per line. Used to group and filter doors on drawings, the door list and reports.</span><textarea id="s-cats" rows="7">${esc((lists.categories || DEFAULT_CATEGORIES).join('\n'))}</textarea></label>
       </section>
@@ -3296,6 +3513,7 @@ async function renderSettings() {
 
   $('#s-rem').onchange = (e) => saveLists({ remedialText: e.target.value });
   $('#s-wtypes').onchange = (e) => saveLists({ workTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
+  $('#s-closeq').onchange = (e) => saveLists({ closeQuestions: e.target.value.split('\n').map((x) => x.trim()).filter(Boolean) });
   $('#s-cats').onchange = (e) => saveLists({ categories: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-risks').onchange = (e) => saveLists({ risks: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
   $('#s-actions').onchange = (e) => saveLists({ actions: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });

@@ -236,6 +236,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const filename = `FSCF_${safeName(project.site || project.client)}_${(project.date || new Date().toISOString().slice(0, 10))}${opts.filterText ? '_filtered' : ''}.xlsx`;
+  if (opts.returnBlob) return { blob, filename };
   return saveFile(filename, blob);
 }
 

@@ -11,6 +11,7 @@ import { drawOnCanvas } from './markup.js';
 import { remedialItems } from './remedial.js';
 import { gpsText } from './geo.js';
 import { fmtDate } from './ui.js';
+import { weatherLine } from './closeout.js';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const AUTOTABLE = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
@@ -780,6 +781,72 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     }
   }
 
+  // ---------- 6. End of service: close-out checklist, weather, declaration ----------
+  const co = opts.closeout;
+  if (co) {
+    onProgress('Adding the end of service page…');
+    doc.addPage('a4', 'portrait');
+    y = M + 10;
+    heading('End of service', `Closed ${new Date(co.closedAt).toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })}${co.closedBy ? ' by ' + co.closedBy : ''}${co.coll ? ' · ' + co.coll : ''}`);
+    const ansTxt = { yes: 'Yes', no: 'No', na: 'N/A' };
+    doc.autoTable({
+      startY: y,
+      margin: { left: M, right: M, top: M + 10 },
+      head: [['#', 'Close-out question', 'Answer', 'Note']],
+      body: co.questions.map((q, i) => [i + 1, t(q), ansTxt[co.answers[q]?.a] || '-', t(co.answers[q]?.note || '')]),
+      styles: { fontSize: 8.5, cellPadding: 1.8, lineColor: C.line, lineWidth: 0.1, textColor: C.ink },
+      headStyles: { fillColor: C.soft, textColor: C.ink, fontStyle: 'bold' },
+      columnStyles: { 0: { cellWidth: 8 }, 2: { cellWidth: 16, fontStyle: 'bold' }, 3: { cellWidth: 52 } },
+      didParseCell: (h) => {
+        if (h.section === 'body' && h.column.index === 2) {
+          const a = co.answers[co.questions[h.row.index]]?.a;
+          h.cell.styles.textColor = a === 'yes' ? STATUS_RGB.pass : a === 'no' ? STATUS_RGB.fail : C.ink2;
+        }
+      },
+    });
+    y = doc.lastAutoTable.finalY + 8;
+    const wx = (co.weather?.days || []).filter((w) => weatherLine(w));
+    if (wx.length) {
+      ensure(20);
+      font('bold', 11);
+      text('Weather on the inspection days', M, y + 4);
+      y += 6;
+      font('normal', 8.5, C.ink2);
+      if (co.weather.place) { text(`Location: ${co.weather.place}${co.weather.source ? ' · Source: ' + co.weather.source : ''}`, M, y + 3); y += 5; }
+      doc.autoTable({
+        startY: y,
+        margin: { left: M, right: M, top: M + 10 },
+        head: [['Date', 'Conditions']],
+        body: wx.map((w) => [new Date(w.date + 'T12:00').toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }), t(weatherLine(w))]),
+        styles: { fontSize: 8.5, cellPadding: 1.8, lineColor: C.line, lineWidth: 0.1, textColor: C.ink },
+        headStyles: { fillColor: C.soft, textColor: C.ink, fontStyle: 'bold' },
+        columnStyles: { 0: { cellWidth: 36 } },
+      });
+      y = doc.lastAutoTable.finalY + 8;
+    }
+    const decl = co.declarationBlobs || [];
+    if (decl.length || co.declaration?.reason) {
+      ensure(decl.length ? 110 : 30); // keep the heading with the photo
+      font('bold', 11);
+      text('Client declaration', M, y + 4);
+      y += 8;
+      if (!decl.length) para(`No signed declaration sheet: ${co.declaration.reason}`, 9.5);
+      for (const blob of decl) {
+        const img = await reportImage(blob, 1600, 0.8);
+        const maxH = A4.h - M - 14 - (M + 10);
+        let k = Math.min(CW / img.w, maxH / img.h);
+        if (y + img.h * k > A4.h - M - 14) {
+          k = Math.min(k, (A4.h - M - 14 - y) / img.h);
+          if (img.h * k < 90) { newPage(); k = Math.min(CW / img.w, maxH / img.h); }
+        }
+        doc.setDrawColor(...C.line);
+        doc.addImage(img.data, 'JPEG', M, y, img.w * k, img.h * k, undefined, 'FAST');
+        doc.rect(M, y, img.w * k, img.h * k);
+        y += img.h * k + 6;
+      }
+    }
+  }
+
   // ---------- running header & footer on every page but the cover ----------
   const total = doc.getNumberOfPages();
   for (let i = 2; i <= total; i++) {
@@ -804,6 +871,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   onProgress('Saving PDF…');
   const blob = doc.output('blob');
   const filename = `FSCF_Report_${safeName(project.site || project.client)}_${project.date || new Date().toISOString().slice(0, 10)}${opts.filterText ? '_filtered' : ''}.pdf`;
+  if (opts.returnBlob) return { blob, filename };
   return saveFile(filename, blob);
 }
 
