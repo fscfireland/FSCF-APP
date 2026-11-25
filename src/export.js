@@ -17,7 +17,14 @@ export async function exportProjectXlsx(project, questions = []) {
   const planName = Object.fromEntries(plans.map((p) => [p.id, p.name]));
   const photos = await db.byIndex('photos', 'projectId', project.id);
   const photoCount = {};
-  for (const p of photos) photoCount[p.doorId] = (photoCount[p.doorId] || 0) + 1;
+  const videoCount = {};
+  const videoLinks = {};
+  for (const p of photos) {
+    if (p.kind === 'video') {
+      videoCount[p.doorId] = (videoCount[p.doorId] || 0) + 1;
+      if (p.link) (videoLinks[p.doorId] ||= []).push(p.link);
+    } else photoCount[p.doorId] = (photoCount[p.doorId] || 0) + 1;
+  }
   const statusLabel = (d) => statusById[d.status || 'not_inspected']?.label || '';
   const enc = XLSX.utils.encode_cell;
 
@@ -57,7 +64,7 @@ export async function exportProjectXlsx(project, questions = []) {
   // --- Doors (one row per door)
   const doorHeader = [
     'Pin', 'Door ref', 'Plan / level', 'Location / room', 'Door type', 'Leaf config', 'Status',
-    'Recommended actions', `Questions: ${ANSWERS[1].label}`, 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Notes', 'Inspected on', 'Inspected by',
+    'Recommended actions', `Questions: ${ANSWERS[1].label}`, 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Videos', 'Video links', 'Notes', 'Inspected on', 'Inspected by',
   ];
   const doorRows = doors.map((d) => [
     d.pinNo ?? '',
@@ -74,13 +81,15 @@ export async function exportProjectXlsx(project, questions = []) {
     (d.defects || []).map((x) => x.remedial).filter(Boolean).join('; '),
     materialsTotal(d),
     photoCount[d.id] || 0,
+    videoCount[d.id] || 0,
+    (videoLinks[d.id] || []).join(' '),
     d.notes || '',
     d.inspectedOn || '',
     d.inspectedBy || '',
   ]);
   const ws1 = XLSX.utils.aoa_to_sheet([doorHeader, ...doorRows]);
   moneyCols(ws1, ['M'], 2, doorRows.length + 1);
-  ws1['!cols'] = [6, 12, 18, 22, 18, 14, 13, 40, 9, 8, 50, 50, 12, 7, 30, 12, 14].map((wch) => ({ wch }));
+  ws1['!cols'] = [6, 12, 18, 22, 18, 14, 13, 40, 9, 8, 50, 50, 12, 7, 7, 30, 30, 12, 14].map((wch) => ({ wch }));
   ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, doorRows.length), c: doorHeader.length - 1 } }) };
   XLSX.utils.book_append_sheet(wb, ws1, 'Doors');
 

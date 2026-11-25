@@ -14,8 +14,8 @@ Fire door inspection app for FSCF Ireland. It's a mobile web app: it runs in the
 
   Doors not yet inspected show as hollow white pins. The checklist answers, door list, Excel and PDF all use the project's wording.
 - **Pins**: tap **Add door**, then tap the plan. Pins are numbered 1, 2, 3… per project and coloured by status.
-  To move a pin, open it and tap **Move pin**, then drag it or tap the new spot.
-- **Door record**: door ref, location, door type (FD30/EI 30 etc.), leaf configuration, status, photos (camera or gallery), defects with suggested remedial work and quantity, recommended action, notes, and inspected on/by. It saves as you type.
+  To move a pin, **press and hold it for about half a second, then drag it**. You can also open the door and tap **Move pin**.
+- **Door record**: door ref, location, door type (FD30/EI 30 etc.), leaf configuration, status, photos and videos (camera or gallery), defects with suggested remedial work and quantity, recommended action, notes, and inspected on/by. It saves as you type.
   Adding a defect to a door that's "Not inspected" or "Pass" sets it to "Fail" automatically.
 - **Inspection questions**: a checklist set up in Settings, answered Pass / Fail / N/A for each door. "Mark rest Pass" fills in any unanswered questions as Pass. A Fail answer sets the door to Fail.
 - **Recommended actions**: each door can have several, picked from your list or typed in. Actions you type are saved to the list for next time.
@@ -45,7 +45,8 @@ npm run build    # builds dist/ for hosting
 | `src/db.js` | On-phone database (IndexedDB), with sync-ready fields |
 | `src/files.js` | PDF and photo processing, file saving |
 | `src/export.js` | Excel workbook |
-| `src/report.js` | PDF report with charts and photos |
+| `src/report.js` | PDF report with charts, photos and video links |
+| `src/media.js` | Video thumbnails, durations and links |
 | `src/backup.js` | Backup and restore |
 | `src/defaults.js` | Statuses, door types, default defect list |
 | `public/sw.js` | Offline caching (service worker) |

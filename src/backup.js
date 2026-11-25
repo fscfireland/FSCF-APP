@@ -25,16 +25,25 @@ function deserialise(rec) {
 
 export async function backupProjects(projects) {
   const data = { format: FORMAT, version: 1, exportedAt: new Date().toISOString(), projects: [], plans: [], doors: [], photos: [] };
+  let videosLeftOut = 0;
   for (const p of projects) {
     data.projects.push(p);
     for (const store of ['plans', 'doors', 'photos']) {
-      for (const r of await db.byIndex(store, 'projectId', p.id)) data[store].push(await serialise(r));
+      for (const r of await db.byIndex(store, 'projectId', p.id)) {
+        // Videos can be hundreds of MB: too big for a backup file built on a phone
+        if (store === 'photos' && r.kind === 'video') {
+          videosLeftOut++;
+          continue;
+        }
+        data[store].push(await serialise(r));
+      }
     }
   }
   data.settings = await db.all('settings');
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const name = projects.length === 1 ? safeName(projects[0].site || projects[0].client) : 'all-projects';
-  return saveFile(`FSCF_backup_${name}_${new Date().toISOString().slice(0, 10)}.json`, blob);
+  const result = await saveFile(`FSCF_backup_${name}_${new Date().toISOString().slice(0, 10)}.json`, blob);
+  return { result, videosLeftOut };
 }
 
 export async function restoreBackup(file) {

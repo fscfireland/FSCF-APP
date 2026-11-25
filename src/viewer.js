@@ -43,6 +43,7 @@ export class PlanViewer {
     // Stop iOS Safari's own page zoom from fighting ours
     this._gs = (e) => e.preventDefault();
     this.el.addEventListener('gesturestart', this._gs);
+    this.el.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   destroy() {
@@ -152,8 +153,25 @@ export class PlanViewer {
         multi: false,
         pinId: pinEl?.dataset.id || null,
         dragging: false,
+        longPress: false,
       };
+      // Press and hold a pin (~0.45 s, without moving) to pick it up and drag it
+      const g = this.gesture;
+      if (g.pinId && this.onPinDrag) {
+        g.lpTimer = setTimeout(() => {
+          if (this.gesture !== g || g.moved || g.multi) return;
+          g.longPress = true;
+          this.dragPinId = g.pinId;
+          pinEl.classList.add('is-lifting');
+          try {
+            navigator.vibrate?.(25);
+          } catch {
+            /* no vibration on this phone */
+          }
+        }, 450);
+      }
     } else if (this.pointers.size === 2) {
+      clearTimeout(this.gesture?.lpTimer);
       const [a, b] = [...this.pointers.values()];
       this.gesture = {
         ...this.gesture,
@@ -211,11 +229,17 @@ export class PlanViewer {
     const g = this.gesture;
     if (this.pointers.size > 0 || !g) return;
     this.gesture = null;
+    clearTimeout(g.lpTimer);
+    if (g.longPress) {
+      this.pinLayer.querySelector(`[data-id="${g.pinId}"]`)?.classList.remove('is-lifting');
+      this.dragPinId = null;
+    }
     if (g.dragging) {
       const p = this._toPlan(pt);
       this.onPinDrag(g.pinId, clamp01(p.x), clamp01(p.y));
       return;
     }
+    if (g.longPress) return; // held but not moved: just put it back down
     if (g.multi || g.moved) return;
     const quick = performance.now() - g.t < 500;
     if (!quick) return;

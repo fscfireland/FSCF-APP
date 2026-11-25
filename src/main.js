@@ -9,6 +9,7 @@ import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx } from './export.js';
 import { exportProjectPdf } from './report.js';
+import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today } from './ui.js';
 
@@ -415,7 +416,7 @@ function renderExportTab(body, project, plans, doors) {
     </section>
     <section class="panel">
       <h2 class="h2">${icon('shield')} Backup</h2>
-      <p>Until cloud sync is switched on, this project is stored only on this phone. Save a backup file (includes plans and photos) and keep it in Google Drive or email it to yourself.</p>
+      <p>Until cloud sync is switched on, this project is stored only on this phone. Save a backup file (includes plans and photos; videos are too large and stay on the phone) and keep it in Google Drive or email it to yourself.</p>
       <button class="btn" id="backup">Save backup of this project</button>
     </section>
     <section class="panel">
@@ -465,9 +466,9 @@ function renderExportTab(body, project, plans, doors) {
   $('#backup').onclick = async () => {
     const b = busy('Preparing backup…');
     try {
-      const r = await backupProjects([project]);
+      const { result, videosLeftOut } = await backupProjects([project]);
       b.done();
-      if (r === 'saved') toast('Backup saved');
+      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s) not included – too large)` : 'Backup saved');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
@@ -532,6 +533,16 @@ async function renderPlan() {
   $('#zfit').onclick = () => viewer.fit();
   $('#add-door').onclick = () => setMode(mode === 'add' ? null : 'add');
   await refreshPins();
+  // Show the press-and-hold tip the first few times a plan with pins is opened
+  try {
+    const seen = Number(localStorage.getItem('fscf-hint-drag') || 0);
+    if (seen < 3 && $$('.pin').length) {
+      localStorage.setItem('fscf-hint-drag', String(seen + 1));
+      setMode('hint');
+    }
+  } catch {
+    /* storage blocked: skip the tip */
+  }
   if (state.focusDoor) {
     const d = await db.get('doors', state.focusDoor);
     if (d) viewer.focus(d.x, d.y);
@@ -556,6 +567,9 @@ function setMode(m, doorId = null) {
   } else if (m === 'move') {
     banner.hidden = false;
     banner.innerHTML = `<span>Drag the pin, or tap its new position</span><button class="btn sm" id="cancel-mode">Done</button>`;
+  } else if (m === 'hint') {
+    banner.hidden = false;
+    banner.innerHTML = `<span>Tip: press and hold a pin to drag it</span><button class="btn sm" id="cancel-mode">OK</button>`;
   } else {
     banner.hidden = true;
     add.classList.remove('is-on');
@@ -567,6 +581,7 @@ function setMode(m, doorId = null) {
 }
 
 async function onPlanTap(x, y) {
+  if (mode === 'hint') return setMode(null);
   if (mode === 'add') {
     const pinNo = await db.nextPinNo(state.projectId);
     const door = await db.put('doors', {
@@ -669,10 +684,11 @@ async function drawSheet(door) {
       </section>
 
       <section class="block">
-        <div class="block-head"><h3>Photos</h3>
+        <div class="block-head"><h3>Photos &amp; videos <span class="muted" id="ph-n"></span></h3>
           <div class="row-btns">
-            <label class="btn sm">${icon('camera')} Camera<input type="file" accept="image/*" capture="environment" id="ph-cam" hidden></label>
-            <label class="btn sm">${icon('image')} Gallery<input type="file" accept="image/*" multiple id="ph-lib" hidden></label>
+            <label class="btn sm">${icon('camera')} Photo<input type="file" accept="image/*" capture="environment" id="ph-cam" hidden></label>
+            <label class="btn sm">${icon('video')} Video<input type="file" accept="video/*" capture="environment" id="ph-vid" hidden></label>
+            <label class="btn sm">${icon('image')} Gallery<input type="file" accept="image/*,video/*" multiple id="ph-lib" hidden></label>
           </div>
         </div>
         <div class="photo-strip" id="photos"></div>
@@ -910,29 +926,47 @@ async function drawSheet(door) {
   // photos
   const drawPhotos = async () => {
     const photos = await db.doorPhotos(door.id);
+    const nv = photos.filter(isVideo).length;
+    $('#ph-n').textContent = photos.length ? `(${photos.length - nv} photo${photos.length - nv === 1 ? '' : 's'}${nv ? `, ${nv} video${nv === 1 ? '' : 's'}` : ''})` : '';
     $('#photos').innerHTML = photos.length
-      ? photos.map((p) => `<button class="photo" data-id="${p.id}"><img alt="Door photo" src="${objUrl(p.thumb)}"></button>`).join('')
-      : '<p class="muted small">No photos yet.</p>';
+      ? photos.map((p) => isVideo(p)
+        ? `<button class="photo is-video" data-id="${p.id}" aria-label="Play video"><img alt="" src="${objUrl(p.thumb)}"><span class="play">${icon('play')}</span><span class="dur">${esc(fmtDuration(p.duration))}</span>${p.link ? `<span class="has-link">${icon('link')}</span>` : ''}</button>`
+        : `<button class="photo" data-id="${p.id}"><img alt="Door photo" src="${objUrl(p.thumb)}"></button>`).join('')
+      : '<p class="muted small">No photos or videos yet.</p>';
     $$('.photo', el).forEach((b) => (b.onclick = () => openPhoto(photos.find((p) => p.id === b.dataset.id), drawPhotos)));
   };
   drawPhotos();
   const addPhotos = async (files) => {
     if (!files.length) return;
-    const bz = busy('Saving photo…');
+    const bz = busy('Saving…');
     try {
+      let bigVideo = false;
       for (const f of files) {
-        const { blob, thumb, width, height } = await compressImage(f, 1600, 0.8);
-        await db.put('photos', { id: db.uid(), projectId: door.projectId, doorId: door.id, blob, thumb, width, height });
+        if (f.type.startsWith('video/') || /\.(mov|mp4|m4v|webm|3gp)$/i.test(f.name)) {
+          bz.update('Saving video…');
+          const info = await videoInfo(f);
+          await db.put('photos', {
+            id: db.uid(), projectId: door.projectId, doorId: door.id, kind: 'video',
+            blob: f, mime: f.type || 'video/mp4', size: f.size, name: f.name, link: '', ...info,
+          });
+          if (f.size > 150 * 1048576) bigVideo = true;
+        } else {
+          bz.update('Saving photo…');
+          const { blob, thumb, width, height } = await compressImage(f, 1600, 0.8);
+          await db.put('photos', { id: db.uid(), projectId: door.projectId, doorId: door.id, blob, thumb, width, height });
+        }
       }
       bz.done();
       drawPhotos();
+      if (bigVideo) toast('Large video saved. Short clips (under a minute) keep the phone from filling up.');
     } catch (e) {
       bz.done();
-      toast('Could not save photo: ' + e.message, 'error');
+      toast('Could not save: ' + e.message, 'error');
     }
   };
   $('#ph-cam').onchange = (e) => { addPhotos([...e.target.files]); e.target.value = ''; };
   $('#ph-lib').onchange = (e) => { addPhotos([...e.target.files]); e.target.value = ''; };
+  $('#ph-vid').onchange = (e) => { addPhotos([...e.target.files]); e.target.value = ''; };
 
   // actions
   $('#sh-move')?.addEventListener('click', async () => {
@@ -1056,21 +1090,47 @@ async function pickMaterials() {
 }
 
 function openPhoto(photo, onChange) {
+  const video = isVideo(photo);
   const wrap = document.createElement('div');
-  wrap.className = 'lightbox';
+  wrap.className = 'lightbox' + (video ? ' is-video' : '');
   const u = URL.createObjectURL(photo.blob);
   wrap.innerHTML = `
-    <img alt="Door photo" src="${u}">
+    ${video
+      ? `<video src="${u}" controls playsinline preload="metadata"></video>
+         <div class="lb-link">
+           <label class="field"><span>Link for the PDF report (optional)</span>
+             <input id="lb-url" type="url" inputmode="url" placeholder="Paste a Google Drive / OneDrive / YouTube link" value="${esc(photo.link || '')}">
+           </label>
+           <small>${esc([fmtDuration(photo.duration), fmtSize(photo.size)].filter(Boolean).join(' · '))}. With a link, the video's thumbnail in the PDF can be tapped to play it. Once cloud sync is set up, links will be filled in automatically.</small>
+         </div>`
+      : `<img alt="Door photo" src="${u}">`}
     <div class="lb-bar">
       <button class="btn ghost danger-text" id="lb-del">${icon('trash')} Delete</button>
       <button class="btn" id="lb-close">Close</button>
     </div>`;
   document.body.append(wrap);
-  const close = () => { URL.revokeObjectURL(u); wrap.remove(); };
-  $('#lb-close', wrap).onclick = close;
-  $('img', wrap).onclick = close;
+  const close = () => {
+    $('video', wrap)?.pause();
+    URL.revokeObjectURL(u);
+    wrap.remove();
+  };
+  $('#lb-close', wrap).onclick = async () => {
+    if (video) {
+      const raw = $('#lb-url', wrap).value;
+      const link = cleanLink(raw);
+      if (raw.trim() && !link) return toast('That link doesn\'t look right. Paste the full web address.', 'error');
+      if (link !== (photo.link || '')) {
+        await db.put('photos', { ...photo, link });
+        toast(link ? 'Link saved' : 'Link removed');
+        onChange();
+      }
+    }
+    close();
+  };
+  $('img', wrap)?.addEventListener('click', close);
   $('#lb-del', wrap).onclick = async () => {
-    if (await confirmBox('Delete photo?', 'This photo will be removed from the door record.')) {
+    const what = video ? 'video' : 'photo';
+    if (await confirmBox(`Delete ${what}?`, `This ${what} will be removed from the door record.`)) {
       await db.remove('photos', photo.id);
       close();
       onChange();
@@ -1220,9 +1280,9 @@ async function renderSettings() {
   $('#s-backup').onclick = async () => {
     const b = busy('Preparing backup…');
     try {
-      const r = await backupProjects(projects);
+      const { result, videosLeftOut } = await backupProjects(projects);
       b.done();
-      if (r === 'saved') toast('Backup saved');
+      if (result === 'saved') toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s) not included – too large)` : 'Backup saved');
     } catch (e) {
       b.done();
       toast(e.message, 'error');

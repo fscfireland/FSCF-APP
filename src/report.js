@@ -5,6 +5,7 @@
 import * as db from './db.js';
 import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected } from './defaults.js';
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
+import { isVideo, fmtDuration } from './media.js';
 import { fmtDate } from './ui.js';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
@@ -621,8 +622,9 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
       if (photos.length) {
         const firstRowH = ((CW - 8) / 3) * 0.75;
         ensure(firstRowH + 10); // keep the heading with the first row of photos
+        const nv = photos.filter(isVideo).length;
         font('bold', 10);
-        text(`Photos (${photos.length})`, M, y + 4);
+        text(nv ? `Photos & videos (${photos.length - nv} photos, ${nv} video${nv > 1 ? 's' : ''})` : `Photos (${photos.length})`, M, y + 4);
         y += 7;
         const cols = 3;
         const gap = 4;
@@ -631,14 +633,34 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
         for (let i = 0; i < photos.length; i++) {
           const col = i % cols;
           if (col === 0) ensure(cellH + 2);
-          const img = await reportImage(photos[i].blob);
+          const item = photos[i];
+          const vid = isVideo(item);
+          // videos use their still frame; the video file itself can't go in a PDF
+          const img = await reportImage(vid ? item.thumb : item.blob);
           const k = Math.min(cellW / img.w, cellH / img.h);
           const w = img.w * k;
           const h = img.h * k;
-          const x = M + col * (cellW + gap) + (cellW - w) / 2;
+          const cellX = M + col * (cellW + gap);
+          const x = cellX + (cellW - w) / 2;
           doc.setFillColor(...C.soft);
-          doc.rect(M + col * (cellW + gap), y, cellW, cellH, 'F');
+          doc.rect(cellX, y, cellW, cellH, 'F');
           doc.addImage(img.data, 'JPEG', x, y + (cellH - h) / 2, w, h, undefined, 'FAST');
+          if (vid) {
+            // play button
+            const cx = cellX + cellW / 2;
+            const cy = y + cellH / 2 - 2;
+            doc.setFillColor(...(item.link ? C.accent : C.ink));
+            doc.circle(cx, cy, 6, 'F');
+            doc.setFillColor(255, 255, 255);
+            doc.triangle(cx - 2, cy - 3.2, cx - 2, cy + 3.2, cx + 3.4, cy, 'F');
+            // caption band
+            doc.setFillColor(...C.ink);
+            doc.rect(cellX, y + cellH - 6.5, cellW, 6.5, 'F');
+            font('bold', 7.5, [255, 255, 255]);
+            const dur = fmtDuration(item.duration);
+            text(`Video${dur ? ' ' + dur : ''}${item.link ? ' - tap to play' : ' - held on file'}`, cellX + 2.5, y + cellH - 2.2);
+            if (item.link) doc.link(cellX, y, cellW, cellH, { url: item.link });
+          }
           if (col === cols - 1 || i === photos.length - 1) y += cellH + gap;
         }
       }
