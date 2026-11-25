@@ -962,3 +962,17 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .kind-opt small { color: var(--ink-2); }
 .kind-opt:has(input:checked) { border-color: var(--accent); }
 .mode-banner .kind-chip { flex: none; }
+
+/* Settings: groups and foldable sections */
+.set-group { margin: 22px 2px 8px; }
+.set-group:first-of-type { margin-top: 4px; }
+.set-group h2 { margin: 0; font: 700 13px/1.2 var(--font-head); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.set-group p { margin: 4px 0 0; }
+.kind-select select { font-size: 17px; font-weight: 650; min-height: 48px; }
+.fold-head { cursor: pointer; display: flex; align-items: center; gap: 8px; user-select: none; }
+.fold-head::after { content: ""; margin-left: auto; width: 9px; height: 9px; border-right: 2px solid var(--ink-2); border-bottom: 2px solid var(--ink-2); transform: rotate(45deg); transition: transform .15s; flex: none; }
+.block-head .fold-head { flex: 1; }
+.panel.fold.is-closed .fold-head::after { transform: rotate(-45deg); }
+.panel.fold.is-closed > :not(:first-child) { display: none !important; }
+.panel.fold.is-closed { padding-bottom: 14px; }
+.panel.fold.is-closed > .block-head .btn { display: none; }

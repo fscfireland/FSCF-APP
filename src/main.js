@@ -1595,7 +1595,10 @@ async function copyCollectionDialog(project, plans, from) {
           <span><b>Pins and door details</b><small>Door ref, room, door type and leaf. Every door starts as Not inspected with a blank checklist. Best for a repeat service.</small></span></label>
         <label class="scheme-opt"><input type="radio" name="mode" value="all">
           <span><b>Everything</b><small>Also status, checklist answers, defects, actions, materials and notes, ready to update.</small></span></label>
+        <label class="scheme-opt"><input type="radio" name="mode" value="none">
+          <span><b>Drawings only, no pins</b><small>Start a different inspection (e.g. dampers or emergency lighting) on the same drawings.</small></span></label>
       </fieldset>
+      <label class="field"><span>Inspection type for the copied drawings</span><select name="kind"><option value="">Same as now</option>${KIND_IDS.map((k) => `<option value="${k}">${esc(kitOf(k).name)}</option>`).join('')}</select></label>
       <p class="muted small">Photos and videos aren't copied; they stay with "${esc(collLabel(from))}".</p>`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Copy', value: true, kind: 'primary' }],
   });
@@ -1607,8 +1610,16 @@ async function copyCollectionDialog(project, plans, from) {
   const b = busy('Copying drawings and pins…');
   try {
     const res = await copyCollection(project, plans, from, name, r.data.mode, lists.inspector || '');
+    if (r.data.kind) {
+      // the copies become a different type; any copied pins keep their own type
+      for (const pl of await db.projectPlans(project.id)) {
+        if ((pl.collection || '') !== name) continue;
+        for (const d of await db.byIndex('doors', 'planId', pl.id)) if (!d.kind) await db.put('doors', { ...d, kind: kindOfPlan(pl) });
+        await db.put('plans', { ...pl, inspType: r.data.kind });
+      }
+    }
     b.done();
-    toast(`Copied ${res.drawings} drawing${res.drawings === 1 ? '' : 's'} and ${res.pins} pin${res.pins === 1 ? '' : 's'} to "${collLabel(name)}"`);
+    toast(`Copied ${res.drawings} drawing${res.drawings === 1 ? '' : 's'}${res.pins ? ` and ${res.pins} pin${res.pins === 1 ? '' : 's'}` : ''} to "${collLabel(name)}"`);
     await pickCollection(project, name);
   } catch (e) {
     b.done();
@@ -1715,6 +1726,28 @@ async function setPlanKind(plan, newKind) {
   return true;
 }
 
+// Remove pins from a drawing, all of them or only one type (e.g. door pins
+// copied onto a dampers drawing). Their photos go with them.
+async function removePins(plan) {
+  const pins = await db.byIndex('doors', 'planId', plan.id);
+  if (!pins.length) return toast('There are no pins on this drawing');
+  const byKind = {};
+  for (const d of pins) (byKind[kindOfDoor(d, plan)] ||= []).push(d);
+  const kinds = Object.keys(byKind);
+  const r = await dialog({
+    title: `Remove pins from "${plan.name}"`,
+    body: `<p>Tick the pins to remove. Their details and photos are deleted; this cannot be undone.</p>
+      <div class="kind-list">${kinds.map((k) => `<label class="kind-opt k-${k}"><input type="checkbox" name="k_${k}" ${kinds.length === 1 || k !== kindOfPlan(plan) ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>${byKind[k].length} pin${byKind[k].length === 1 ? '' : 's'}${byKind[k].some((d) => (d.status || 'not_inspected') !== 'not_inspected') ? ` · ${byKind[k].filter((d) => (d.status || 'not_inspected') !== 'not_inspected').length} inspected` : ''}</small></span></label>`).join('')}</div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Remove', value: true, kind: 'primary danger' }],
+  });
+  if (r.value !== true) return;
+  const gone = kinds.filter((k) => r.data['k_' + k]).flatMap((k) => byKind[k]);
+  if (!gone.length) return;
+  for (const d of gone) await db.deleteDoor(d.id);
+  toast(`${gone.length} pin${gone.length === 1 ? '' : 's'} removed`);
+  refresh();
+}
+
 async function planMenu(plan, colls = []) {
   const r = await dialog({
     title: 'Plan',
@@ -1723,12 +1756,14 @@ async function planMenu(plan, colls = []) {
         <small class="muted">Sets the checklist, defects and item types for every pin on this drawing.</small></label>
       ${colls.length > 1 || plan.collection ? `<label class="field"><span>Collection</span>
         <select name="coll" id="plan-coll">${collOptions(colls, plan.collection || '', { folders: false })}</select></label>` : ''}`,
-    buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
+    buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Remove pins…', value: 'pins', kind: 'ghost' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
     await setPlanKind(plan, r.data.kind || kindOfPlan(plan));
     await db.put('plans', { ...(await db.get('plans', plan.id)), name: r.data.name || plan.name, ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
     refresh();
+  } else if (r.value === 'pins') {
+    await removePins(plan);
   } else if (r.value === 'delete') {
     const doors = await db.byIndex('doors', 'planId', plan.id);
     if (await confirmBox('Delete plan?', `This deletes "${plan.name}" and the ${doors.length} door record(s) pinned on it, with their photos. This cannot be undone.`)) {
@@ -4126,6 +4161,15 @@ async function logoFromFile(file, maxSide) {
 }
 
 // ---------- Settings ----------
+const openFolds = new Set(['qs']);
+// Which product categories belong to each inspection type (Labour and Other show for all)
+const KIND_CATS = {
+  fd: ['Seals', 'Closers', 'Hinges', 'Ironmongery', 'Hold-open', 'Signs', 'Glazing', 'Fire stopping', 'Timber & repairs'],
+  dampers: ['Dampers', 'Fire stopping'],
+  alarm: ['Fire alarm'],
+  emlight: ['Emergency lighting'],
+  ext: ['Extinguishers', 'Signs'],
+};
 async function renderSettings() {
   kindNow = state.setKind || 'fd';
   const est = await db.storageEstimate();
@@ -4137,7 +4181,39 @@ async function renderSettings() {
       <span></span>
     </header>
     <main class="page">
+      <div class="set-group"><h2>Inspection checks</h2><p class="muted small">Pick a type, then edit its questions, item types, defects and prices. Tap a heading to open or close it.</p></div>
+      <section class="panel kind-panel">
+        <label class="field kind-select"><span>Inspection type</span>
+          <select id="s-kind">${KIND_IDS.map((k) => `<option value="${k}" ${k === kindNow ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
+        <p class="muted small">The questions, ${esc(kitOf(kindNow).item.toLowerCase())} types, defects and products below are for <b>${esc(kitOf(kindNow).name.toLowerCase())}</b> only. Each drawing's type is set from its label on the Plans tab.</p>
+        ${kindNow !== 'fd' ? `<div class="grid2"><label class="field"><span>Name of each item</span><input id="s-kitem" value="${esc(kitOf(kindNow).item)}"></label><label class="field"><span>Report title</span><input id="s-kreport" value="${esc(kitOf(kindNow).report)}"></label></div>` : ''}
+      </section>
+      <section class="panel fold" data-fold="qs">
+        <div class="block-head"><h2 class="h2">Inspection questions · ${esc(kitOf(kindNow).name)}</h2><button class="btn sm" id="s-add-q">${icon('plus')} Add</button></div>
+        <p class="muted small">Asked of every ${esc(kitOf(kindNow).item.toLowerCase())} on a ${esc(kitOf(kindNow).name.toLowerCase())} drawing, answered Pass / Fail / N/A. Answers already given are kept if you edit or remove a question.</p>
+        <div id="s-qs"></div>
+      </section>
+      <section class="panel fold" data-fold="types">
+        <h2 class="h2">${esc(kitOf(kindNow).item)} types · ${esc(kitOf(kindNow).name)}</h2>
+        <label class="field"><span>One per line</span><textarea id="s-types" rows="8">${esc(kt().join('\n'))}</textarea></label>
+      </section>
+      <section class="panel fold" data-fold="defs">
+        <div class="block-head"><h2 class="h2">Defect list · ${esc(kitOf(kindNow).name)}</h2><button class="btn sm" id="s-add-def">${icon('plus')} Add</button></div>
+        <p class="muted small">Each defect has the remedial work it suggests. Editing here does not change doors already recorded.</p>
+        <div id="s-defs"></div>
+        <button class="btn ghost sm" id="s-reset">Reset to default list</button>
+      </section>
+      <section class="panel fold" data-fold="mats" ${priced() ? '' : 'hidden'}>
+        <div class="block-head"><h2 class="h2">Products &amp; prices · ${esc(kitOf(kindNow).name)}</h2><button class="btn sm" id="s-add-m">${icon('plus')} Add</button></div>
+        <p class="muted small">Your unit prices (€ ex VAT). They pre-fill doors when you add a material; changing a price here does not change doors already recorded.</p>
+        <p class="muted small">${state.allMats ? 'Showing every product.' : `Showing products for ${esc(kitOf(kindNow).name.toLowerCase())}, plus labour and other.`} <button type="button" class="link-btn" id="s-allmats">${state.allMats ? 'Show only this type' : 'Show all products'}</button></p>
+        <div id="s-mats"></div>
+      </section>
+      <div class="set-group"><h2>You and your company</h2></div>
       <section class="panel">
+        <label class="field"><span>Inspector name (fills "Inspected by")</span><input id="s-insp" value="${esc(lists.inspector || '')}" placeholder="e.g. Mark Crosby"></label>
+      </section>
+      <section class="panel fold" data-fold="logo">
         <h2 class="h2">Company logo</h2>
         <p class="muted small">Shown on every PDF report. The round logo is also used at the top of the app. Use PNG files; a round logo looks best with transparent corners.</p>
         <div class="logo-grid">
@@ -4154,64 +4230,12 @@ async function renderSettings() {
           }).join('')}
         </div>
       </section>
-      <section class="panel">
+      <section class="panel fold" data-fold="sign">
         <h2 class="h2">My signature</h2>
         <p class="muted small">Save your signature once and use it when signing reports.</p>
         ${lists.signature ? `<div class="sig-show"><img alt="Your saved signature" src="${lists.signature.data}"></div>` : ''}
         <div class="row-btns"><button class="btn sm" id="s-sign">${icon('pencil')} ${lists.signature ? 'Replace' : 'Add'} my signature</button>
           ${lists.signature ? '<button class="btn ghost sm danger-text" id="s-sign-del">Remove</button>' : ''}</div>
-      </section>
-      <section class="panel">
-        <label class="check-line"><input type="checkbox" id="s-gps" ${lists.gps !== false ? 'checked' : ''}> Record my location (GPS) when I inspect a door or take a photo</label>
-        <p class="muted small">Shows you were on site and when. Indoors, phones are usually accurate to about 10–50 m, so it confirms the building, not the room. Your phone will ask for permission the first time.</p>
-      </section>
-      <section class="panel">
-        <label class="check-line"><input type="checkbox" id="s-autores" ${lists.autoResult !== false ? 'checked' : ''}> Set each door's pass / fail result from its checklist and defects</label>
-        <p class="muted small">When on, the door record shows only Not inspected, Not applicable and No access (and Repaired) as buttons; the pass / fail result is worked out for you. Turn off to choose it by hand.</p>
-      </section>
-      <section class="panel">
-        <label class="field"><span>Inspector name (fills "Inspected by")</span><input id="s-insp" value="${esc(lists.inspector || '')}" placeholder="e.g. Mark Crosby"></label>
-      </section>
-      <section class="panel">
-        <div class="block-head"><h2 class="h2">Status schemes</h2><button class="btn sm" id="s-add-scheme">${icon('plus')} New scheme</button></div>
-        <p class="muted small">The wording for door statuses and checklist answers. Each project picks one (in the project's details).</p>
-        <div id="s-schemes"></div>
-      </section>
-      <section class="panel kind-panel">
-        <h2 class="h2">Inspection types</h2>
-        <p class="muted small">Each drawing has a type (set it from the drawing's ⋯ menu). Pick a type to edit its questions, ${'item'} types and defects below.</p>
-        <div class="seg kind-seg" role="group">${KIND_IDS.map((k) => `<button class="seg-btn ${k === kindNow ? 'is-on' : ''}" data-kind="${k}">${esc(kitOf(k).name)}</button>`).join('')}</div>
-        ${kindNow !== 'fd' ? `<div class="grid2"><label class="field"><span>Name of each item</span><input id="s-kitem" value="${esc(kitOf(kindNow).item)}"></label><label class="field"><span>Report title</span><input id="s-kreport" value="${esc(kitOf(kindNow).report)}"></label></div>` : ''}
-      </section>
-      <section class="panel">
-        <div class="block-head"><h2 class="h2">Inspection questions · ${esc(kitOf(kindNow).name)}</h2><button class="btn sm" id="s-add-q">${icon('plus')} Add</button></div>
-        <p class="muted small">Asked of every ${esc(kitOf(kindNow).item.toLowerCase())} on a ${esc(kitOf(kindNow).name.toLowerCase())} drawing, answered Pass / Fail / N/A. Answers already given are kept if you edit or remove a question.</p>
-        <div id="s-qs"></div>
-      </section>
-      <section class="panel">
-        <h2 class="h2">Remedial instructions (default)</h2>
-        <label class="field"><span>The starting wording for the repairer's instructions on new projects. Each project can change its own in the Repairs tab.</span>
-          <textarea id="s-rem" rows="8">${esc(lists.remedialText ?? DEFAULT_REMEDIAL_TEXT)}</textarea></label>
-      </section>
-      <section class="panel">
-        <h2 class="h2">Types of work</h2>
-        <label class="field"><span>One per line. Each project picks one; used to group and filter projects and as the report title.</span><textarea id="s-wtypes" rows="7">${esc((lists.workTypes || DEFAULT_WORK_TYPES).join('\n'))}</textarea></label>
-      </section>
-      <section class="panel">
-        <h2 class="h2">End of service questions</h2>
-        <label class="field"><span>One per line. All must be answered (Yes / No / N/A) before a service can be closed.</span><textarea id="s-closeq" rows="10">${esc(closeQuestions(lists).join('\n'))}</textarea></label>
-      </section>
-      <section class="panel">
-        <h2 class="h2">Door categories</h2>
-        <label class="field"><span>One per line. Used to group and filter doors on drawings, the door list and reports.</span><textarea id="s-cats" rows="7">${esc((lists.categories || DEFAULT_CATEGORIES).join('\n'))}</textarea></label>
-      </section>
-      <section class="panel">
-        <h2 class="h2">Risk ratings</h2>
-        <label class="field"><span>One per line. Doors start with "${esc(NO_RISK)}" until a rating is picked.</span><textarea id="s-risks" rows="4">${esc((lists.risks || DEFAULT_RISKS).join('\n'))}</textarea></label>
-      </section>
-      <section class="panel">
-        <h2 class="h2">Recommended actions</h2>
-        <label class="field"><span>One per line (each door can have several)</span><textarea id="s-actions" rows="8">${esc((lists.actions || []).join('\n'))}</textarea></label>
       </section>
       <section class="panel">
         <h2 class="h2">${icon('shield')} Owner PIN</h2>
@@ -4221,21 +4245,46 @@ async function renderSettings() {
         <div class="row-btns"><button class="btn sm" id="s-owner-pin">${lists.libPin ? 'Change or remove PIN' : 'Set an owner PIN'}</button>
         ${lists.libPin ? `<button class="btn ghost sm" id="s-owner-toggle">${priced() ? 'Lock now' : 'Unlock'}</button>` : ''}</div>
       </section>
-      <section class="panel" ${priced() ? '' : 'hidden'}>
-        <div class="block-head"><h2 class="h2">Materials &amp; prices</h2><button class="btn sm" id="s-add-m">${icon('plus')} Add</button></div>
-        <p class="muted small">Your unit prices (€ ex VAT). They pre-fill doors when you add a material; changing a price here does not change doors already recorded.</p>
-        <div id="s-mats"></div>
+      <section class="panel">
+        <label class="check-line"><input type="checkbox" id="s-gps" ${lists.gps !== false ? 'checked' : ''}> Record my location (GPS) when I inspect a door or take a photo</label>
+        <p class="muted small">Shows you were on site and when. Indoors, phones are usually accurate to about 10–50 m, so it confirms the building, not the room. Your phone will ask for permission the first time.</p>
       </section>
       <section class="panel">
-        <h2 class="h2">${esc(kitOf(kindNow).item)} types · ${esc(kitOf(kindNow).name)}</h2>
-        <label class="field"><span>One per line</span><textarea id="s-types" rows="8">${esc(kt().join('\n'))}</textarea></label>
+        <label class="check-line"><input type="checkbox" id="s-autores" ${lists.autoResult !== false ? 'checked' : ''}> Set each door's pass / fail result from its checklist and defects</label>
+        <p class="muted small">When on, the door record shows only Not inspected, Not applicable and No access (and Repaired) as buttons; the pass / fail result is worked out for you. Turn off to choose it by hand.</p>
       </section>
-      <section class="panel">
-        <div class="block-head"><h2 class="h2">Defect list · ${esc(kitOf(kindNow).name)}</h2><button class="btn sm" id="s-add-def">${icon('plus')} Add</button></div>
-        <p class="muted small">Each defect has the remedial work it suggests. Editing here does not change doors already recorded.</p>
-        <div id="s-defs"></div>
-        <button class="btn ghost sm" id="s-reset">Reset to default list</button>
+      <div class="set-group"><h2>Lists used on every project</h2></div>
+      <section class="panel fold" data-fold="work">
+        <h2 class="h2">Types of work</h2>
+        <label class="field"><span>One per line. Each project picks one; used to group and filter projects and as the report title.</span><textarea id="s-wtypes" rows="7">${esc((lists.workTypes || DEFAULT_WORK_TYPES).join('\n'))}</textarea></label>
       </section>
+      <section class="panel fold" data-fold="close">
+        <h2 class="h2">End of service questions</h2>
+        <label class="field"><span>One per line. All must be answered (Yes / No / N/A) before a service can be closed.</span><textarea id="s-closeq" rows="10">${esc(closeQuestions(lists).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel fold" data-fold="rem">
+        <h2 class="h2">Remedial instructions (default)</h2>
+        <label class="field"><span>The starting wording for the repairer's instructions on new projects. Each project can change its own in the Repairs tab.</span>
+          <textarea id="s-rem" rows="8">${esc(lists.remedialText ?? DEFAULT_REMEDIAL_TEXT)}</textarea></label>
+      </section>
+      <section class="panel fold" data-fold="cats">
+        <h2 class="h2">Door categories</h2>
+        <label class="field"><span>One per line. Used to group and filter doors on drawings, the door list and reports.</span><textarea id="s-cats" rows="7">${esc((lists.categories || DEFAULT_CATEGORIES).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel fold" data-fold="risk">
+        <h2 class="h2">Risk ratings</h2>
+        <label class="field"><span>One per line. Doors start with "${esc(NO_RISK)}" until a rating is picked.</span><textarea id="s-risks" rows="4">${esc((lists.risks || DEFAULT_RISKS).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel fold" data-fold="acts">
+        <h2 class="h2">Recommended actions</h2>
+        <label class="field"><span>One per line (each door can have several)</span><textarea id="s-actions" rows="8">${esc((lists.actions || []).join('\n'))}</textarea></label>
+      </section>
+      <section class="panel fold" data-fold="schemes">
+        <div class="block-head"><h2 class="h2">Status schemes</h2><button class="btn sm" id="s-add-scheme">${icon('plus')} New scheme</button></div>
+        <p class="muted small">The wording for door statuses and checklist answers. Each project picks one (in the project's details).</p>
+        <div id="s-schemes"></div>
+      </section>
+      <div class="set-group"><h2>Backup</h2></div>
       <section class="panel">
         <h2 class="h2">Backup &amp; restore</h2>
         <p class="muted small">${projects.length} project(s) on this phone${est ? ` · using ${(est.usage / 1048576).toFixed(1)} MB` : ''}</p>
@@ -4282,7 +4331,23 @@ async function renderSettings() {
   }
   $('#s-insp').onchange = (e) => saveLists({ inspector: e.target.value });
   $('#s-types').onchange = (e) => saveKit({ doorTypes: e.target.value.split('\n').map((s) => s.trim()).filter(Boolean) });
-  $$('.kind-seg .seg-btn').forEach((b) => (b.onclick = () => { state.setKind = b.dataset.kind; refresh(); }));
+  $('#s-kind').onchange = (e) => { state.setKind = e.target.value; refresh(); };
+  $('#s-allmats')?.addEventListener('click', () => { state.allMats = !state.allMats; refresh(); });
+  // fold / unfold sections; remembered while the app is open
+  for (const sec of $$('.panel.fold')) {
+    const key = sec.dataset.fold;
+    sec.classList.toggle('is-closed', !openFolds.has(key));
+    const h = $('h2', sec);
+    h.classList.add('fold-head');
+    h.setAttribute('role', 'button');
+    h.tabIndex = 0;
+    const toggle = () => {
+      const closed = sec.classList.toggle('is-closed');
+      if (closed) openFolds.delete(key); else openFolds.add(key);
+    };
+    h.onclick = toggle;
+    h.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
+  }
   $('#s-kitem')?.addEventListener('change', (e) => saveKit({ item: e.target.value.trim() || kitOf(kindNow).item }));
   $('#s-kreport')?.addEventListener('change', (e) => saveKit({ report: e.target.value.trim() || kitOf(kindNow).report }));
   // status schemes
@@ -4368,8 +4433,9 @@ async function renderSettings() {
   };
 
   const drawMats = () => {
-    const all = (lists.materials || []).map((m, i) => ({ m, i }));
-    const cats = [...new Set([...MAT_CATEGORIES, ...all.map(({ m }) => matCat(m))])];
+    const show = state.allMats ? null : new Set([...(KIND_CATS[kindNow] || []), 'Labour', 'Other']);
+    const all = (lists.materials || []).map((m, i) => ({ m, i })).filter(({ m }) => !show || show.has(matCat(m)) || (show.has('Other') && !MAT_CATEGORIES.includes(matCat(m))));
+    const cats = [...new Set([...(show ? KIND_CATS[kindNow] || [] : []), ...MAT_CATEGORIES, ...all.map(({ m }) => matCat(m))])];
     $('#s-mats').innerHTML = cats.map((c) => {
       const rows = all.filter(({ m }) => matCat(m) === c);
       if (!rows.length) return '';
@@ -4402,7 +4468,8 @@ async function renderSettings() {
     if (priced()) { libUnlocked = false; toast('Locked'); refresh(); } else unlockOwner();
   });
   $('#s-add-m').onclick = async () => {
-    await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), cat: 'Other', name: '', unit: 'each', cost: 0 }] });
+    await saveLists({ materials: [...(lists.materials || []), { id: db.uid(), cat: state.allMats ? 'Other' : (KIND_CATS[kindNow] || ['Other'])[0], name: '', unit: 'each', cost: 0 }] });
+    openFolds.add('mats');
     drawMats();
     $$('.me-name').at(-1)?.focus();
   };

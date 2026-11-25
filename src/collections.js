@@ -81,7 +81,7 @@ export async function copyCollection(project, plans, from, name, mode, actor = '
   for (const [i, plan] of src.entries()) {
     const { id, createdAt, updatedAt, dirty, ...rest } = plan;
     const np = await db.put('plans', { ...rest, id: db.uid(), collection: name, order: i, copiedFrom: plan.id });
-    for (const d of await db.byIndex('doors', 'planId', plan.id)) {
+    for (const d of mode === 'none' ? [] : await db.byIndex('doors', 'planId', plan.id)) {
       const { id: did, createdAt: c2, updatedAt: u2, dirty: d2, history, log, ...door } = d;
       const fresh = mode === 'reset'
         ? { status: 'not_inspected', checks: {}, defects: [], actions: [], materials: [], notes: '', inspectedOn: '', inspectedBy: '' }
@@ -100,7 +100,7 @@ export async function copyCollection(project, plans, from, name, mode, actor = '
   }
   // doors imported but not yet placed on a drawing
   for (const d of await db.byIndex('doors', 'projectId', project.id)) {
-    if (d.planId || (d.collection || '') !== from) continue;
+    if (mode === 'none' || d.planId || (d.collection || '') !== from) continue;
     const { id: did, createdAt: c2, updatedAt: u2, dirty: d2, history, log, ...door } = d;
     const fresh = mode === 'reset'
       ? { status: 'not_inspected', checks: {}, defects: [], actions: [], materials: [], notes: '', inspectedOn: '', inspectedBy: '' }
