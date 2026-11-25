@@ -1845,8 +1845,9 @@ async function drawSheet(door) {
       <section class="block">
         <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
           <span class="row-btns">
-            <button type="button" class="btn sm q-all q-all-pass" id="q-all-pass" aria-pressed="false" title="Answer every remaining question ${esc(ANSWERS[0].label)}; tap again to undo">${icon('check')} Rest: ${esc(ANSWERS[0].label)}</button>
-            <button type="button" class="btn sm q-all q-all-fail" id="q-all-fail" aria-pressed="false" title="Answer every remaining question ${esc(ANSWERS[1].label)}; tap again to undo">${icon('close')} Rest: ${esc(ANSWERS[1].label)}</button>
+            <button type="button" class="btn sm q-all q-all-pass" id="q-all-pass" aria-pressed="false" title="Set every question to ${esc(ANSWERS[0].label)}; tap again to undo">${icon('check')} All ${esc(ANSWERS[0].label)}</button>
+            <button type="button" class="btn sm q-all q-all-fail" id="q-all-fail" aria-pressed="false" title="Set every question to ${esc(ANSWERS[1].label)}; tap again to undo">${icon('close')} All ${esc(ANSWERS[1].label)}</button>
+            <button type="button" class="btn sm q-all q-rest-na" id="q-rest-na" aria-pressed="false" title="Answer only the unanswered questions ${esc(ANSWERS[2].label)}; tap again to undo">Rest ${esc(ANSWERS[2].label)}</button>
             <button type="button" class="btn ghost sm" id="q-arrange" aria-pressed="false">${icon('grip')} Arrange</button>
             <button class="btn ghost sm" id="q-edit">${icon('gear')} Edit questions</button>
           </span>
@@ -2146,6 +2147,7 @@ async function drawSheet(door) {
 
   // inspection questions
   let arranging = false;
+  const openNotes = new Set(); // questions with their note box open
   const drawQuestions = () => {
     if (!$('#questions')) return;
     const qs = questionsFor(current, lists.questions || []);
@@ -2153,11 +2155,13 @@ async function drawSheet(door) {
     const answered = qs.filter((q) => checks[q.id]?.answer).length;
     const fails = qs.filter((q) => checks[q.id]?.answer === 'fail').length;
     $('#q-n').textContent = qs.length ? `(${answered}/${qs.length}${fails ? ` · ${fails} fail` : ''})` : '';
-    // the "Rest" toggles light up while the questions they filled still hold their answer
+    // All … toggles light up when every answer matches; Rest N/A while the
+    // questions it filled are still N/A
+    const allAre = (a) => qs.length > 0 && qs.every((q) => checks[q.id]?.answer === a);
     const memo = restMemo.get(door.id);
-    for (const [id, a] of [['#q-all-pass', 'pass'], ['#q-all-fail', 'fail']]) {
+    for (const [id, on] of [['#q-all-pass', allAre('pass')], ['#q-all-fail', allAre('fail')], ['#q-rest-na', !!(memo && restStillSet(memo))]]) {
       $(id).hidden = !qs.length || arranging;
-      $(id).setAttribute('aria-pressed', String(!!(memo && memo.answer === a && restStillSet(memo))));
+      $(id).setAttribute('aria-pressed', String(on));
     }
     $('#q-arrange').setAttribute('aria-pressed', String(arranging));
     $('#q-arrange').innerHTML = arranging ? `${icon('check')} Done arranging` : `${icon('grip')} Arrange`;
@@ -2165,12 +2169,16 @@ async function drawSheet(door) {
     $('#questions').innerHTML = qs.length
       ? qs.map((q, i) => {
         const a = checks[q.id]?.answer || '';
+        const note = checks[q.id]?.note || '';
+        const open = note || openNotes.has(q.id);
         return `
         <div class="q-row ${a ? 'is-' + a : ''}" data-id="${esc(q.id)}">
-          <span class="q-text"><span class="q-no">${i + 1}</span>${esc(q.text)}${q.removed ? ` <small class="muted">(${q.hidden ? 'hidden question' : 'removed from list'})</small>` : ''}</span>
+          <span class="q-text"><span class="q-no">${i + 1}</span><span class="q-label">${esc(q.text)}${q.removed ? ` <small class="muted">(${q.hidden ? 'hidden question' : 'removed from list'})</small>` : ''}</span>
+            <button type="button" class="q-note-btn ${note ? 'has-note' : ''}" aria-label="${note ? 'Edit note' : 'Add a note'}" aria-expanded="${!!open}">${icon('pencil')}<span>${note ? 'Note' : 'Note'}</span></button></span>
           <span class="q-ans" role="group" aria-label="Answer">
             ${ANSWERS.map((x) => `<button type="button" class="q-btn q-${x.id}" data-a="${x.id}" aria-pressed="${a === x.id}">${x.label}</button>`).join('')}
           </span>
+          ${open ? `<textarea class="q-note" id="q-note-${esc(q.id)}" rows="2" placeholder="Note on this check, e.g. closer leaking oil">${esc(note)}</textarea>` : ''}
         </div>`;
       }).join('')
       : '<p class="muted small">No questions set up. Add them in Settings.</p>';
@@ -2179,11 +2187,37 @@ async function drawSheet(door) {
         const q = qs.find((x) => x.id === row.dataset.id);
         const checks = { ...(current.checks || {}) };
         const prev = checks[q.id]?.answer;
-        if (prev === b.dataset.a) delete checks[q.id]; // tap again to clear
-        else checks[q.id] = { text: q.text, answer: b.dataset.a };
+        const keepNote = checks[q.id]?.note;
+        if (prev === b.dataset.a) {
+          // tap again to clear the answer (a note stays)
+          if (keepNote) checks[q.id] = { text: q.text, note: keepNote };
+          else delete checks[q.id];
+        } else checks[q.id] = { ...checks[q.id], text: q.text, answer: b.dataset.a };
         queue(autoFail({ checks }));
         drawQuestions();
       }));
+      const id = row.dataset.id;
+      $('.q-note-btn', row).onclick = () => {
+        if (openNotes.has(id) && !(current.checks?.[id]?.note)) openNotes.delete(id);
+        else openNotes.add(id);
+        drawQuestions();
+        $(`#q-note-${CSS.escape(id)}`)?.focus();
+      };
+      const ta = $('.q-note', row);
+      if (ta) ta.oninput = () => {
+        const q = qs.find((x) => x.id === id);
+        const checks = { ...(current.checks || {}) };
+        const v = ta.value;
+        if (v.trim()) checks[id] = { ...checks[id], text: q.text, note: v };
+        else if (checks[id]) {
+          const { note, ...rest } = checks[id];
+          if (rest.answer) checks[id] = rest;
+          else delete checks[id];
+        }
+        queue({ checks });
+        const btn = $('.q-note-btn', row);
+        btn.classList.toggle('has-note', !!v.trim());
+      };
     });
   };
   drawQuestions();
@@ -2191,9 +2225,31 @@ async function drawSheet(door) {
     await flushSave();
     go({ view: 'settings', focus: 's-qs' });
   };
-  // "Rest: No action" / "Rest: Action" are toggles that only touch the
-  // questions you haven't answered. Tap again to clear what they filled;
-  // tap the other to switch those same questions across.
+  // All No action / All Action: set every question; tap the same one again to
+  // put the answers back as they were, or tap the other to switch across.
+  let beforeAll = null;
+  const toggleAll = (answer) => {
+    const qs = questionsFor(current, lists.questions || []);
+    const cur = current.checks || {};
+    const allAre = (a) => qs.length > 0 && qs.every((q) => cur[q.id]?.answer === a);
+    let checks;
+    if (allAre(answer)) {
+      checks = beforeAll ? { ...beforeAll } : Object.fromEntries(Object.entries(cur).filter(([, c]) => c?.note).map(([k, c]) => [k, { text: c.text, note: c.note }]));
+      beforeAll = null;
+    } else {
+      if (!beforeAll || !(allAre('pass') || allAre('fail'))) beforeAll = { ...cur };
+      checks = { ...cur };
+      for (const q of qs) checks[q.id] = { ...checks[q.id], text: q.text, answer };
+    }
+    restMemo.delete(door.id);
+    queue(autoFail({ checks }));
+    drawQuestions();
+  };
+  $('#q-all-pass').onclick = () => toggleAll('pass');
+  $('#q-all-fail').onclick = () => toggleAll('fail');
+
+  // Rest N/A: answer only the questions left unanswered (e.g. a door with no
+  // glazing). Tap again to clear just those.
   const restStillSet = (memo) => memo.ids.length > 0 && memo.ids.every((id) => (current.checks || {})[id]?.answer === memo.answer);
   const toggleRest = (answer) => {
     const qs = questionsFor(current, lists.questions || []);
@@ -2201,7 +2257,11 @@ async function drawSheet(door) {
     const memo = restMemo.get(door.id);
     if (memo && restStillSet(memo)) {
       if (memo.answer === answer) {
-        for (const id of memo.ids) delete checks[id]; // undo
+        for (const id of memo.ids) {
+          // undo, keeping any note
+          if (checks[id]?.note) checks[id] = { text: checks[id].text, note: checks[id].note };
+          else delete checks[id];
+        }
         restMemo.delete(door.id);
       } else {
         for (const id of memo.ids) checks[id] = { ...checks[id], answer }; // switch across
@@ -2210,14 +2270,13 @@ async function drawSheet(door) {
     } else {
       const ids = qs.filter((q) => !checks[q.id]?.answer).map((q) => q.id);
       if (!ids.length) return toast('Every question already has an answer.');
-      for (const q of qs) if (ids.includes(q.id)) checks[q.id] = { text: q.text, answer };
+      for (const q of qs) if (ids.includes(q.id)) checks[q.id] = { ...checks[q.id], text: q.text, answer };
       restMemo.set(door.id, { answer, ids });
     }
     queue(autoFail({ checks }));
     drawQuestions();
   };
-  $('#q-all-pass').onclick = () => toggleRest('pass');
-  $('#q-all-fail').onclick = () => toggleRest('fail');
+  $('#q-rest-na').onclick = () => toggleRest('na');
 
   // Arrange: show / hide each question and slide them into your order.
   // This changes the question list used for every door.

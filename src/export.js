@@ -122,11 +122,12 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
       }
     }
   }
-  const cHeader = ['Pin', 'Door ref', 'Location / room', 'Status', ...qCols.map((q, i) => `Q${i + 1}. ${q.text}`), ...ANSWERS.map((a) => a.label)];
+  const cHeader = ['Pin', 'Door ref', 'Location / room', 'Status', ...qCols.map((q, i) => `Q${i + 1}. ${q.text}`), ...ANSWERS.map((a) => a.label), 'Checklist notes'];
   const cRows = doors.map((d) => {
     const ans = qCols.map((q) => answerLabel[d.checks?.[q.id]?.answer] || '');
     return [d.pinNo ?? '', d.ref || '', d.location || '', statusLabel(d), ...ans,
-      ...['pass', 'fail', 'na'].map((id) => qCols.filter((q) => d.checks?.[q.id]?.answer === id).length)];
+      ...['pass', 'fail', 'na'].map((id) => qCols.filter((q) => d.checks?.[q.id]?.answer === id).length),
+      qCols.map((q, i) => (d.checks?.[q.id]?.note ? `Q${i + 1}: ${d.checks[q.id].note}` : '')).filter(Boolean).join('; ')];
   });
   const ws2 = XLSX.utils.aoa_to_sheet([cHeader, ...cRows]);
   ws2['!cols'] = [6, 12, 22, 13, ...qCols.map(() => 18), 6, 6, 6].map((wch) => ({ wch }));

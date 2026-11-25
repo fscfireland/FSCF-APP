@@ -670,7 +670,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
         startY: y,
         margin: { left: M, right: M, top: M + 10 },
         head: [['#', 'Inspection check', 'Result']],
-        body: qs.map((q, i) => [String(i + 1), t(q.text), ANSWER_TXT[d.checks?.[q.id]?.answer] || '–']),
+        body: qs.map((q, i) => [String(i + 1), t(q.text) + (d.checks?.[q.id]?.note ? t(`\nNote: ${d.checks[q.id].note}`) : ''), ANSWER_TXT[d.checks?.[q.id]?.answer] || '–']),
         styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.5, textColor: C.ink, lineColor: C.line, lineWidth: 0.15 },
         headStyles: { fillColor: C.soft, textColor: C.ink2, fontStyle: 'bold' },
         columnStyles: { 0: { cellWidth: 8, halign: 'center' }, 2: { cellWidth: 20, halign: 'center', fontStyle: 'bold' } },

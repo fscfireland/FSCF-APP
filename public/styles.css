@@ -696,3 +696,12 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 #q-arrange[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
 .q-edit { grid-template-columns: auto 1fr auto; }
 .q-edit-btns { display: flex; flex-wrap: wrap; max-width: 80px; justify-content: flex-end; }
+
+/* checklist: Rest N/A toggle and per-question notes */
+.q-rest-na { --c: var(--st-na); }
+.q-text { position: relative; }
+.q-label { flex: 1; min-width: 0; }
+.q-note-btn { flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); background: none; color: var(--ink-2); font-size: 12px; font-weight: 600; }
+.q-note-btn .ico { width: 13px; height: 13px; }
+.q-note-btn.has-note { border-color: var(--st-repaired); color: var(--st-repaired); background: color-mix(in srgb, var(--st-repaired) 10%, transparent); }
+.q-note { grid-column: 1 / -1; width: 100%; min-height: 44px; padding: 8px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font-size: 15px; resize: vertical; }
