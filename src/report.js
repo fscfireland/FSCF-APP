@@ -11,7 +11,7 @@ import { drawOnCanvas } from './markup.js';
 import { remedialItems } from './remedial.js';
 import { gpsText } from './geo.js';
 import { fmtDate } from './ui.js';
-import { weatherLine } from './closeout.js';
+import { weatherLine, WEATHER_CREDIT } from './closeout.js';
 
 const JSPDF = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
 const AUTOTABLE = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js';
@@ -787,7 +787,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     onProgress('Adding the end of service page…');
     doc.addPage('a4', 'portrait');
     y = M + 10;
-    heading('End of service', `Closed ${new Date(co.closedAt).toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })}${co.closedBy ? ' by ' + co.closedBy : ''}${co.coll ? ' · ' + co.coll : ''}`);
+    heading('End of service', `${co.startedAt ? 'Started ' + new Date(co.startedAt).toLocaleString('en-IE', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' · ' : ''}Closed ${new Date(co.closedAt).toLocaleDateString('en-IE', { day: 'numeric', month: 'long', year: 'numeric' })}${co.closedBy ? ' by ' + co.closedBy : ''}${co.coll ? ' · ' + co.coll : ''}`);
     const ansTxt = { yes: 'Yes', no: 'No', na: 'N/A' };
     doc.autoTable({
       startY: y,
@@ -812,7 +812,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
       text('Weather on the inspection days', M, y + 4);
       y += 6;
       font('normal', 8.5, C.ink2);
-      if (co.weather.place) { text(`Location: ${co.weather.place}${co.weather.source ? ' · Source: ' + co.weather.source : ''}`, M, y + 3); y += 5; }
+
       doc.autoTable({
         startY: y,
         margin: { left: M, right: M, top: M + 10 },
@@ -822,7 +822,14 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
         headStyles: { fillColor: C.soft, textColor: C.ink, fontStyle: 'bold' },
         columnStyles: { 0: { cellWidth: 36 } },
       });
-      y = doc.lastAutoTable.finalY + 8;
+      y = doc.lastAutoTable.finalY + 3;
+      if (wx.some((w) => !w.manual)) {
+        font('normal', 7, C.muted);
+        const cl = doc.splitTextToSize(t(WEATHER_CREDIT), CW);
+        doc.text(cl, M, y + 2.5);
+        y += cl.length * 3 + 2;
+      }
+      y += 5;
     }
     const decl = co.declarationBlobs || [];
     if (decl.length || co.declaration?.reason) {

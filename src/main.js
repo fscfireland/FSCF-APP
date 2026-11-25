@@ -5,7 +5,7 @@ import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
-  DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES,
+  DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
@@ -27,7 +27,7 @@ import {
 } from './collections.js';
 import { backupProjects, restoreBackup } from './backup.js';
 import { fileFolders, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
-import { DEFAULT_CLOSE_QUESTIONS, CLOSE_ANSWERS, closeQuestions, closeKey, closeoutOf, saveCloseout, siteLocation, fetchWeather, weatherLine, inspectionDates } from './closeout.js';
+import { DEFAULT_CLOSE_QUESTIONS, CLOSE_ANSWERS, closeQuestions, closeKey, closeoutOf, saveCloseout, recordWeather, weatherDays, serviceOf, isLive, liveKeys, startService, weatherLine, inspectionDates, todayDublin, WEATHER_SOURCE } from './closeout.js';
 import { fmtSize as fmtBytes } from './media.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
 
@@ -149,6 +149,28 @@ async function renderProjects() {
     collOf[p.id] = listCollections(pls).length > 1 || coll ? collLabel(coll) : '';
   }
 
+  // services that have been started and not yet ended
+  const live = [];
+  for (const p of projects) {
+    for (const k of liveKeys(p)) {
+      const pls = plansBy[p.id] || [];
+      const ids = new Set(plansIn(pls, k).map((x) => x.id));
+      const ds = allDoors.filter((d) => d.projectId === p.id && (ids.has(d.planId) || (!d.planId && inColl(d.collection || '', k))));
+      live.push({ p, k, sv: p.services[k], total: ds.length, done: ds.filter(isInspected).length });
+    }
+  }
+  live.sort((a, b) => b.sv.startedAt.localeCompare(a.sv.startedAt));
+  const liveHtml = live.length ? `<section class="live-list">
+      <h2 class="h2"><span class="live-dot" aria-hidden="true"></span> Live services <span class="muted">${live.length}</span></h2>
+      ${live.map(({ p, k, sv, total, done }) => `<button class="live-card" data-pid="${p.id}" data-k="${esc(k)}">
+        <span class="lc-main"><b>${esc(p.site || 'Untitled site')}</b>
+          <small>${esc([k ? collLabel(k) : '', p.workType, p.client].filter(Boolean).join(' · '))}</small>
+          <small>Started ${esc(fmtWhen(sv.startedAt))}${sv.startedBy ? ' by ' + esc(sv.startedBy) : ''}</small></span>
+        <span class="lc-prog"><b>${total ? Math.round((done / total) * 100) : 0}%</b><small>${done}/${total} doors</small>
+          <i style="--p:${total ? (done / total) * 100 : 0}%"></i></span>
+      </button>`).join('')}
+    </section>` : '';
+
   // grouping and filtering
   let groupBy = 'group';
   try {
@@ -184,6 +206,7 @@ async function renderProjects() {
     </header>
     <main class="page">
       <div class="offline-note">${icon('check')} Saved on this phone — works with no signal</div>
+      ${liveHtml}
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
         <label class="search">${icon('search')}<input id="proj-q" type="search" placeholder="Search site, client or group…" value="${esc(state.projQ || '')}"></label>
@@ -206,6 +229,7 @@ async function renderProjects() {
     </main>
     ${projects.length ? `<button class="fab" id="new-project">${icon('plus')} New project</button>` : ''}
   `;
+  $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'project', projectId: c.dataset.pid, tab: 'plans', coll: c.dataset.k })));
   $('#settings').onclick = () => go({ view: 'settings' });
   $$('#new-project, #new-project-2').forEach((b) => (b.onclick = () => editProject()));
   const demo = $('#demo');
@@ -391,8 +415,11 @@ async function renderProject() {
       ${[['plans', 'Plans', allPlans.length], ['doors', 'Doors', doors.length], ['repairs', 'Repairs', ''], ['files', 'Files', files.length || ''], ['export', 'Export', '']].map(([id, label, n]) =>
         `<button role="tab" class="tab ${tab === id ? 'is-on' : ''}" data-tab="${id}" aria-selected="${tab === id}">${label}${n !== '' ? ` <span class="tab-n">${n}</span>` : ''}</button>`).join('')}
     </nav>
+    ${serviceBar(project, coll, colls)}
     <main class="page" id="tab-body"></main>
   `;
+  bindServiceBar(project, coll, plans, doors);
+  if (liveKeys(project).length) noteWeather(project.id);
   $('#back').onclick = back;
   $('#proj-edit').onclick = () => editProject(project);
   $$('.tab').forEach((t) => (t.onclick = () => go({ ...state, tab: t.dataset.tab }, { replace: true })));
@@ -416,13 +443,67 @@ async function renderProject() {
   else renderExportTab($('#tab-inner'), project, plans, doors);
 }
 
+// ---------- Start / End service bar (project screen) ----------
+const fmtWhen = (iso) => new Date(iso).toLocaleString('en-IE', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+function serviceBar(project, coll, colls) {
+  if (coll === '*' || isFolderPick(coll)) {
+    return colls.length > 1 ? `<div class="svc-bar"><span class="svc-txt"><small>Pick one collection to start or end a service</small></span></div>` : '';
+  }
+  const key = closeKey(coll);
+  const name = coll ? collLabel(coll) : '';
+  const co = project.closeouts?.[key];
+  const sv = project.services?.[key];
+  if (co) {
+    return `<div class="svc-bar is-closed">${icon('check')}<span class="svc-txt"><b>Service closed</b><small>${esc([name, fmtDate(co.closedAt.slice(0, 10)), co.closedBy].filter(Boolean).join(' · '))}</small></span>
+      ${co.reportFileId ? `<button class="btn sm" id="svc-view">${icon('report')} Report</button>` : ''}</div>`;
+  }
+  if (sv) {
+    return `<div class="svc-bar is-live"><span class="live-dot" aria-hidden="true"></span><span class="svc-txt"><b>Service live</b><small>${esc([name, 'started ' + fmtWhen(sv.startedAt)].filter(Boolean).join(' · '))}</small></span>
+      <button class="btn primary sm" id="svc-end">${icon('check')} End service</button></div>`;
+  }
+  return `<div class="svc-bar"><span class="svc-txt"><b>Not started</b><small>${esc(name ? name + ' · ' : '')}Start when you arrive on site</small></span>
+    <button class="btn primary sm" id="svc-start">${icon('play')} Start service</button></div>`;
+}
+
+function bindServiceBar(project, coll, plans, doors) {
+  $('#svc-start')?.addEventListener('click', async () => {
+    await startService(project.id, coll, lists.inspector);
+    toast('Service started');
+    renderProject();
+    // record the weather now that we're on site
+    try {
+      const day = await recordWeather(project.id, doors, phoneFix, { force: true });
+      const w = day && weatherDays({ weatherLog: { [todayDublin()]: day } }, [todayDublin()])[0];
+      if (w && weatherLine(w)) toast("Today's weather recorded: " + weatherLine(w));
+    } catch (e) {
+      toast('Weather not recorded yet: ' + (/fetch|network|load failed/i.test(e.message) ? 'no internet' : e.message));
+    }
+  });
+  $('#svc-end')?.addEventListener('click', () => closeService(project, coll, doors, plans));
+  $('#svc-view')?.addEventListener('click', async () => {
+    const f = await db.get('files', project.closeouts[closeKey(coll)].reportFileId);
+    if (!f) return toast('The report file was deleted from Files', 'error');
+    openFile(f).catch((e) => toast(e.message, 'error'));
+  });
+}
+
+// ---------- Weather recorded on site ----------
+const phoneFix = () => (lists.gps !== false ? getPosition({ timeout: 8000, maxAge: 10 * 60e3 }) : Promise.resolve(null));
+// Called when working on a project: quietly records today's weather (every 3 h at most)
+function noteWeather(projectId) {
+  if (!navigator.onLine) return;
+  db.get('projects', projectId).then((p) => (p && liveKeys(p).length ? db.projectDoors(projectId) : Promise.reject())).then((doors) => recordWeather(projectId, doors, phoneFix)).catch(() => {});
+}
+
 // ---------- End of service close-out ----------
 async function closeService(project, coll, doors, plans) {
   const key = closeKey(coll);
   const questions = closeQuestions(lists);
   const p0 = await db.get('projects', project.id);
   const draft = { answers: {}, declIds: [], reason: '', weather: null, closedBy: lists.inspector || '', ...(p0.closeDrafts?.[key] || {}) };
-  const dates = inspectionDates(doors);
+  const svc = serviceOf(p0, coll);
+  const dates = [...new Set([...(svc ? [svc.startedAt.slice(0, 10)] : []), ...doors.map((d) => d.inspectedOn).filter(Boolean)])].sort();
+  if (!dates.length) dates.push(todayDublin());
   const declFiles = (await Promise.all((draft.declIds || []).map((id) => db.get('files', id)))).filter(Boolean);
   let weather = draft.weather;
   const thumbUrls = [];
@@ -483,9 +564,9 @@ async function closeService(project, coll, doors, plans) {
       <details class="co-nodecl" ${draft.reason ? 'open' : ''}><summary>No signed sheet available?</summary>
         <label class="field"><span>Reason (printed on the report)</span><input name="reason" id="co-reason" value="${esc(draft.reason || '')}" placeholder="e.g. Client not on site; sheet to follow by email"></label></details>
       <h3 class="co-h">${icon('cloud')} Weather on the inspection days</h3>
-      <p class="muted small" id="co-wx-status">${weather?.place ? `For ${esc(weather.place)}. You can type over any line.` : 'Looking up the weather…'}</p>
+      <p class="muted small" id="co-wx-status">${weather ? 'From Met Éireann, recorded on site. You can type over any line.' : 'Checking the recorded weather…'}</p>
       <div id="co-wx">${wxRows()}</div>
-      <button type="button" class="btn ghost sm" id="co-wx-get">${icon('undo')} Get weather again</button>
+      <button type="button" class="btn ghost sm" id="co-wx-get">${icon('cloud')} Record today's weather now</button>
       <label class="field"><span>Closed by</span><input name="closedBy" value="${esc(draft.closedBy || lists.inspector || '')}" placeholder="Your name"></label>`,
     buttons: [{ label: 'Save for later', value: false }, { label: 'Close service', value: true, kind: 'primary' }],
     onOpen: (form) => {
@@ -526,31 +607,29 @@ async function closeService(project, coll, doors, plans) {
       };
       $('#co-cam', form).onchange = addDecl;
       $('#co-lib', form).onchange = addDecl;
-      const getWx = async () => {
+      const getWx = async (force) => {
         const st = $('#co-wx-status', form);
-        st.textContent = 'Looking up the weather…';
-        try {
-          let loc = await siteLocation(await db.get('projects', project.id), doors);
-          if (!loc) {
-            st.textContent = 'Finding your location…';
-            const g = await getPosition({ timeout: 12000 });
-            if (g) {
-              loc = { lat: g.lat, lng: g.lng, place: 'Phone location' };
-              const p = await db.get('projects', project.id);
-              await db.put('projects', { ...p, siteGps: { lat: g.lat, lng: g.lng, place: 'Site position' } });
-            }
+        const today = todayDublin();
+        if (dates.includes(today) || force) {
+          st.textContent = "Recording today's weather from Met Éireann…";
+          try {
+            await recordWeather(project.id, doors, phoneFix, { force: !!force });
+          } catch (err) {
+            st.textContent = (/fetch|network|load failed/i.test(err.message) ? 'No internet, so today\'s weather could not be recorded.' : err.message) + ' ';
           }
-          if (!loc) throw new Error('No site location. Add a town or county to the project address, or allow location.');
-          const days = await fetchWeather(loc, dates);
-          weather = { place: loc.place, lat: loc.lat, lng: loc.lng, source: 'Open-Meteo', days };
-          $('#co-wx', form).innerHTML = wxRows();
-          st.textContent = `For ${loc.place}. You can type over any line.`;
-        } catch (err) {
-          st.textContent = (/fetch|network|load failed/i.test(err.message) ? 'No internet, so the weather could not be looked up.' : err.message) + ' Type it in instead.';
         }
+        const p = await db.get('projects', project.id);
+        const days = weatherDays(p, dates);
+        const typed = Object.fromEntries(new FormData(form).entries());
+        weather = { place: Object.values(p.weatherLog || {}).find((x) => x.place)?.place || '', source: WEATHER_SOURCE, days: days.map((w) => ({ ...w, manual: weatherLine(w) ? '' : (typed['wx_' + w.date] || '').trim() })) };
+        $('#co-wx', form).innerHTML = wxRows();
+        const missing = days.filter((w) => !weatherLine(w)).length;
+        st.textContent = (st.textContent.endsWith(' ') ? st.textContent : '') + (missing
+          ? `${missing} day${missing > 1 ? 's have' : ' has'} no weather recorded on site. Type ${missing > 1 ? 'them' : 'it'} in (e.g. from met.ie).`
+          : 'Recorded on site from Met Éireann. You can type over any line.');
       };
-      $('#co-wx-get', form).onclick = getWx;
-      if (!weather) getWx();
+      $('#co-wx-get', form).onclick = () => getWx(true);
+      if (!weather) getWx(false);
     },
   });
   thumbUrls.forEach((u) => URL.revokeObjectURL(u));
@@ -563,7 +642,7 @@ async function closeService(project, coll, doors, plans) {
   try {
     const p = await db.get('projects', project.id);
     const closedAt = new Date().toISOString();
-    const rec = { closedAt, closedBy: d.closedBy, coll: coll && coll !== '*' ? collLabel(coll) : '', questions, answers: d.answers, declIds: d.declIds, declaration: { reason: declFiles.length ? '' : d.reason }, weather: d.weather };
+    const rec = { startedAt: svc?.startedAt || '', closedAt, closedBy: d.closedBy, coll: coll && coll !== '*' ? collLabel(coll) : '', questions, answers: d.answers, declIds: d.declIds, declaration: { reason: declFiles.length ? '' : d.reason }, weather: d.weather };
     b.update('Building the final PDF report…');
     const pdf = await exportProjectPdf(p, lists, { photos: true, passDetail: true, costs: false, doors, plans, filterText: '', returnBlob: true, closeout: { ...rec, declarationBlobs: declFiles.map((f) => f.blob) } }, b.update);
     const stamp = closedAt.slice(0, 10);
@@ -1283,7 +1362,7 @@ function renderExportTab(body, project, plans, allDoors) {
   const nAns = draft ? closeQuestions(lists).filter((q) => draft.answers?.[q]?.a).length : 0;
   body.innerHTML = `
     <section class="panel closeout-panel ${co ? 'is-closed' : ''}">
-      <h2 class="h2">${icon(co ? 'check' : 'shield')} ${co ? 'Service closed' : 'Close out this service'}</h2>
+      <h2 class="h2">${icon(co ? 'check' : 'shield')} ${co ? 'Service closed' : 'End of service'}</h2>
       ${co
         ? `<p>Closed <b>${esc(fmtDate(co.closedAt.slice(0, 10)))}</b>${co.closedBy ? ` by ${esc(co.closedBy)}` : ''}. ${co.reportFileId ? 'The report and Excel were saved in <b>Files › Reports</b>.' : ''}</p>
            <div class="row-btns">
@@ -1293,7 +1372,7 @@ function renderExportTab(body, project, plans, allDoors) {
            </div>`
         : `<p>When the work is finished, answer the ${nQ} end-of-service questions, photograph the client's signed declaration sheet and record the weather. Closing saves the final PDF report and Excel into <b>Files › Reports</b>.</p>
            ${draft ? `<p class="muted small">${nAns} of ${nQ} questions answered so far${draft.declIds?.length ? ' · declaration photo taken' : ''}.</p>` : ''}
-           <button class="btn primary" id="co-start">${icon('check')} ${draft ? 'Continue close-out' : 'Close out service'}</button>`}
+           <button class="btn primary" id="co-start">${icon('check')} ${draft ? 'Continue ending service' : 'End service'}</button>`}
     </section>
     <section class="panel filter-panel">
       <div class="block-head"><h2 class="h2">${icon('search')} Report filters</h2>
@@ -1495,6 +1574,7 @@ let selectedPin = null;
 
 async function renderPlan() {
   const plan = await db.get('plans', state.planId);
+  noteWeather(state.projectId);
   useScheme(await db.get('projects', state.projectId));
   planColl = plan?.collection || '';
   if (!plan) return go({ view: 'project', projectId: state.projectId, tab: 'plans' }, { replace: true });
