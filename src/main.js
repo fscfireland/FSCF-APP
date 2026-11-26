@@ -197,6 +197,8 @@ async function render() {
     mountedKey = key;
     viewer?.destroy();
     viewer = null;
+    repViewer?.destroy();
+    repViewer = null;
     urls.forEach((u) => URL.revokeObjectURL(u));
     urls.clear();
     window.scrollTo(0, 0);
@@ -2484,6 +2486,56 @@ async function refreshPlanFiles(project, plan) {
 
 // ---------- Repairs: remedial works list for the repairer ----------
 const repPhotoCache = {};
+let repViewer = null;
+// Pin colour on the repairs drawing: where each door's repairs are up to
+const REP_STAGES = [
+  ['todo', 'To do', '#c62828'],
+  ['part', 'Started', '#ef8f00'],
+  ['done', 'Done', '#1565c0'],
+  ['verified', 'Verified', '#2e7d32'],
+];
+const repStage = (p) => (p.allVerified ? 'verified' : p.complete ? 'done' : p.done ? 'part' : 'todo');
+
+// The drawing in the Repairs tab: only doors with repairs, coloured by
+// progress; tapping a pin opens that door's repair list.
+async function drawRepairPlan(body, plans, withWork) {
+  repViewer?.destroy();
+  repViewer = null;
+  const box = $('#rep-plan', body);
+  if (!box) return;
+  const onPlans = plans.filter((pl) => withWork.some(({ d }) => d.planId === pl.id));
+  if (!onPlans.length) { box.hidden = true; return; }
+  const plan = onPlans.find((pl) => pl.id === state.repPlan) || onPlans[0];
+  const pins = withWork.filter(({ d }) => d.planId === plan.id && d.x != null);
+  const count = (k) => pins.filter(({ p }) => repStage(p) === k).length;
+  box.innerHTML = `
+    <div class="block-head"><h2 class="h2">${icon('plan')} Drawing</h2>
+      ${onPlans.length > 1 ? `<select id="rep-plan-sel" aria-label="Drawing">${onPlans.map((pl) => `<option value="${pl.id}" ${pl.id === plan.id ? 'selected' : ''}>${esc(pl.name)}</option>`).join('')}</select>` : `<span class="muted small">${esc(plan.name)}</span>`}</div>
+    <div class="rep-viewer" id="rep-viewer"></div>
+    <div class="rep-plan-ctl">
+      <div class="rep-legend">${REP_STAGES.map(([k, label, c]) => `<span><i style="--c:${c}"></i>${label} <b>${count(k)}</b></span>`).join('')}</div>
+      <span class="row-btns"><button class="icon-btn sm" id="rp-zout" aria-label="Zoom out">${icon('zoomOut')}</button><button class="icon-btn sm" id="rp-zin" aria-label="Zoom in">${icon('zoomIn')}</button><button class="icon-btn sm" id="rp-fit" aria-label="Fit">${icon('fit')}</button></span>
+    </div>
+    <p class="muted small">Tap a pin to open that door's repair list. Pinch to zoom.</p>`;
+  $('#rep-plan-sel', box)?.addEventListener('change', (e) => { state.repPlan = e.target.value; drawRepairPlan(body, plans, withWork); });
+  const full = await db.get('plans', plan.id);
+  if (!full?.blob || !$('#rep-viewer', box)) return;
+  const vb = $('#rep-viewer', box);
+  vb.style.height = Math.round(Math.max(240, Math.min(window.innerHeight * 0.62, vb.clientWidth * (full.height / full.width) + 24))) + 'px';
+  repViewer = new PlanViewer(vb, {
+    onTap: () => {},
+    onPinTap: (id) => go({ ...state, doorId: id, repair: true }),
+  });
+  await repViewer.load(full.blob, full.width, full.height);
+  if (full.markups?.length) repViewer.setMarkups?.(full.markups);
+  repViewer.setPins(pins.map(({ d, p }) => {
+    const st = REP_STAGES.find(([k]) => k === repStage(p));
+    return { id: d.id, x: d.x, y: d.y, label: d.pinNo, color: st[2], hollow: false, title: `Pin ${d.pinNo} ${d.ref || ''}: ${p.done} of ${p.total} repairs done` };
+  }), null);
+  $('#rp-zin', box).onclick = () => repViewer?.zoomBy(1.5);
+  $('#rp-zout', box).onclick = () => repViewer?.zoomBy(1 / 1.5);
+  $('#rp-fit', box).onclick = () => repViewer?.fit();
+}
 
 // One door's repairs: tick and verify each item, repair photos (kept apart
 // from the inspection photos) and repair notes. Opened from the Repairs tab,
@@ -2659,6 +2711,8 @@ function renderRepairsTab(body, project, plans, doors) {
       <p class="muted small rep-out-note">These cover the doors shown below (${esc((FILTERS[show] || FILTERS.outstanding)[0].toLowerCase())}). Choose <b>All</b> to include every door with repairs.</p>
     </section>
 
+    <section class="panel rep-plan" id="rep-plan"></section>
+
     <div class="chips" role="group" aria-label="Show">
       ${Object.entries(FILTERS).map(([id, [label, fn]]) =>
         `<button class="chip rep-show ${show === id ? 'is-on' : ''}" data-s="${id}">${label} <b>${withWork.filter(fn).length}</b></button>`).join('')}
@@ -2725,6 +2779,7 @@ function renderRepairsTab(body, project, plans, doors) {
     renderRepairsTab(body, project, plans, doors);
   });
   $$('.rep-show', body).forEach((b) => (b.onclick = () => { state.repShow = b.dataset.s; renderRepairsTab(body, project, plans, doors); }));
+  drawRepairPlan(body, plans, withWork);
   $$('.rep-door', body).forEach((sec) => {
     const id = sec.dataset.id;
     $$('.rep-tick', sec).forEach((cb) => (cb.onchange = async () => {

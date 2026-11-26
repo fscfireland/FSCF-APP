@@ -1157,3 +1157,12 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .rep-head { cursor: pointer; }
 .rep-map { cursor: pointer; }
 #rep-toggle.is-on { background: var(--st-repaired); border-color: var(--st-repaired); color: #fff; }
+
+/* drawing in the Repairs tab */
+.rep-plan select { min-height: 38px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: var(--surface); color: var(--ink); font: inherit; max-width: 60%; }
+.rep-viewer { position: relative; height: min(62vh, 560px); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; border-radius: 10px; background: var(--plan-bg); margin: 8px 0; }
+.rep-plan-ctl { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.rep-legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 13px; }
+.rep-legend span { display: inline-flex; align-items: center; gap: 5px; }
+.rep-legend i { width: 12px; height: 12px; border-radius: 50%; background: var(--c); display: inline-block; }
+@media (max-width: 899px) { body.sheet-open .rep-viewer .stage { visibility: hidden; } }
