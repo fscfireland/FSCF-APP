@@ -9,6 +9,7 @@ import { photoInView } from './history.js';
 import { doorViews } from './filters.js';
 import { fmtDate } from './ui.js';
 import { remedialItems } from './remedial.js';
+import { SUPPLY, fieldText, ratingOf, swingOf, missingFor } from './fields.js';
 
 const EURO = '"€"#,##0.00';
 
@@ -78,6 +79,8 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
     'Pin', 'Pin ref', 'Plan / level', 'Location / room', 'Door type', 'Leaf config', 'Status',
     'Recommended actions', `Questions: ${ANSWERS[1].label}`, 'No. of defects', 'Defects', 'Remedial work', 'Materials (€)', 'Photos', 'Videos', 'Video links', 'Notes', 'Inspected on', 'Inspected by', 'Fire alarm zone no.', 'Fire alarm zone name', 'Risk rating', 'On a drawing', 'Category', 'Next inspection due', 'GPS latitude', 'GPS longitude', 'GPS accuracy (m)', 'GPS recorded',
   ];
+  const extraFields = (opts.fieldSections || []).flatMap((s) => s.fields);
+  doorHeader.push('Replacement', ...extraFields.map((f) => f.label + (f.unit ? ` (${f.unit})` : '')));
   const doorRows = doors.map((d) => [
     d.pinNo ?? '',
     d.ref || '',
@@ -108,6 +111,8 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
     d.gps?.lng ?? '',
     d.gps?.acc ?? '',
     d.gps?.at ? new Date(d.gps.at).toLocaleString('en-IE') : '',
+    SUPPLY[d.replacement] || '',
+    ...extraFields.map((f) => d.attrs?.[f.id] ?? ''),
   ]);
   const ws1 = XLSX.utils.aoa_to_sheet([doorHeader, ...doorRows]);
   moneyCols(ws1, ['M'], 2, doorRows.length + 1);
@@ -444,4 +449,47 @@ export async function exportPricingXlsx(project, opts = {}) {
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   return saveFile(`FSCF_Pricing_schedule_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
+}
+
+
+// Production list for the joinery: one row per door marked for replacement,
+// with its sizes and choices; open queries list anything still missing.
+export async function exportProductionXlsx(project, opts = {}) {
+  const XLSX = await loadSheetJS();
+  const doors = [...(opts.doors || [])].sort((a, b) => (a.pinNo || 0) - (b.pinNo || 0));
+  const planName = Object.fromEntries((opts.plans || []).map((p) => [p.id, p.name]));
+  const sections = (opts.sections || []).filter((s) => s.when === 'replacement');
+  const fields = sections.flatMap((s) => s.fields);
+  const qty = fields.find((f) => f.id === 'qty');
+  const cols = fields.filter((f) => f !== qty);
+  const head = ['Ref', 'Location', 'Drawing', 'Supply', 'Door rating', 'Swing / handing', ...cols.map((f) => f.label + (f.unit ? ` (${f.unit})` : '')), 'Qty'];
+  const rows = doors.map((d) => [
+    d.ref || `Pin ${d.pinNo}`, d.location || '', planName[d.planId] || '', SUPPLY[d.replacement] || '', ratingOf(d), swingOf(d),
+    ...cols.map((f) => (f.type === 'number' ? d.attrs?.[f.id] ?? '' : fieldText(f, d.attrs?.[f.id]))),
+    qty ? d.attrs?.qty ?? 1 : 1,
+  ]);
+  const total = rows.reduce((t, r) => t + (Number(r[r.length - 1]) || 0), 0);
+  const top = [
+    ['FSCF IRELAND — FIRE DOOR PRODUCTION LIST'],
+    [`Site: ${project.site || ''}${project.address ? ` (${project.address})` : ''} · Client: ${project.client || ''} · ${new Date().toLocaleDateString('en-IE')}${opts.filterText ? ` · ${opts.filterText}` : ''}`],
+    [],
+    head,
+  ];
+  const totalRow = Array(head.length).fill('');
+  totalRow[head.length - 2] = 'Total units';
+  totalRow[head.length - 1] = total;
+  const aoa = [...top, ...rows, [], totalRow];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws['!cols'] = head.map((h, i) => ({ wch: i === 1 ? 26 : i === 2 ? 18 : /info|finish|glazing|lock|seal|architrave/i.test(h) ? 26 : Math.max(9, Math.min(18, h.length + 2)) }));
+  ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: top.length - 1, c: 0 }, e: { r: top.length - 1 + Math.max(1, rows.length), c: head.length - 1 } }) };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Production list');
+  const queries = doors.map((d) => [d.ref || `Pin ${d.pinNo}`, d.location || '', missingFor(d, sections)]).filter((q) => q[2].length);
+  const q = [['Open queries to close before release to production'], [], ['Ref', 'Location', 'Still needed'], ...queries.map(([r, l, m]) => [r, l, m.join(', ')])];
+  if (!queries.length) q.push(['', '', 'None: every replacement door has its sizes and choices.']);
+  const wq = XLSX.utils.aoa_to_sheet(q);
+  wq['!cols'] = [{ wch: 10 }, { wch: 28 }, { wch: 70 }];
+  XLSX.utils.book_append_sheet(wb, wq, 'Open queries');
+  const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  return saveFile(`${safeName(project.site || project.client || 'Project')}_Production_list_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
 }

@@ -11,7 +11,8 @@ import {
 import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas, loadPdfJs } from './files.js';
 import { TOOLS as AI_TOOLS, systemPrompt, makeRunner, activityText } from './assistant.js';
-import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx } from './export.js';
+import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx, exportProductionXlsx } from './export.js';
+import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
 import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
@@ -106,7 +107,7 @@ async function loadLists() {
   const s = await db.get('settings', 'lists');
   lists = {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
-    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, inspector: '', logoBanner: BRAND_BANNER, logoRound: BRAND_ROUND, ...(s || {}),
+    questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, fieldSections: DEFAULT_FIELD_SECTIONS, inspector: '', logoBanner: BRAND_BANNER, logoRound: BRAND_ROUND, ...(s || {}),
   };
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
@@ -1556,6 +1557,17 @@ async function importFieldwire(file) {
   try { fw = await readFieldwire(file); } catch (err) { b.done(); return toast('Could not read that report: ' + err.message, 'error'); }
   b.done();
   if (!fw.doors.length) return toast('No tasks / doors found in that report.', 'error');
+  // Fieldwire attributes (height, width, wall, undercut, finish…) onto the door's fields
+  for (const d of fw.doors) {
+    if (!d.text) continue;
+    const { attrs, swing, handing } = readFwAttrs(d.text, lists.fieldSections || DEFAULT_FIELD_SECTIONS);
+    d.attrs = attrs;
+    const sw = (swing || handing || '').toUpperCase();
+    const base = /SADD/.test(sw) ? 'SADD' : /DADD/.test(sw) ? 'DADD' : /SASD/.test(sw) ? 'SASD' : '';
+    const hand = /LEFT|\bLH\b/.test(sw + ' ' + (handing || '').toUpperCase()) ? 'LH' : /RIGHT|\bRH\b/.test(sw + ' ' + (handing || '').toUpperCase()) ? 'RH' : '';
+    const cand = base === 'SASD' && hand ? `SASD ${hand}` : base === 'DADD' ? 'DADD' : '';
+    if (cand && LEAF_CONFIGS.includes(cand)) d.leaf = cand;
+  }
   // does the checklist match one we already have?
   const norm = (x) => x.toLowerCase().replace(/[^a-z0-9]+/g, '');
   const want = fw.checklist.map(norm).sort().join('|');
@@ -1607,6 +1619,8 @@ async function importFieldwire(file) {
         id: db.uid(), projectId: project.id, planId: null, collection: '', pinNo: d.no, x: null, y: null, kind,
         ref: d.ref, location: d.location, doorType: d.doorType, leaf: '', zoneNo: d.zoneNo, zoneName: d.zoneName, risk: '', category: '',
         sourcePlan: d.plan, status: d.recommendations.length ? 'fail' : 'pass', defects: [], actions: d.recommendations, checks: {}, materials: [],
+        ...(d.attrs && Object.keys(d.attrs).length ? { attrs: d.attrs, replacement: d.attrs.h || d.attrs.w ? 'df' : '' } : {}),
+        ...(d.leaf ? { leaf: d.leaf } : {}),
         notes, inspectedOn: r.data.date || fw.date || '', inspectedBy: lists.inspector || '',
       }, [`Imported from Fieldwire report "${fw.title}"`]);
     }
@@ -3344,7 +3358,7 @@ function doorRow(d, planName) {
       <span class="pin-badge ${s.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${s.color}">${d.pinNo ?? ''}</span>
       <span class="dr-main">
         <b>${esc(d.ref || 'No ref')}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
-        <small>${esc([d.category, d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', d.risk ? 'Risk: ' + d.risk : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}${d.planId ? '' : ' <span class="unplaced">Not on a drawing</span>'}</small>
+        <small>${esc([d.category, d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', d.risk ? 'Risk: ' + d.risk : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}${d.planId ? '' : ' <span class="unplaced">Not on a drawing</span>'}${d.replacement ? ` <span class="rep-badge">${esc(SUPPLY[d.replacement])}</span>` : ''}</small>
       </span>
       <span class="dr-side">
         <span class="status-pill" style="--c:${s.color}">${s.short}</span>
@@ -3430,7 +3444,9 @@ function renderExportTab(body, project, plans, allDoors) {
         const n = doors.filter((d) => uncostedFails(d, kitOf(d.kind || pk[d.planId]).questions, lists.materials || []).count).length;
         return n ? `<p class="fill-note">${icon('sheet')} <span>${n} door${n === 1 ? ' has' : 's have'} fails that aren't costed yet (failed checks with no defect, or defects with no product). <button class="link-btn" id="fill-all">Cost all fails</button> so they're on the repairs and pricing sheets.</span></p>` : '';
       })()}
-      <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
+      <div class="row-btns"><button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
+        <button class="btn" id="prod-xlsx">${icon('sheet')} Production list (replacements)</button></div>
+      ${(() => { const n = doors.filter((d) => d.replacement).length; return `<p class="muted small">${n ? `${n} door${n === 1 ? '' : 's'} marked for replacement. The production list has one row per door with its sizes and choices, for the joinery. No prices.` : 'No doors are marked for replacement yet. Set the Replacement box on a door to add it to the production list.'}</p>`; })()}
     </section>
     ${`<section class="panel">
       <h2 class="h2">${icon('report')} Customer quote from this report</h2>
@@ -3507,9 +3523,22 @@ function renderExportTab(body, project, plans, allDoors) {
     const b = busy('Building Excel workbook…');
     try {
       if (!doors.length) return b.done(), noneMsg();
-      const r = await exportProjectXlsx(project, questions, { doors, filterText, hideCosts: !priced() });
+      const r = await exportProjectXlsx(project, questions, { doors, filterText, hideCosts: !priced(), fieldSections: lists.fieldSections || DEFAULT_FIELD_SECTIONS });
       b.done();
       if (r === 'saved') toast('Excel file saved');
+    } catch (e) {
+      b.done();
+      toast(e.message, 'error');
+    }
+  };
+  $('#prod-xlsx').onclick = async () => {
+    const reps = doors.filter((d) => d.replacement);
+    if (!reps.length) return toast('No doors are marked for replacement. Set the Replacement box on a door first.', 'error');
+    const b = busy('Building the production list…');
+    try {
+      const r = await exportProductionXlsx(project, { doors: reps, plans, sections: lists.fieldSections || DEFAULT_FIELD_SECTIONS, filterText });
+      b.done();
+      if (r === 'saved') toast('Production list saved');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
@@ -4518,6 +4547,12 @@ async function drawSheet(door) {
       <datalist id="zone-nos">${zones.map(([n, nm]) => `<option value="${esc(n)}">${esc(nm)}</option>`).join('')}</datalist>
       <datalist id="zone-names">${[...new Set(zones.map(([, nm]) => nm).filter(Boolean))].map((nm) => `<option value="${esc(nm)}"></option>`).join('')}</datalist>
 
+      <section class="block rep-block" id="rep-block">
+        <label class="field"><span>Replacement</span>
+          <select id="f-repl">${REPLACEMENTS.map(([v, l]) => `<option value="${v}" ${v === (door.replacement || '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+        <div id="rep-fields"></div>
+      </section>
+
       <section class="block">
         <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
           <span class="row-btns">
@@ -5502,6 +5537,76 @@ async function drawSheet(door) {
   $('#f-zname')?.addEventListener('change', learnZone);
   $('#sh-dup').onclick = () => duplicateDoor(current);
   $('#sh-copyto').onclick = () => duplicateDoor(current, { other: true });
+
+  // Replacement: one drop-down; choosing a replacement opens its fields
+  const drawRep = () => {
+    const box = $('#rep-fields');
+    if (!box) return;
+    const secs = sectionsFor(lists.fieldSections || DEFAULT_FIELD_SECTIONS, current, kitOf(kindNow), kindNow);
+    $('#rep-block').hidden = !kitOf(kindNow).base && !secs.length && !(lists.fieldSections || []).some((sc) => sc.when === 'replacement' && (!sc.base || kitOf(kindNow).base === sc.base || kindNow === sc.base));
+    const a = current.attrs || {};
+    const fieldHtml = (f) => {
+      const v = a[f.id] ?? '';
+      const id = `fa-${f.id}`;
+      if (f.type === 'number') return `<label class="field"><span>${esc(f.label)}</span><span class="unit-in"><input id="${id}" data-attr="${f.id}" data-type="number" inputmode="decimal" value="${esc(v)}" autocomplete="off">${f.unit ? `<em>${esc(f.unit)}</em>` : ''}</span></label>`;
+      if (f.type === 'yesno') return `<label class="field"><span>${esc(f.label)}</span><select id="${id}" data-attr="${f.id}"><option value=""></option><option value="yes" ${v === 'yes' ? 'selected' : ''}>Yes</option><option value="no" ${v === 'no' ? 'selected' : ''}>No</option></select></label>`;
+      if (f.type === 'list') {
+        const opts = [...(f.options || [])];
+        const own = v !== '' && !opts.includes(v);
+        return `<label class="field"><span>${esc(f.label)}</span><select id="${id}" data-attr="${f.id}" data-list="1"><option value="">Select…</option>${opts.map((o) => `<option ${o === v ? 'selected' : ''}>${esc(o)}</option>`).join('')}${own ? `<option selected>${esc(v)}</option>` : ''}${f.own ? '<option value="__own">Type your own…</option>' : ''}</select></label>`;
+      }
+      return f.long
+        ? `<label class="field span2"><span>${esc(f.label)}</span><textarea id="${id}" data-attr="${f.id}" rows="2" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea></label>`
+        : `<label class="field"><span>${esc(f.label)}</span><input id="${id}" data-attr="${f.id}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}" autocomplete="off"></label>`;
+    };
+    box.innerHTML = secs.map((sc) => `
+      <div class="rep-sec">
+        <h4>${esc(sc.name)}</h4>
+        ${sc.when === 'replacement' ? `<p class="rep-auto"><span>Rating <b>${esc(ratingOf(current) || 'set the door type')}</b></span><span>Swing <b>${esc(swingOf(current) || 'set leaf / swing')}</b></span><span>Supply <b>${esc(SUPPLY[current.replacement] || '')}</b></span></p>` : ''}
+        <div class="grid2">${sc.fields.map(fieldHtml).join('')}</div>
+        ${sc.when === 'replacement' ? '<button type="button" class="btn sm" id="rep-copy">Copy sizes from another door…</button>' : ''}
+      </div>`).join('');
+    $$('[data-attr]', box).forEach((inp) => {
+      const ev = inp.tagName === 'SELECT' ? 'change' : 'input';
+      inp.addEventListener(ev, async () => {
+        let val = inp.value;
+        if (val === '__own') {
+          const r = await dialog({ title: 'Type your own', body: `<label class="field"><span>${esc(inp.closest('.field').querySelector('span').textContent)}</span><input name="v" required autocomplete="off"></label>`, buttons: [{ label: 'Cancel', value: false }, { label: 'Use this', value: true, kind: 'primary' }] });
+          if (r.value !== true || !r.data.v.trim()) return drawRep();
+          val = r.data.v.trim();
+        }
+        if (inp.dataset.type === 'number') val = val.trim() === '' ? '' : Number.isFinite(Number(val)) ? Number(val) : val;
+        const attrs = { ...(current.attrs || {}) };
+        if (val === '') delete attrs[inp.dataset.attr];
+        else attrs[inp.dataset.attr] = val;
+        queue({ attrs });
+        if (inp.dataset.list || inp.value === '__own') drawRep();
+      });
+    });
+    $('#rep-copy')?.addEventListener('click', async () => {
+      await flushSave();
+      const all = (await db.projectDoors(current.projectId)).filter((d) => d.id !== current.id && Object.keys(d.attrs || {}).length);
+      if (!all.length) return toast('No other door in this project has replacement details yet.');
+      const r = await dialog({
+        title: 'Copy sizes from another door',
+        body: `<p class="small">Copies every replacement field (sizes, undercut, finish, seals, glazing, lock…). Anything already typed here is replaced.</p>
+          <label class="field"><span>Copy from</span><select name="src">${all.sort((x, y) => (x.pinNo || 0) - (y.pinNo || 0)).map((d) => `<option value="${d.id}">${esc([d.ref || `Pin ${d.pinNo}`, d.location, d.attrs?.h && d.attrs?.w ? `${d.attrs.h} × ${d.attrs.w}` : ''].filter(Boolean).join(' · '))}</option>`).join('')}</select></label>`,
+        buttons: [{ label: 'Cancel', value: false }, { label: 'Copy', value: true, kind: 'primary' }],
+      });
+      if (r.value !== true) return;
+      const src = all.find((d) => d.id === r.data.src);
+      queue({ attrs: { ...(src.attrs || {}) }, replacement: current.replacement || src.replacement || 'df' });
+      drawRep();
+      toast(`Copied from ${src.ref || 'pin ' + src.pinNo}`);
+    });
+  };
+  $('#f-repl').onchange = (e) => {
+    queue({ replacement: e.target.value });
+    drawRep();
+    if (state.view === 'plan') refreshPins?.();
+  };
+  ['#f-type', '#f-leaf'].forEach((sel) => $(sel)?.addEventListener('change', () => setTimeout(drawRep, 0)));
+  drawRep();
   $('#sh-copyfrom').onclick = async () => {
     await flushSave();
     const changed = await copyDetailsFrom(await db.get('doors', door.id));
@@ -6047,6 +6152,8 @@ async function renderSettings() {
           ${lists.aiKey ? '<button class="btn ghost danger-text" id="s-aikey-del">Remove key</button>' : ''}
         </div>
       </section>
+      <div class="set-group"><h2>Fields</h2></div>
+      <section class="panel" id="s-fields"></section>
       <div class="set-group"><h2>Backup</h2></div>
       <section class="panel">
         <h2 class="h2">Backup &amp; restore</h2>
@@ -6356,6 +6463,7 @@ async function renderSettings() {
     }
   };
   $('#s-backup-drive').onclick = () => backupEverythingToDrive(projects);
+  drawFieldsEditor($('#s-fields'));
   $('#s-backup').onclick = async () => {
     const b = busy('Preparing backup…');
     try {
@@ -6384,6 +6492,126 @@ async function renderSettings() {
       toast(err.message, 'error');
     }
   };
+}
+
+// ---------- Settings › Fields ----------
+// Sections of your own fields (like Fieldwire attributes). The Replacement
+// details section shows on a door once it is marked for replacement.
+const fieldSecs = () => JSON.parse(JSON.stringify(lists.fieldSections || DEFAULT_FIELD_SECTIONS));
+function drawFieldsEditor(el) {
+  if (!el) return;
+  const secs = fieldSecs();
+  const typeName = Object.fromEntries(FIELD_TYPES);
+  el.innerHTML = `
+    <p class="muted small">Extra details you record on a door, like Fieldwire attributes: a number (with a unit), a list you write, text, or yes/no. Fields in a <b>replacement</b> section show when a door's Replacement box is set; the others always show.</p>
+    ${secs.map((sc, si) => `
+      <div class="fs-sec">
+        <div class="fs-head"><span><b>${esc(sc.name)}</b><small>${sc.when === 'replacement' ? 'Shows when a door is marked for replacement' : 'Always shows'} · ${sc.base === 'fd' ? 'fire door and final exit checklists' : sc.base ? esc(kitOf(sc.base).name) : 'every inspection type'}</small></span>
+          <button class="btn sm ghost" data-sec-edit="${si}">Edit</button></div>
+        ${sc.fields.map((f, fi) => `
+          <div class="fs-row"><span><b>${esc(f.label)}</b><small>${esc(typeName[f.type] || f.type)}${f.unit ? ` · ${esc(f.unit)}` : ''}${f.type === 'list' ? ` · ${esc((f.options || []).join(', '))}` : ''}</small></span>
+            <span class="fs-btns">
+              <button class="icon-btn sm" data-up="${si}:${fi}" aria-label="Move up" ${fi ? '' : 'disabled'}>${icon('up')}</button>
+              <button class="icon-btn sm" data-edit="${si}:${fi}" aria-label="Edit ${esc(f.label)}">${icon('pencil')}</button>
+            </span></div>`).join('')}
+        <button class="btn sm" data-add="${si}">${icon('plus')} Add a field</button>
+      </div>`).join('')}
+    <div class="row-btns"><button class="btn" id="fs-add-sec">${icon('plus')} Add a section</button>
+      <button class="btn ghost" id="fs-reset">Reset to FSCF replacement fields</button></div>`;
+  const save = async (next) => { await saveLists({ fieldSections: next }); drawFieldsEditor(el); };
+  $$('[data-up]', el).forEach((b) => (b.onclick = () => {
+    const [si, fi] = b.dataset.up.split(':').map(Number);
+    const f = secs[si].fields;
+    [f[fi - 1], f[fi]] = [f[fi], f[fi - 1]];
+    save(secs);
+  }));
+  $$('[data-edit]', el).forEach((b) => (b.onclick = async () => {
+    const [si, fi] = b.dataset.edit.split(':').map(Number);
+    const r = await editField(secs[si].fields[fi]);
+    if (r === 'delete') secs[si].fields.splice(fi, 1);
+    else if (r) secs[si].fields[fi] = r;
+    else return;
+    save(secs);
+  }));
+  $$('[data-add]', el).forEach((b) => (b.onclick = async () => {
+    const r = await editField(null);
+    if (!r || r === 'delete') return;
+    secs[+b.dataset.add].fields.push(r);
+    save(secs);
+  }));
+  $$('[data-sec-edit]', el).forEach((b) => (b.onclick = async () => {
+    const si = +b.dataset.secEdit;
+    const r = await editSection(secs[si]);
+    if (r === 'delete') secs.splice(si, 1);
+    else if (r) secs[si] = r;
+    else return;
+    save(secs);
+  }));
+  $('#fs-add-sec').onclick = async () => {
+    const r = await editSection(null);
+    if (r && r !== 'delete') save([...secs, r]);
+  };
+  $('#fs-reset').onclick = async () => {
+    if (!(await confirmBox('Reset fields?', 'Puts back the FSCF replacement fields as they came. Sections you added are removed. Values already typed on doors are kept.', 'Reset', true))) return;
+    save(JSON.parse(JSON.stringify(DEFAULT_FIELD_SECTIONS)));
+  };
+}
+
+async function editField(f) {
+  const cur = f || { type: 'text' };
+  const r = await dialog({
+    title: f ? `Edit "${f.label}"` : 'Add a field',
+    body: `
+      <label class="field"><span>Name</span><input name="label" required value="${esc(cur.label || '')}" placeholder="e.g. Frame depth" autocomplete="off"></label>
+      <label class="field"><span>Type</span><select name="type" id="fe-type">${FIELD_TYPES.map(([v, l]) => `<option value="${v}" ${v === cur.type ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      <label class="field" id="fe-unit"><span>Unit (optional)</span><input name="unit" value="${esc(cur.unit || '')}" placeholder="e.g. mm"></label>
+      <label class="field" id="fe-opts"><span>Choices, one per line</span><textarea name="options" rows="5">${esc((cur.options || []).join('\n'))}</textarea></label>
+      <label class="check-line" id="fe-own"><input type="checkbox" name="own" ${cur.own ? 'checked' : ''}> Allow "Type your own" as well as the choices</label>
+      <label class="check-line"><input type="checkbox" name="need" ${cur.need ? 'checked' : ''}> Needed before the door can go to the joinery (listed as an open query when empty)</label>`,
+    buttons: [...(f ? [{ label: 'Delete field', value: 'delete', kind: 'danger-text' }] : []), { label: 'Cancel', value: false }, { label: f ? 'Save' : 'Add', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      const sync = () => {
+        const t = form.querySelector('#fe-type').value;
+        form.querySelector('#fe-unit').hidden = t !== 'number';
+        form.querySelector('#fe-opts').hidden = t !== 'list';
+        form.querySelector('#fe-own').hidden = t !== 'list';
+      };
+      form.querySelector('#fe-type').onchange = sync;
+      sync();
+    },
+  });
+  if (r.value === 'delete') return (await confirmBox('Delete field?', `"${f.label}" is removed from every door's form. Values already typed stay in backups.`, 'Delete', true)) ? 'delete' : null;
+  if (r.value !== true || !r.data.label.trim()) return null;
+  const type = r.data.type;
+  return {
+    ...cur,
+    id: cur.id || 'f' + Date.now().toString(36),
+    label: r.data.label.trim(),
+    type,
+    unit: type === 'number' ? (r.data.unit || '').trim() : '',
+    options: type === 'list' ? (r.data.options || '').split('\n').map((x) => x.trim()).filter(Boolean) : [],
+    own: type === 'list' && !!r.data.own,
+    need: !!r.data.need,
+  };
+}
+
+async function editSection(sc) {
+  const cur = sc || { name: '', when: 'always', base: 'fd', fields: [] };
+  const r = await dialog({
+    title: sc ? `Edit "${sc.name}"` : 'Add a section',
+    body: `
+      <label class="field"><span>Section name</span><input name="name" required value="${esc(cur.name)}" placeholder="e.g. Door survey" autocomplete="off"></label>
+      <label class="field"><span>When it shows</span><select name="when"><option value="always" ${cur.when !== 'replacement' ? 'selected' : ''}>Always</option><option value="replacement" ${cur.when === 'replacement' ? 'selected' : ''}>When the door is marked for replacement</option></select></label>
+      <label class="field"><span>Which inspections</span><select name="base">
+        <option value="fd" ${cur.base === 'fd' ? 'selected' : ''}>Fire door and final exit checklists</option>
+        <option value="" ${!cur.base ? 'selected' : ''}>Every inspection type</option>
+        ${kindIds().filter((k) => !kitOf(k).base || k === 'fd').filter((k) => k !== 'fd').map((k) => `<option value="${k}" ${cur.base === k ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}
+      </select></label>`,
+    buttons: [...(sc ? [{ label: 'Delete section', value: 'delete', kind: 'danger-text' }] : []), { label: 'Cancel', value: false }, { label: sc ? 'Save' : 'Add', value: true, kind: 'primary' }],
+  });
+  if (r.value === 'delete') return (await confirmBox('Delete section?', `"${sc.name}" and its ${sc.fields.length} field(s) are removed from the door form. Values already typed stay in backups.`, 'Delete', true)) ? 'delete' : null;
+  if (r.value !== true || !r.data.name.trim()) return null;
+  return { ...cur, id: cur.id || 's' + Date.now().toString(36), name: r.data.name.trim(), when: r.data.when, base: r.data.base };
 }
 
 // New project: start blank, from a drawing (file or a photo taken now), or

@@ -76,6 +76,7 @@ export async function readFieldwire(file) {
       no: st.no, ref: String(st.no).padStart(3, '0'), location: name, plan: plan.split('/').pop().trim() || plan,
       doorType: ratingToType(rating), rating, zoneNo, zoneName, rfid, tags,
       recommendations: [...new Set(recs.map((r) => r.trim()).filter(Boolean))], messages: msgs, checklist: checks,
+      text: all,
     });
   }
   return { title, site, eircode: eir ? eir[1].toUpperCase() : '', date, doors, checklist: checklistOrder };
