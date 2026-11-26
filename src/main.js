@@ -116,6 +116,11 @@ async function loadLists() {
       .map((m) => ({ ...m, cat: matCat(m), cost: Number(m.cost) ? m.cost : sample[m.id] ?? m.cost }));
     await saveLists({ materials: merged, matVersion: MATERIALS_VERSION });
   }
+  if (s?.defects && (s.defVersion || 1) < 2) {
+    const have = new Set(s.defects.map((d) => d.label));
+    const add = DEFAULT_DEFECTS.filter((d) => !have.has(d.label));
+    await saveLists({ defects: [...s.defects, ...add], defVersion: 2 });
+  }
   return lists;
 }
 
@@ -456,12 +461,12 @@ async function addFoundDoors(projectId, plan, found, kind, how) {
   let added = 0;
   for (const f of found) {
     const pinNo = await db.nextPinNo(projectId);
-    let ref = (f.ref || '').trim();
-    if (!ref || all.some((d) => (d.ref || '').toUpperCase() === ref.toUpperCase())) ref = nextFreeRef(all, plan.id, pinNo);
+    const ref = nextFreeRef(all);
+    const drawingNo = (f.ref || '').trim();
     const door = await saveDoor({
       id: db.uid(), projectId, planId: plan.id, pinNo, x: Math.min(0.99, Math.max(0.01, f.x)), y: Math.min(0.99, Math.max(0.01, f.y)), kind,
       ref, location: (f.room || '').trim(), doorType: ratingToType(f.rating) || '', leaf: '', status: 'not_inspected',
-      defects: [], actions: [], checks: {}, materials: [], notes: f.rating ? `Rating on drawing: ${f.rating}` : '',
+      defects: [], actions: [], checks: {}, materials: [], notes: [f.rating ? `Rating on drawing: ${f.rating}` : '', drawingNo ? `Door number on drawing: ${drawingNo}` : ''].filter(Boolean).join('\n'),
       zoneNo: '', zoneName: '', risk: '', category: '', inspectedOn: '', inspectedBy: lists.inspector || '', found: how,
     }, [`Pin added by the drawing reader (${how === 'ai' ? 'Claude vision' : 'drawing text'}). Check its position.`]);
     all.push(door);
@@ -1274,7 +1279,7 @@ async function loadDemo() {
     let n = 1;
     for (const d of demoDoors) {
       await db.put('doors', {
-        id: db.uid(), projectId: project.id, planId: plan.id, pinNo: n++, x: d.x, y: d.y, ref: d.ref, location: d.location,
+        id: db.uid(), projectId: project.id, planId: plan.id, pinNo: n, x: d.x, y: d.y, ref: String(n++).padStart(3, '0'), location: d.location,
         status: d.status, doorType: d.doorType, leaf: 'Single leaf',
         defects: (d.defects || []).map((i) => ({ ...DEFAULT_DEFECTS[i], qty: 1 })),
         actions: d.defects ? ['Repair / upgrade on site'] : [],
@@ -3700,7 +3705,7 @@ async function onPlanTap(x, y) {
   }
   if (mode === 'add') {
     const pinNo = await db.nextPinNo(state.projectId);
-    const ref = nextFreeRef(await db.projectDoors(state.projectId), state.planId, pinNo);
+    const ref = nextFreeRef(await db.projectDoors(state.projectId));
     const door = await saveDoor({
       id: db.uid(), projectId: state.projectId, planId: state.planId, pinNo, x, y, kind: planKind,
       ref, location: '', doorType: '', leaf: '', status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '',
@@ -4150,7 +4155,8 @@ async function drawSheet(door) {
   // materials, tagged with the defect, so they are costed with everything else.
   const prodOptions = (d) => {
     const cat = defectCat(d);
-    return { cat, opts: (lists.materials || []).filter((m) => m.name?.trim() && (!cat || matCat(m) === cat)) };
+    const cats = cat === 'Ironmongery' ? ['Ironmongery', 'Hinges'] : [cat];
+    return { cat, opts: (lists.materials || []).filter((m) => m.name?.trim() && (!cat || cats.includes(matCat(m)))) };
   };
   const drawDefects = () => {
     const list = current.defects || [];
@@ -4730,39 +4736,19 @@ async function drawSheet(door) {
 // Copy a door with all its details (status, checklist, defects, products,
 // actions, signs, notes) to a new pin beside it; only the name changes.
 // Photos, repair ticks, history and GPS belong to the original and are not copied.
-function nextRef(ref) {
-  const m = /^(.*?)(\d+)(\D*)$/.exec(ref || '');
-  if (!m) return ref ? ref + ' (copy)' : '';
-  return m[1] + String(Number(m[2]) + 1).padStart(m[2].length, '0') + m[3];
-}
-// New pin's ref: carry on the numbering used on this drawing (GF-012 → GF-013),
-// skipping any ref already used in the project; a new project starts at 001.
-function nextFreeRef(all, planId, pinNo) {
-  const used = new Set(all.map((d) => (d.ref || '').trim().toUpperCase()).filter(Boolean));
-  const numbered = (list) => list.filter((d) => /\d/.test(d.ref || ''));
-  const pool = numbered(all.filter((d) => d.planId === planId));
-  const src = pool.length ? pool : numbered(all);
-  if (!src.length) {
-    let n = pinNo || all.reduce((m, d) => Math.max(m, Number(d.pinNo) || 0), 0) + 1;
-    while (used.has(String(n).padStart(3, '0'))) n++;
-    return String(n).padStart(3, '0');
-  }
-  // the highest number in the most common prefix style
-  const parse = (r) => { const m = /^(.*?)(\d+)(\D*)$/.exec(r.trim()); return m ? { pre: m[1], n: Number(m[2]), w: m[2].length, post: m[3] } : null; };
-  const last = src.map((d) => parse(d.ref)).filter(Boolean);
-  const latest = parse([...src].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))[0].ref) || last[0];
-  const same = last.filter((x) => x.pre === latest.pre && x.post === latest.post);
-  let n = Math.max(...same.map((x) => x.n)) + 1;
-  const make = (k) => latest.pre + String(k).padStart(latest.w, '0') + latest.post;
-  while (used.has(make(n).toUpperCase())) n++;
-  return make(n);
+// Pin ref / ID is always a number: 001, 002 … the next after the highest on the site
+function nextFreeRef(all) {
+  const refs = all.map((d) => (d.ref || '').trim());
+  const used = new Set(refs);
+  let n = refs.reduce((m, r) => (/^\d+$/.test(r) ? Math.max(m, Number(r)) : m), 0) + 1;
+  while (used.has(String(n).padStart(3, '0'))) n++;
+  return String(n).padStart(3, '0');
 }
 async function duplicateDoor(src) {
   await flushSave();
   const d0 = (await db.get('doors', src.id)) || src;
   const all = await db.projectDoors(d0.projectId);
-  let suggest = nextFreeRef(all, d0.planId, 0);
-  if (suggest && !/\d/.test(d0.ref)) suggest = nextRef(d0.ref);
+  const suggest = nextFreeRef(all);
   const r = await dialog({
     title: `Duplicate ${kitOf(kindOfDoor(d0, await db.get('plans', d0.planId))).item.toLowerCase()}`,
     body: `<p>Makes a new pin next to pin ${d0.pinNo} with the same details: status, checklist, defects and products, actions, signs and notes. Photos are not copied.</p>

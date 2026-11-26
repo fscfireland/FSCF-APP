@@ -168,7 +168,27 @@ export const DEFAULT_MATERIALS = [
   { id: 'm-cl-free', cat: 'Closers', name: 'Free-swing closer linked to fire alarm', unit: 'each', cost: 320.0 },
   { id: 'm-hinge', cat: 'Hinges', name: 'Fire-rated hinge EN 1935 (Grade 13)', unit: 'each', cost: 12.0 },
   { id: 'm-hpad', cat: 'Hinges', name: 'Intumescent hinge pads', unit: 'pack', cost: 6.0 },
+  { id: 'm-hscrew', cat: 'Hinges', name: 'Hinge screws (set, correct size)', unit: 'set', cost: 5.0 },
   { id: 'm-latch', cat: 'Ironmongery', name: 'Fire-rated latch / lock', unit: 'each', cost: 35.0 },
+  { id: 'm-handle', cat: 'Ironmongery', name: 'Fire-rated lever handle set', unit: 'set', cost: 35.0 },
+  { id: 'm-pull', cat: 'Ironmongery', name: 'Pull handle', unit: 'each', cost: 15.0 },
+  { id: 'm-esc', cat: 'Ironmongery', name: 'Escutcheon plate', unit: 'each', cost: 5.0 },
+  { id: 'm-thumb35', cat: 'Ironmongery', name: 'Euro thumbturn 35/35T', unit: 'each', cost: 40.0 },
+  { id: 'm-thumb45', cat: 'Ironmongery', name: 'Euro thumbturn 45/45T (60 min)', unit: 'each', cost: 40.0 },
+  { id: 'm-cyl', cat: 'Ironmongery', name: 'Euro cylinder (master keyed)', unit: 'each', cost: 35.0 },
+  { id: 'm-din', cat: 'Ironmongery', name: 'DIN sashlock / lockset (fire-rated)', unit: 'each', cost: 35.0 },
+  { id: 'm-zoo', cat: 'Ironmongery', name: 'Zoo lock / latch (fire-rated)', unit: 'each', cost: 25.0 },
+  { id: 'm-digi', cat: 'Ironmongery', name: 'Digital code lock (fire-rated)', unit: 'each', cost: 130.0 },
+  { id: 'm-keeper', cat: 'Ironmongery', name: 'Keeper / strike plate', unit: 'each', cost: 15.0 },
+  { id: 'm-lockwrap', cat: 'Ironmongery', name: 'Intumescent lock wrap', unit: 'each', cost: 5.0 },
+  { id: 'm-flush', cat: 'Ironmongery', name: 'Flush bolt (fire-rated)', unit: 'each', cost: 12.0 },
+  { id: 'm-select', cat: 'Ironmongery', name: 'Door selector (pairs)', unit: 'each', cost: 15.0 },
+  { id: 'm-push', cat: 'Ironmongery', name: 'Push plate', unit: 'each', cost: 3.0 },
+  { id: 'm-kick', cat: 'Ironmongery', name: 'Kick plate', unit: 'each', cost: 12.0 },
+  { id: 'm-dstop', cat: 'Ironmongery', name: 'Door stop', unit: 'each', cost: 10.0 },
+  { id: 'm-viewer', cat: 'Ironmongery', name: 'Fire-rated door viewer', unit: 'each', cost: 25.0 },
+  { id: 'm-panic', cat: 'Ironmongery', name: 'Panic / push bar system (EN 1125)', unit: 'each', cost: 200.0 },
+  { id: 'm-pellet', cat: 'Timber & repairs', name: 'Hardwood pellets / infill for screw holes', unit: 'pack', cost: 5.0 },
   { id: 'm-holdopen', cat: 'Hold-open', name: 'Hold-open device EN 1155', unit: 'each', cost: 180.0 },
   { id: 'm-glaze', cat: 'Glazing', name: 'Intumescent glazing tape / seal', unit: 'roll', cost: 15.0 },
   { id: 'm-mastic', cat: 'Fire stopping', name: 'Intumescent sealant 310 ml', unit: 'tube', cost: 14.0 },
@@ -220,7 +240,7 @@ export function matCat(m) {
   if (/hinge/.test(n)) return 'Hinges';
   if (/hold.?open|free.?swing|mag/.test(n)) return 'Hold-open';
   if (/seal|intumescent strip|threshold|drop/.test(n)) return 'Seals';
-  if (/latch|lock|handle|ironmongery|bar/.test(n)) return 'Ironmongery';
+  if (/latch|lock|handle|ironmongery|bar|escutcheon|thumbturn|cylinder|keeper|strike|flush bolt|selector|push plate|kick plate|door stop|viewer/.test(n)) return 'Ironmongery';
   if (/glaz|bead/.test(n)) return 'Glazing';
   if (/mastic|sealant|fire.?stop|batt/.test(n)) return 'Fire stopping';
   if (/lip|timber|leaf|frame/.test(n)) return 'Timber & repairs';
@@ -240,7 +260,7 @@ export function defectCat(d) {
   if (/hinge/.test(n)) return 'Hinges';
   if (/hold.?open|wedged/.test(n)) return 'Hold-open';
   if (/threshold|seal|intumescent strip/.test(n)) return 'Seals';
-  if (/lock|latch|ironmongery/.test(n)) return 'Ironmongery';
+  if (/lock|latch|ironmongery|handle|escutcheon|thumbturn|cylinder|keeper|flush bolt|selector/.test(n)) return 'Ironmongery';
   if (/glaz|bead/.test(n)) return 'Glazing';
   if (/fire stop|wall not/.test(n)) return 'Fire stopping';
   if (/leaf|frame|holes|gaps/.test(n)) return 'Timber & repairs';
@@ -289,7 +309,7 @@ export const zonesToText = (zones) => (zones || []).map((z) => (z.name ? `${z.no
 
 // A material as it appears in lists and reports, with its size / type
 export const matLabel = (m) => (m.spec ? `${m.name} – ${m.spec}` : m.name || '');
-export const MATERIALS_VERSION = 5;
+export const MATERIALS_VERSION = 6;
 
 // A door's fire alarm zone as one line, e.g. "Zone 4 – East wing"
 export const zoneText = (d) => [d.zoneNo ? `Zone ${d.zoneNo}` : '', d.zoneName || ''].filter(Boolean).join(' – ');
@@ -348,6 +368,12 @@ export const DEFAULT_DEFECTS = [
   { label: 'Hinges: fewer than 3, missing screws or worn', remedial: 'Supply and fit CE-marked hinges (EN 1935) with full complement of screws' },
   { label: 'Ironmongery not fire-rated / not CE marked', remedial: 'Replace with CE-marked ironmongery compatible with the door set' },
   { label: 'Lock or latch defective', remedial: 'Replace lock/latch with CE-marked fire-rated unit' },
+  { label: 'Handle loose, damaged or missing', remedial: 'Tighten and refit handle, or supply and fit fire-rated lever handle set' },
+  { label: 'Escutcheon missing', remedial: 'Supply and fit escutcheon plates' },
+  { label: 'Euro cylinder not blanked / thumbturn missing', remedial: 'Fit thumbturn and escutcheons, or correctly blank the euro cylinder' },
+  { label: 'Keeper not fitted correctly', remedial: 'Refit keeper and repair frame around keeper so the door latches' },
+  { label: 'Flush bolt or selector not working', remedial: 'Repair or replace flush bolt / door selector so pairs close in order' },
+  { label: 'Lock not wrapped in intumescent', remedial: 'Remove lock and fit intumescent lock wrap' },
   { label: 'Glazing not fire-rated or beads defective', remedial: 'Replace glazing and beading with tested fire-rated system' },
   { label: 'Door leaf damaged', remedial: 'Repair leaf with tested repair method or replace leaf' },
   { label: 'Frame damaged or loose', remedial: 'Repair or refix frame; replace door set if beyond repair' },
@@ -477,6 +503,12 @@ const DEFAULT_PRODUCT = [
   [/intumescent strip/i, 'm-int15', 3, ''],
   [/threshold/i, 'm-drop', 1, ''],
   [/closer/i, 'm-closer', 1, ''],
+  [/handle/i, 'm-handle', 1, ''],
+  [/escutcheon/i, 'm-esc', 2, 'both faces'],
+  [/thumbturn|euro cylinder/i, 'm-thumb45', 1, ''],
+  [/keeper/i, 'm-keeper', 1, ''],
+  [/flush bolt|selector/i, 'm-flush', 1, ''],
+  [/lock wrap|wrapped in intumescent/i, 'm-lockwrap', 1, ''],
   [/hinge/i, 'm-hinge', 3, ''],
   [/sign/i, 'm-sign', 2, 'both faces'],
   [/hold-open|wedged/i, 'm-holdopen', 1, ''],
