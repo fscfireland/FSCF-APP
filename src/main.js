@@ -317,7 +317,6 @@ async function renderProjects() {
         ${types.length > 1 ? `<div class="chips wrap">${['', ...types].map((t) => `<button class="chip type-chip ${(state.projType || '') === t ? 'is-on' : ''}" data-t="${esc(t)}">${esc(t || 'All types')} ${t ? `<b>${projects.filter((p) => (p.workType || '') === t).length}</b>` : ''}</button>`).join('')}</div>` : ''}
       </div>` : ''}
       <div id="project-groups">${groupedHtml}</div>
-      ${projects.length ? `<p class="fw-line"><label class="link-btn">${icon('plan')} New project from a drawing (PDF or photo)<input type="file" class="dw-import" accept="application/pdf,.pdf,image/*" hidden></label><br><label class="link-btn">${icon('upload')} New project from a Fieldwire report (PDF)<input type="file" class="fw-import" accept="application/pdf,.pdf" hidden></label></p>` : ''}
       ${projects.length ? '' : `
         <section class="empty">
           <div class="empty-ico">${icon('door')}</div>
@@ -326,8 +325,6 @@ async function renderProjects() {
           <div class="row-btns">
             <button class="btn primary" id="new-project-2">${icon('plus')} New project</button>
             <button class="btn" id="demo">Load demo project</button>
-            <label class="btn">${icon('plan')} From a drawing (PDF or photo)<input type="file" class="dw-import" accept="application/pdf,.pdf,image/*" hidden></label>
-            <label class="btn">${icon('upload')} From a Fieldwire report<input type="file" class="fw-import" accept="application/pdf,.pdf" hidden></label>
           </div>
         </section>`}
     </main>
@@ -355,20 +352,10 @@ async function renderProjects() {
   });
   $$('.live-card').forEach((c) => (c.onclick = () => go({ view: 'plan', projectId: c.dataset.pid, planId: c.dataset.plan })));
   $('#settings').onclick = () => go({ view: 'settings' });
-  $$('.dw-import').forEach((inp) => (inp.onchange = async (e) => {
-    const f = e.target.files[0];
-    e.target.value = '';
-    if (f) importFromDrawing(f);
-  }));
-  $$('.fw-import').forEach((inp) => (inp.onchange = async (e) => {
-    const f = e.target.files[0];
-    e.target.value = '';
-    if (f) importFieldwire(f);
-  }));
   $('#owner-lock')?.addEventListener('click', () => {
     if (priced()) { libUnlocked = false; toast('Locked: prices and time hidden'); refresh(); } else unlockOwner();
   });
-  $$('#new-project, #new-project-2').forEach((b) => (b.onclick = () => editProject()));
+  $$('#new-project, #new-project-2').forEach((b) => (b.onclick = () => newProjectMenu()));
   const demo = $('#demo');
   if (demo) demo.onclick = loadDemo;
   $$('.project-card').forEach((el) => (el.onclick = () => go({ view: 'project', projectId: el.dataset.id, tab: 'plans' })));
@@ -6389,6 +6376,36 @@ async function renderSettings() {
       toast(err.message, 'error');
     }
   };
+}
+
+// New project: start blank, from a drawing (file or a photo taken now), or
+// from a Fieldwire report.
+async function newProjectMenu() {
+  let picked = null;
+  await dialog({
+    title: 'New project',
+    body: `<div class="np-list">
+      <button type="button" class="np-opt" data-np="blank">${icon('plus')}<span><b>Blank project</b><small>Type the site details, then upload drawings</small></span></button>
+      <label class="np-opt">${icon('plan')}<span><b>From a drawing</b><small>PDF or picture from your files, Drive or downloads. Pins are suggested from the door symbols</small></span><input type="file" data-np="drawing" accept="application/pdf,.pdf,image/*" hidden></label>
+      <label class="np-opt">${icon('camera')}<span><b>From a photo of a drawing</b><small>Take a photo of a paper drawing now</small></span><input type="file" data-np="photo" accept="image/*" capture="environment" hidden></label>
+      <label class="np-opt">${icon('upload')}<span><b>From a Fieldwire report</b><small>Fieldwire PDF report: drawings, pins and checklist answers come across</small></span><input type="file" data-np="fieldwire" accept="application/pdf,.pdf" hidden></label>
+    </div>`,
+    buttons: [{ label: 'Cancel', value: false }],
+    onOpen: (form) => {
+      const shut = () => form.querySelector('.modal-actions button')?.click();
+      form.querySelector('[data-np=blank]').onclick = () => { picked = { kind: 'blank' }; shut(); };
+      form.querySelectorAll('input[type=file]').forEach((inp) => (inp.onchange = () => {
+        const f = inp.files[0];
+        if (!f) return;
+        picked = { kind: inp.dataset.np, file: f };
+        shut();
+      }));
+    },
+  });
+  if (!picked) return;
+  if (picked.kind === 'blank') return editProject();
+  if (picked.kind === 'fieldwire') return importFieldwire(picked.file);
+  return importFromDrawing(picked.file);
 }
 
 // Back up every site and file to Google Drive. Returns false when Drive
