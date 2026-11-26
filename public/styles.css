@@ -1097,3 +1097,37 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .pp-row b { display: block; font-weight: 600; font-size: 14.5px; }
 .pp-row small { color: var(--ink-2); font-size: 12.5px; }
 .pp-qty { width: 72px; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; text-align: center; background: var(--bg); color: var(--ink); font: inherit; }
+
+/* labour on products */
+.m-edit { grid-template-columns: 1fr 72px 92px 92px 130px auto; }
+@media (max-width: 720px) {
+  .m-edit { grid-template-columns: 1fr 1fr 1fr auto; }
+  .m-edit .me-name { grid-column: 1 / 4; }
+  .m-edit .me-del { grid-column: 4; grid-row: 1; }
+  .m-edit .me-cat { grid-column: 1 / 4; }
+}
+.def-prod-row .dp-cost-l { display: flex; flex-wrap: wrap; gap: 10px; }
+.dp-cost-l label { display: flex; align-items: center; gap: 6px; }
+.dp-cost-l .dp-lab { width: 86px; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+.mat-fields { grid-template-columns: repeat(3, minmax(0, 1fr)) auto; }
+.mat-sum3 { display: grid; gap: 4px; }
+.mat-sum3 span { display: flex; justify-content: space-between; gap: 8px; }
+/* pricing step before a quote */
+.ps-costs { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin: 8px 0; }
+.ps-costs > div { display: flex; justify-content: space-between; gap: 10px; }
+.ps-costs .ps-tot { border-top: 1px solid var(--line); padding-top: 6px; margin-top: 2px; font-size: 16px; }
+.ps-out { border-color: var(--accent); }
+.ps-warn { color: var(--st-fail); }
+.ps-set { border: 0; padding: 0; margin: 10px 0; display: grid; gap: 6px; }
+.ps-set legend { font: 650 15px/1.2 var(--font-head); margin-bottom: 6px; padding: 0; }
+.ps-opt { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ps-opt:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.ps-opt b { display: block; } .ps-opt small { color: var(--ink-2); font-size: 12.5px; }
+.ps-pct { width: 76px; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; text-align: center; background: var(--bg); color: var(--ink); font: inherit; }
+@media (max-width: 480px) { .mat-fields { grid-template-columns: repeat(3, minmax(0, 1fr)); } .mat-fields .mat-line { grid-column: 1 / -1; } }
+
+.me-cap { display: grid; gap: 2px; min-width: 0; }
+.me-cap small { font-size: 11.5px; color: var(--ink-2); font-weight: 600; }
+.me-cap input { width: 100%; min-width: 0; }
+.m-edit .me-cost input { padding-left: 10px; }
+.m-edit { align-items: end; }

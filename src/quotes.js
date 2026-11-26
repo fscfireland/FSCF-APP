@@ -229,7 +229,8 @@ export function totals(doc) {
   const preLims = Number(doc.preLims) || 0;
   const fuel = Number(doc.fuel) || 0;
   const vatRate = Number(doc.vatRate) || 0;
-  const vatDue = doc.vatMode === 'rct' ? 0 : r2(subtotal * vatRate);
+  // VAT is on everything charged: the lines, Pre Lims and fuel
+  const vatDue = doc.vatMode === 'rct' ? 0 : r2((subtotal + preLims + fuel) * vatRate);
   return { subtotal, preLims, fuel, vatRate, vatDue, total: r2(subtotal + preLims + fuel + vatDue) };
 }
 
@@ -444,7 +445,7 @@ export async function quoteXlsx(doc, book, pd = null) {
     });
   }
   ws['D' + (s + 1)] = { t: 'n', f: `SUM(D24:D${last})` };
-  ws['D' + (s + 5)] = { t: 'n', f: doc.vatMode === 'rct' ? '0' : `D${s + 1}*D${s + 4}` };
+  ws['D' + (s + 5)] = { t: 'n', f: doc.vatMode === 'rct' ? '0' : `SUM(D${s + 1}:D${s + 3})*D${s + 4}` };
   ws['D' + (s + 6)] = { t: 'n', f: `SUM(D${s + 1}:D${s + 3})+D${s + 5}` };
   if (T) ws['A' + (s + 20)] = { t: 's', f: isInv ? `"Invoice reference: "&D8&"   |   Quote: "&D4&"   |   Customer: "&D5` : `"Quote reference: "&D4&"   |   Customer: "&D5&"   |   Site: "&C12` };
   ws['!cols'] = [{ wch: 70 }, { wch: 11 }, { wch: 16 }, { wch: 16 }];
@@ -496,7 +497,7 @@ function variants(k) {
   }
   return out;
 }
-export const multiplier = (rule) => (rule === 'margin40' ? 1 / 0.6 : 1.4);
+export const multiplier = (rule) => typeof rule === 'number' && rule > 0 ? rule : (rule === 'margin40' ? 1 / 0.6 : 1.4);
 
 // A door's tags: Fieldwire tags (kept in its notes) and the app's products
 function doorTags(d) {
@@ -508,7 +509,7 @@ function doorTags(d) {
     out.push({ tag: (m ? `${m[1]}no_` : '') + name, key: name, qty: m ? +m[1] : 1, from: 'tag' });
   }
   for (const m of d.materials || []) {
-    out.push({ tag: m.name, key: m.name, qty: Number(m.qty) || 1, from: 'product', appCost: Number(m.cost) || 0 });
+    out.push({ tag: m.name, key: m.name, qty: Number(m.qty) || 1, from: 'product', appCost: Number(m.cost) || 0, appLabour: Number(m.labour) || 0 });
   }
   return out;
 }
@@ -529,18 +530,19 @@ export function priceDoors(doors, book, rule = 'x1.4') {
       if (!it) {
         const r = rateBy.get(k) || [...variants(k)].map((v) => rateBy.get(v)).find(Boolean);
         it = r ? { key: t.key, cost: r.cost, labour: r.labour, status: 'Priced', source: 'SERV PD MASTER' }
-          : t.from === 'product' && t.appCost ? { key: t.key, cost: t.appCost, labour: 0, status: 'App price', source: 'App price list (labour not set)' }
+          : t.from === 'product' && (t.appCost || t.appLabour) ? { key: t.key, cost: t.appCost, labour: t.appLabour || 0, status: 'App price', source: t.appLabour ? 'App price list' : 'App price list (labour not set)' }
           : { key: t.key, cost: 0, labour: 0, status: 'MISSING', source: 'Not in SERV PD MASTER' };
         items.set(k, it);
       }
       return { tag: t.tag, qty: t.qty, key: it.key, cost: it.cost, labour: it.labour };
     });
     const exMargin = rows.reduce((a, x) => a + x.qty * (x.cost + x.labour), 0);
+    const matCost = rows.reduce((a, x) => a + x.qty * x.cost, 0);
     const rating = /Door rating:\s*(.+)/i.exec(d.notes || '')?.[1] || d.doorType || '';
     const notes = (/(?:^|\n)Notes:\s*(.+)/.exec(d.notes || '')?.[1] || '').split(' · ').filter(Boolean);
     return {
       doorId: d.id, label: `ID: ${d.pinNo} - ${(d.location || d.ref || '').toUpperCase()}`.trim(),
-      rows, rating, recs: d.actions || [], notes, exMargin: r2(exMargin), price: r2(exMargin * mult),
+      rows, rating, recs: d.actions || [], notes, exMargin: r2(exMargin), price: r2(exMargin * mult), materials: r2(matCost), labour: r2(exMargin - matCost),
     };
   });
   const list = [...items.values()];

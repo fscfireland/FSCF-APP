@@ -314,6 +314,10 @@ export const MATERIALS_VERSION = 6;
 // A door's fire alarm zone as one line, e.g. "Zone 4 – East wing"
 export const zoneText = (d) => [d.zoneNo ? `Zone ${d.zoneNo}` : '', d.zoneName || ''].filter(Boolean).join(' – ');
 
+// Labour on a door's products (per unit, times quantity)
+export function labourTotal(d) {
+  return (d.materials || []).reduce((t, m) => t + (Number(m.qty) || 0) * (Number(m.labour) || 0), 0);
+}
 export function materialsTotal(d) {
   const mats = (d.materials || []).reduce((t, m) => t + (Number(m.qty) || 0) * (Number(m.cost) || 0), 0);
   // signs still needed are costed from their price-list price
@@ -525,7 +529,7 @@ export function defaultProductsFor(defect, materials, uid) {
   let m = rule && materials.find((x) => x.id === rule[1] && x.name?.trim());
   if (!m && cat) m = materials.find((x) => x.name?.trim() && matCat(x) === cat);
   if (!m) return [];
-  return [{ id: uid(), name: m.name, unit: m.unit || 'each', cost: Number(m.cost) || 0, qty: rule && m.id === rule[1] ? rule[2] : 1, cat: matCat(m), forKey: 'd:' + defect.label, spec: rule && m.id === rule[1] ? rule[3] : '' }];
+  return [{ id: uid(), name: m.name, unit: m.unit || 'each', cost: Number(m.cost) || 0, labour: Number(m.labour) || 0, qty: rule && m.id === rule[1] ? rule[2] : 1, cat: matCat(m), forKey: 'd:' + defect.label, spec: rule && m.id === rule[1] ? rule[3] : '' }];
 }
 
 // Give every defect without products its usual product. Returns the new list

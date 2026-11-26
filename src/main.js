@@ -3,7 +3,7 @@
 import * as db from './db.js';
 import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
-  ANSWERS, doorActions, materialsTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
+  ANSWERS, doorActions, materialsTotal, labourTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
   DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails, DEFAULT_KITS, KIND_IDS, kindForWork, DEFAULT_TEMPLATES,
@@ -911,9 +911,7 @@ async function renderQuoteDoc() {
           <label class="field"><span>Fuel surcharge (€)</span><input type="number" step="0.01" data-k="fuel" data-num="1" value="${cur.fuel || 0}"></label>
         </div>
         <div class="q-tot">
-          <span>Subtotal</span><b>${money(t.subtotal)}</b>
-          <span>VAT ${(t.vatRate * 100).toFixed(1)}%${cur.vatMode === 'rct' ? ' (principal contractor)' : ''}</span><b>${money(t.vatDue)}</b>
-          <span class="q-grand">TOTAL</span><b class="q-grand">${money(t.total)}</b>
+          ${qTotHtml(t, cur)}
         </div>
       </section>
       <section class="panel">
@@ -965,12 +963,12 @@ async function renderQuoteDoc() {
     $('#q-xlsx').onclick = async () => {
       await db.put('quotes', cur);
       try {
-        const pd = cur.projectId && cur.pd ? priceDoors(await db.projectDoors(cur.projectId), book, pricingRule()) : null;
+        const pd = cur.projectId && cur.pd ? priceDoors(await db.projectDoors(cur.projectId), book, cur.mult || pricingRule()) : null;
         await quoteXlsx(cur, book, pd);
       } catch (err) { console.error(err); toast('Excel failed: ' + err.message, 'error'); }
     };
     $('#q-refresh')?.addEventListener('click', async () => {
-      const pd = priceDoors(await db.projectDoors(cur.projectId), book, pricingRule());
+      const pd = priceDoors(await db.projectDoors(cur.projectId), book, cur.mult || pricingRule());
       const manual = (cur.items || []).filter((i) => !i.doorId);
       cur = { ...cur, items: [...pd.doors.map((d) => ({ desc: d.label, qty: 1, unit: d.price, doorId: d.doorId })), ...manual] };
       cur = await db.put('quotes', cur);
@@ -988,10 +986,15 @@ async function renderQuoteDoc() {
     if (row) { const it = cur.items[+row.dataset.i]; row.querySelector('.qi-amt').textContent = money((Number(it.qty) || 0) * (Number(it.unit) || 0)); }
     const t = totals(cur);
     const box = $('.q-tot', el);
-    if (box) box.innerHTML = `<span>Subtotal</span><b>${money(t.subtotal)}</b><span>VAT ${(t.vatRate * 100).toFixed(1)}%${cur.vatMode === 'rct' ? ' (principal contractor)' : ''}</span><b>${money(t.vatDue)}</b><span class="q-grand">TOTAL</span><b class="q-grand">${money(t.total)}</b>`;
+    if (box) box.innerHTML = qTotHtml(t, cur);
   };
   draw();
 }
+
+const qTotHtml = (t, cur) => `<span>Subtotal</span><b>${money(t.subtotal)}</b>
+  ${t.preLims ? `<span>Pre Lims</span><b>${money(t.preLims)}</b>` : ''}${t.fuel ? `<span>Fuel surcharge</span><b>${money(t.fuel)}</b>` : ''}
+  <span>VAT ${(t.vatRate * 100).toFixed(1)}%${cur.vatMode === 'rct' ? ' (principal contractor)' : ''}</span><b>${money(t.vatDue)}</b>
+  <span class="q-grand">TOTAL</span><b class="q-grand">${money(t.total)}</b>`;
 
 // Search SERV PD MASTER (and the app's own price list): cost + labour → selling price
 async function pickFromRates(book) {
@@ -1078,6 +1081,74 @@ function vatPrecedent(book, custId, workType) {
   const hit = [...(book?.register || [])].reverse().find((x) => x.cust === custId && x.workType === workType && x.vatRate != null);
   return hit ? hit.vatRate : null;
 }
+// Before a quote is made from a report: the cost (materials + labour), the
+// margin to put on it, and prelims. The margin is for the owner only: the
+// quote shows each door's price, never the cost or margin.
+const MARGINS = [
+  { id: 'x1.4', label: '× 1.4', hint: 'as your PD sheets (28.6% margin)', mult: 1.4 },
+  { id: 'm40', label: '40% margin', hint: '÷ 0.6, as SERV PD MASTER', mult: 1 / 0.6 },
+];
+const marginMult = (choice, pct) => {
+  const m = MARGINS.find((x) => x.id === choice);
+  if (m) return m.mult;
+  const p = Math.min(90, Math.max(0, Number(pct) || 0));
+  return 1 / (1 - p / 100);
+};
+async function pricingStep(project, pd, pdNo) {
+  const mat = pd.doors.reduce((a, d) => a + d.materials, 0);
+  const lab = pd.doors.reduce((a, d) => a + d.labour, 0);
+  const cost = mat + lab;
+  const last = lists.lastMargin || { choice: pricingRule() === 'margin40' ? 'm40' : 'x1.4', pct: 35 };
+  const noLabour = pd.items.filter((i) => i.status !== 'MISSING' && !i.labour).length;
+  const r = await dialog({
+    title: `Price the quote · ${project.site}`,
+    body: `<p class="small"><b>${pd.doors.length}</b> failed door${pd.doors.length === 1 ? '' : 's'}. Only you see this: the quote shows each door's price, not the cost or margin.</p>
+      <div class="ps-costs">
+        <div><span>Materials</span><b>${money(mat)}</b></div>
+        <div><span>Labour</span><b>${money(lab)}</b></div>
+        <div class="ps-tot"><span>Cost</span><b>${money(cost)}</b></div>
+      </div>
+      ${pd.missing ? `<p class="small ps-warn">${pd.missing} item${pd.missing === 1 ? ' has' : 's have'} no rate yet (shown as MISSING at €0 in the pricing doc).</p>` : ''}
+      ${noLabour ? `<p class="small muted">${noLabour} item${noLabour === 1 ? ' has' : 's have'} no labour set. Add labour in Settings › Products.</p>` : ''}
+      <fieldset class="ps-set"><legend>Margin</legend>
+        ${MARGINS.map((m) => `<label class="ps-opt"><input type="radio" name="mg" value="${m.id}" ${last.choice === m.id ? 'checked' : ''}><span><b>${m.label}</b><small>${m.hint}</small></span></label>`).join('')}
+        <label class="ps-opt"><input type="radio" name="mg" value="pct" ${last.choice === 'pct' ? 'checked' : ''}><span><b>Margin %</b><small>of the selling price</small></span><input class="ps-pct" name="pct" type="number" inputmode="decimal" min="0" max="90" step="0.5" value="${esc(last.pct ?? 35)}"></label>
+      </fieldset>
+      <fieldset class="ps-set"><legend>Pre Lims</legend>
+        <label class="field"><span>Amount € (added to the quote as entered)</span><input name="pl" type="number" inputmode="decimal" min="0" step="0.01" value="" placeholder="0.00"></label>
+        <label class="field"><span>What it covers (for you)</span><input name="pln" placeholder="e.g. site set-up, access equipment, travel"></label>
+      </fieldset>
+      <div class="ps-costs ps-out">
+        <div><span>Doors at selling price</span><b id="ps-sell"></b></div>
+        <div><span>Your margin</span><b id="ps-margin"></b></div>
+        <div><span>Pre Lims</span><b id="ps-pl"></b></div>
+        <div class="ps-tot"><span>Quote total ex VAT</span><b id="ps-total"></b></div>
+      </div>
+      <p class="small muted">Next: choose the customer and site. Pricing doc: <b>${pdNo}</b>.</p>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      const upd = () => {
+        const fd = Object.fromEntries(new FormData(form).entries());
+        const mult = marginMult(fd.mg, fd.pct);
+        const sell = pd.doors.reduce((a, d) => a + Math.round(d.exMargin * mult * 100) / 100, 0);
+        const pl = Number(fd.pl) || 0;
+        $('#ps-sell', form).textContent = money(sell);
+        $('#ps-margin', form).textContent = `${money(sell - cost)}${sell ? ` (${((1 - cost / sell) * 100).toFixed(1)}%)` : ''}`;
+        $('#ps-pl', form).textContent = money(pl);
+        $('#ps-total', form).textContent = money(sell + pl);
+      };
+      form.addEventListener('input', upd);
+      form.addEventListener('change', upd);
+      $('.ps-pct', form).addEventListener('focus', () => { $('input[value=pct]', form).checked = true; upd(); });
+      upd();
+    },
+  });
+  if (r.value !== true) return null;
+  const choice = r.data.mg || 'x1.4';
+  await saveLists({ lastMargin: { choice, pct: Number(r.data.pct) || 0 } });
+  return { mult: marginMult(choice, r.data.pct), choice: choice === 'pct' ? `${Number(r.data.pct) || 0}%` : choice, preLims: Math.round((Number(r.data.pl) || 0) * 100) / 100, preLimsNote: (r.data.pln || '').trim() };
+}
+
 async function quoteFromReport(project) {
   const book = await quoteBook();
   if (!book) return toast('Import your INVOICES AND QUOTES workbook first (Quotes & invoices).', 'error');
@@ -1097,15 +1168,9 @@ async function quoteFromReport(project) {
   if (!pd.doors.length) return toast('No failed doors in this report to price.', 'error');
   const appDocs = await db.all('quotes');
   const pdNo = 'PD-' + pad3(nextPd(book, appDocs));
-  const total = pd.doors.reduce((a, d) => a + d.price, 0);
-  const ok = await dialog({
-    title: `Quote for ${project.site}`,
-    body: `<p><b>${pd.doors.length}</b> failed door${pd.doors.length === 1 ? '' : 's'} priced at <b>${money(total)}</b> ex VAT (cost + labour ${pricingRule() === 'margin40' ? '÷ 0.6' : '× 1.4'}).</p>
-      ${pd.missing ? `<p class="small">${pd.missing} item${pd.missing === 1 ? ' is' : 's are'} not in SERV PD MASTER yet. ${pd.missing === 1 ? 'It shows' : 'They show'} as <b>MISSING</b> at €0 in the pricing doc; add the rate there in Excel and the door and quote update.</p>` : ''}
-      <p class="small">Next: choose the customer and site. Pricing doc: <b>${pdNo}</b>.</p>`,
-    buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
-  });
-  if (ok.value !== true) return;
+  const setup = await pricingStep(project, pd, pdNo);
+  if (!setup) return;
+  const priced2 = priceDoors(doors, book, setup.mult);
   const pick = await pickCustomer(book);
   if (!pick) return;
   const nx = nextNumbers(book, appDocs);
@@ -1114,9 +1179,9 @@ async function quoteFromReport(project) {
   const doc = await db.put('quotes', {
     id: db.uid(), kind: 'Q', tab: nx.tab, quote: nx.quote, inv: '', part: '', date: today(), days: 30,
     cust: pick.cust, site: pick.site, po: pick.po || '', workType: 'FDREM', status: 'PROC',
-    vatRate: vat, vatMode: vat === 0 ? 'rct' : 'normal', preLims: 0, fuel: 0, specialOrder: '',
-    items: pd.doors.map((d) => ({ desc: d.label, qty: 1, unit: d.price, doorId: d.doorId })),
-    notes,
+    vatRate: vat, vatMode: vat === 0 ? 'rct' : 'normal', preLims: setup.preLims, preLimsNote: setup.preLimsNote, fuel: 0, specialOrder: '',
+    items: priced2.doors.map((d) => ({ desc: d.label, qty: 1, unit: d.price, doorId: d.doorId })),
+    notes, mult: setup.mult, marginChoice: setup.choice,
     p1Terms: QTERMS.worksQuote.replace('13.5%', `${+(vat * 100).toFixed(1)}%`),
     projectId: project.id, pd: pdNo,
   });
@@ -4357,7 +4422,7 @@ async function drawSheet(door) {
             ${linked.map((m) => `
               <div class="def-prod-row ${m.custom ? 'is-custom' : ''}" data-id="${esc(m.id)}">
                 ${m.custom ? `<input class="dp-name dp-text" value="${esc(m.name || '')}" placeholder="Type the item, e.g. 100 mm stainless hinge" aria-label="Product">
-                ${priced() ? `<label class="dp-cost-l">€ each<input class="dp-cost" type="number" inputmode="decimal" min="0" step="any" value="${m.cost ? esc(m.cost) : ''}" placeholder="0.00"></label>` : ''}`
+                ${priced() ? `<span class="dp-cost-l"><label>Material €<input class="dp-cost" type="number" inputmode="decimal" min="0" step="any" value="${m.cost ? esc(m.cost) : ''}" placeholder="0.00"></label><label>Labour €<input class="dp-lab" type="number" inputmode="decimal" min="0" step="any" value="${m.labour ? esc(m.labour) : ''}" placeholder="0.00"></label></span>` : ''}`
                 : `<select class="dp-name" aria-label="Product">
                   ${opts.map((o) => `<option value="${esc(o.id)}" ${o.name === m.name ? 'selected' : ''}>${esc(o.name)}${o.cost && priced() ? ' – ' + euro(o.cost) : ''}</option>`).join('')}
                   ${!opts.some((o) => o.name === m.name) ? `<option value="" selected>${esc(m.name)}</option>` : ''}
@@ -4385,13 +4450,13 @@ async function drawSheet(door) {
       const own = m.libId && all.find((x) => x.id === m.libId);
       const same = all.find((x) => (x.name || '').trim().toLowerCase() === name.toLowerCase());
       if (own) {
-        if (own.name === name && (Number(own.cost) || 0) === (Number(m.cost) || 0)) return;
+        if (own.name === name && (Number(own.cost) || 0) === (Number(m.cost) || 0) && (Number(own.labour) || 0) === (Number(m.labour) || 0)) return;
         if (same && same.id !== own.id) return; // renamed to an item that already exists: leave the list alone
-        await saveLists({ materials: all.map((x) => (x.id === own.id ? { ...x, name, cost: Number(m.cost) || x.cost || 0 } : x)) });
+        await saveLists({ materials: all.map((x) => (x.id === own.id ? { ...x, name, cost: Number(m.cost) || x.cost || 0, labour: Number(m.labour) || 0 } : x)) });
         return;
       }
       if (same) { setMat(id, { libId: same.id }); return; }
-      const item = { id: db.uid(), cat: m.cat && m.cat !== 'Other' ? m.cat : matCat({ name }), name, unit: m.unit || 'each', cost: Number(m.cost) || 0 };
+      const item = { id: db.uid(), cat: m.cat && m.cat !== 'Other' ? m.cat : matCat({ name }), name, unit: m.unit || 'each', cost: Number(m.cost) || 0, labour: Number(m.labour) || 0 };
       await saveLists({ materials: [...all, item] });
       setMat(id, { libId: item.id });
       toast(`"${name}" saved to your products, ready to pick on any site`);
@@ -4446,7 +4511,7 @@ async function drawSheet(door) {
         const typed = (current.materials || []).filter((m) => m.forKey === key && m.custom && !optNames.has((m.name || '').trim().toLowerCase()));
         const chosen = opts.map((o, j) => [o, j]).filter(([, j]) => r.data['c' + j] && Number(r.data['q' + j]) > 0).map(([o, j]) => {
           const have = mine.find((m) => m.name.trim().toLowerCase() === o.name.trim().toLowerCase());
-          return { ...(have || { id: db.uid(), spec: '' }), name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, cat: matCat(o), forKey: key, qty: Number(r.data['q' + j]) };
+          return { ...(have || { id: db.uid(), spec: '' }), name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, labour: Number(o.labour) || 0, cat: matCat(o), forKey: key, qty: Number(r.data['q' + j]) };
         });
         queue({ materials: [...keepOthers, ...chosen, ...typed] });
         drawDefects();
@@ -4470,10 +4535,12 @@ async function drawSheet(door) {
           }, 150);
           $('.dp-cost', pr)?.addEventListener('input', (e) => { setMat(id, { cost: Number(e.target.value) || 0 }); drawMaterials(); });
           $('.dp-cost', pr)?.addEventListener('change', () => rememberProduct(id));
+          $('.dp-lab', pr)?.addEventListener('input', (e) => { setMat(id, { labour: Number(e.target.value) || 0 }); drawMaterials(); });
+          $('.dp-lab', pr)?.addEventListener('change', () => rememberProduct(id));
         } else {
           $('.dp-name', pr).onchange = (e) => {
             const o = (lists.materials || []).find((x) => x.id === e.target.value);
-            if (o) { setMat(id, { name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, cat: matCat(o) }); drawMaterials(); }
+            if (o) { setMat(id, { name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, labour: Number(o.labour) || 0, cat: matCat(o) }); drawMaterials(); }
           };
         }
         $('.dp-spec', pr).oninput = (e) => setMat(id, { spec: e.target.value });
@@ -4758,22 +4825,26 @@ async function drawSheet(door) {
           <label class="field"><span>Size / type</span><input class="mat-spec" id="mat-spec-${i}" value="${esc(m.spec || '')}" placeholder="e.g. 15 × 4 mm, white, combined" autocomplete="off"></label>
           <div class="mat-fields">
             <label class="field"><span>Qty${m.unit ? ' (' + esc(m.unit) + ')' : ''}</span><input type="number" inputmode="decimal" min="0" step="any" class="mat-qty" id="mat-qty-${i}" value="${esc(m.qty ?? 1)}"></label>
-            <label class="field money-f"><span>Unit cost €</span><input type="number" inputmode="decimal" min="0" step="0.01" class="mat-cost" id="mat-cost-${i}" value="${esc(m.cost ?? 0)}"></label>
-            <div class="mat-line"><span>Line</span><b class="mat-total">${euro((Number(m.qty) || 0) * (Number(m.cost) || 0))}</b></div>
+            <label class="field money-f"><span>Material €</span><input type="number" inputmode="decimal" min="0" step="0.01" class="mat-cost" id="mat-cost-${i}" value="${esc(m.cost ?? 0)}"></label>
+            <label class="field money-f"><span>Labour €</span><input type="number" inputmode="decimal" min="0" step="0.01" class="mat-lab" id="mat-lab-${i}" value="${esc(m.labour ?? 0)}"></label>
+            <div class="mat-line"><span>Line</span><b class="mat-total">${euro((Number(m.qty) || 0) * ((Number(m.cost) || 0) + (Number(m.labour) || 0)))}</b></div>
           </div>
-        </div>`).join('') + `<div class="mat-sum"><span>Materials total <small class="muted">ex VAT</small></span><b id="mat-sum">${euro(materialsTotal(current))}</b></div>`
+        </div>`).join('') + `<div class="mat-sum mat-sum3"><span>Materials <b id="mat-sum">${euro(materialsTotal(current))}</b></span><span>Labour <b id="lab-sum">${euro(labourTotal(current))}</b></span><span>Total <small class="muted">ex VAT, before margin</small> <b id="all-sum">${euro(materialsTotal(current) + labourTotal(current))}</b></span></div>`
       : '<p class="muted small">No materials added.</p>';
     $$('.mat', el).forEach((row) => {
       const i = Number(row.dataset.i);
       const upd = () => {
-        const materials = current.materials.map((m, j) => (j === i ? { ...m, qty: Number($('.mat-qty', row).value) || 0, cost: Number($('.mat-cost', row).value) || 0 } : m));
+        const materials = current.materials.map((m, j) => (j === i ? { ...m, qty: Number($('.mat-qty', row).value) || 0, cost: Number($('.mat-cost', row).value) || 0, labour: Number($('.mat-lab', row).value) || 0 } : m));
         queue({ materials });
         const m = materials[i];
-        $('.mat-total', row).textContent = euro(m.qty * m.cost);
+        $('.mat-total', row).textContent = euro(m.qty * (m.cost + m.labour));
         $('#mat-sum').textContent = euro(materialsTotal(current));
+        $('#lab-sum').textContent = euro(labourTotal(current));
+        $('#all-sum').textContent = euro(materialsTotal(current) + labourTotal(current));
       };
       $('.mat-qty', row).oninput = upd;
       $('.mat-cost', row).oninput = upd;
+      $('.mat-lab', row).oninput = upd;
       $('.mat-spec', row).oninput = (e) => {
         queue({ materials: current.materials.map((m, j) => (j === i ? { ...m, spec: e.target.value } : m)) });
       };
@@ -5127,7 +5198,7 @@ async function pickMaterials() {
   if (r.value !== true) return null;
   const picked = Object.entries(r.data).filter(([k]) => /^m\d+$/.test(k)).map(([, v]) => {
     const m = lists.materials[Number(v)];
-    return { id: db.uid(), name: m.name, unit: m.unit || '', qty: 1, cost: Number(m.cost) || 0, cat: matCat(m) };
+    return { id: db.uid(), name: m.name, unit: m.unit || '', qty: 1, cost: Number(m.cost) || 0, labour: Number(m.labour) || 0, cat: matCat(m) };
   });
   const name = (r.data.cname || '').trim();
   if (name) {
@@ -5686,8 +5757,9 @@ async function renderSettings() {
       return `<h3 class="mat-cat">${esc(c)} <span class="muted">${rows.length}</span></h3>` + rows.map(({ m, i }) => `
       <div class="m-edit" data-i="${i}">
         <input class="me-name" id="me-name-${i}" value="${esc(m.name)}" aria-label="Material" placeholder="Material">
-        <input class="me-unit" id="me-unit-${i}" value="${esc(m.unit)}" aria-label="Unit" placeholder="unit">
-        <label class="me-cost"><span>€</span><input id="me-cost-${i}" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(m.cost || '')}" placeholder="0.00" aria-label="Unit cost in euro"></label>
+        <label class="me-cap"><small>Unit</small><input class="me-unit" id="me-unit-${i}" value="${esc(m.unit)}" aria-label="Unit" placeholder="unit"></label>
+        <label class="me-cap me-cost"><small>Material €</small><input id="me-cost-${i}" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(m.cost || '')}" placeholder="0.00" aria-label="Material cost in euro"></label>
+        <label class="me-cap me-cost me-lab"><small>Labour €</small><input id="me-lab-${i}" type="number" inputmode="decimal" min="0" step="0.01" value="${esc(m.labour || '')}" placeholder="0.00" aria-label="Labour in euro"></label>
         <select class="me-cat" aria-label="Category">${cats.map((x) => `<option ${x === matCat(m) ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select>
         <button class="icon-btn sm me-del" aria-label="Remove">${icon('trash')}</button>
       </div>`).join('');
@@ -5695,7 +5767,7 @@ async function renderSettings() {
     $$('.m-edit').forEach((row) => {
       const i = Number(row.dataset.i);
       const upd = () => saveLists({
-        materials: lists.materials.map((m, j) => (j === i ? { ...m, name: $('.me-name', row).value, unit: $('.me-unit', row).value, cost: Number($('.me-cost input', row).value) || 0, cat: $('.me-cat', row).value } : m)),
+        materials: lists.materials.map((m, j) => (j === i ? { ...m, name: $('.me-name', row).value, unit: $('.me-unit', row).value, cost: Number($(`#me-cost-${i}`, row).value) || 0, labour: Number($(`#me-lab-${i}`, row).value) || 0, cat: $('.me-cat', row).value } : m)),
       });
       $$('input', row).forEach((inp) => (inp.onchange = upd));
       $('.me-cat', row).onchange = async () => { await upd(); drawMats(); };
