@@ -1238,3 +1238,5 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 /* BM TRADA ART picker on a defect */
 .defect-fields .def-art-f { grid-column: 1 / -1; }
 .def-art { font-size: 14px !important; }
+
+.rep-switch { padding: 6px 0; font-weight: 600; color: var(--ink); }

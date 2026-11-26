@@ -2,7 +2,7 @@
 // and one page per door with checklist, defects, actions and photos.
 // Built entirely on the phone (works offline once the library is cached).
 
-import { replacementLine } from './fields.js';
+import { replacementLine, mfssLine } from './fields.js';
 import { capsPdf } from './caps.js';
 import * as db from './db.js';
 import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected, statusesInUse, matLabel, zoneText, riskText, signText } from './defaults.js';
@@ -639,7 +639,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
 
     // details + plan close-up side by side
     const detailRows = [
-      ['Door type', d.doorType], ['Leaf configuration', d.leaf], ['Replacement', replacementLine(d)], ['Fire alarm zone', zoneText(d)], ['Risk rating', riskText(d)], ['Category', d.category], ['Location (GPS)', d.gps ? gpsText(d.gps) : ''],
+      ['Door type', d.doorType], ['Leaf configuration', d.leaf], ['Replacement', replacementLine(d)], ['Architrave survey', mfssLine(d)], ['Fire alarm zone', zoneText(d)], ['Risk rating', riskText(d)], ['Category', d.category], ['Location (GPS)', d.gps ? gpsText(d.gps) : ''],
       ['Inspected on', fmtDate(d.inspectedOn)], ['Inspected by', d.inspectedBy], ['Next inspection due', fmtDate(d.nextDue)],
     ].filter((r) => r[1]);
     const cropW = 70;

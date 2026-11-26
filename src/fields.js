@@ -34,6 +34,28 @@ export const QMARK_SECTION = {
   ],
 };
 
+// BM TRADA Q-Mark: Survey of Fire Stopping Behind Architraves, MFSS 058 Iss 2
+// (SUIN 058 Iss 1, 05/01/2026). Done on the doors the Responsible Person picks,
+// so it is switched on per door. Gap / material limits for timber doors up to
+// 60 minutes are in BS 8214:2016 tables 9.4.1 (BM TRADA bulletin 058/002).
+export const MFSS_SECTION = {
+  id: 'mfss', name: 'Architrave survey: fire stopping behind architraves (BM TRADA MFSS 058 Iss 2)', when: 'switch',
+  switchLabel: 'Architrave survey on this door (fire stopping behind architraves, MFSS 058)',
+  base: 'fd', notKits: ['fdpanic', 'fdemerg', 'fdexit'],
+  fields: [
+    { id: 'mfFrame', label: 'Door frame dimensions', type: 'text', placeholder: 'e.g. 2040 × 926 × 100 mm', need: true },
+    { id: 'mfFixType', label: 'Fixing type', type: 'list', own: true, need: true, options: ['Screws', 'Frame fixings (screw and plug)', 'Nails', 'Adhesive / foam only', 'No fixings found'] },
+    { id: 'mfFixLen', label: 'Fixing length', type: 'number', unit: 'mm' },
+    { id: 'mfFixPos', label: 'Fixing positions', type: 'text', placeholder: 'e.g. 3 per jamb, 150 mm from head and floor', need: true },
+    { id: 'mfPack', label: 'Packing type and position', type: 'list', own: true, need: true, options: ['Hardwood packers at fixing positions', 'Softwood packers at fixing positions', 'Plastic packers at fixing positions', 'No packers found'] },
+    { id: 'mfLoc', label: 'Fire stopping location checked', type: 'list', own: true, need: true, options: ['Head', 'Hinge jamb', 'Lock / closing jamb', 'Head and both jambs'] },
+    { id: 'mfGap', label: 'Gap size (frame to substrate)', type: 'number', unit: 'mm', need: true },
+    { id: 'mfMat', label: 'Material(s) present', type: 'list', own: true, need: true, options: ['Intumescent mastic', 'Fire-rated foam', 'Mineral rock fibre with intumescent mastic', 'Timber packing / architrave only', 'Non fire-rated foam', 'Nothing (open void)'] },
+    { id: 'mfHow', label: 'How it has been installed', type: 'text', long: true, placeholder: 'e.g. rock fibre packed full depth, 10 mm mastic bead both sides' },
+    { id: 'mfResult', label: 'Fire stopping found', type: 'list', need: true, options: ['Acceptable', 'Not acceptable: report to the Responsible Person (repair under BM TRADA ART 16)'] },
+  ],
+};
+
 export const DEFAULT_FIELD_SECTIONS = [
   {
     id: 'rep', name: 'Replacement details', when: 'replacement', base: 'fd',
@@ -55,6 +77,7 @@ export const DEFAULT_FIELD_SECTIONS = [
     ],
   },
   QMARK_SECTION,
+  MFSS_SECTION,
 ];
 
 // Sections that show on this door (kit: the door's checklist kit, kitId its id)
@@ -62,8 +85,21 @@ export function sectionsFor(sections, door, kit, kitId) {
   return (sections || []).filter((s) => {
     if (s.base && !(kit?.base === s.base || kitId === s.base)) return false;
     if (s.notKits?.includes(kitId)) return false; // e.g. final exits are not fire doors
+    if (s.when === 'switch') return !!door.switches?.[s.id];
     return s.when === 'replacement' ? !!door.replacement : true;
   });
+}
+
+// Sections that are switched on per door (e.g. the architrave survey)
+export function switchSectionsFor(sections, kit, kitId) {
+  return (sections || []).filter((s) => s.when === 'switch' && !(s.base && !(kit?.base === s.base || kitId === s.base)) && !s.notKits?.includes(kitId));
+}
+
+// One line for reports: "Gap 12 mm · Intumescent mastic · Acceptable"
+export function mfssLine(door) {
+  if (!door.switches?.mfss) return '';
+  const a = door.attrs || {};
+  return [a.mfLoc, a.mfGap != null && a.mfGap !== '' ? `gap ${a.mfGap} mm` : '', a.mfMat, a.mfResult].filter(Boolean).join(' · ') || 'Surveyed, details not recorded';
 }
 
 export function fieldText(f, v) {

@@ -14,7 +14,7 @@ import { TOOLS as AI_TOOLS, systemPrompt, makeRunner, activityText } from './ass
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx, exportProductionXlsx } from './export.js';
 import { startCaps, setHeadTexts } from './caps.js';
 import { ARTS, suggestArt, artRemedial } from './arts.js';
-import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, QMARK_SECTION, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
+import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, QMARK_SECTION, MFSS_SECTION, switchSectionsFor, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
 import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
@@ -111,10 +111,10 @@ async function loadLists() {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
     questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, fieldSections: DEFAULT_FIELD_SECTIONS, inspector: '', logoBanner: BRAND_BANNER, logoRound: BRAND_ROUND, ...(s || {}),
   };
-  if (lists.qmSecAdded !== 2) {
-    // BM TRADA grade level section on every fire door checklist (Nov 2026)
-    lists.fieldSections = [...(lists.fieldSections || DEFAULT_FIELD_SECTIONS).filter((x) => x.id !== 'qm'), QMARK_SECTION];
-    lists.qmSecAdded = 2;
+  if (lists.qmSecAdded !== 3) {
+    // BM TRADA grade level on every fire door; architrave survey switched on per door (Nov 2026)
+    lists.fieldSections = [...(lists.fieldSections || DEFAULT_FIELD_SECTIONS).filter((x) => x.id !== 'qm' && x.id !== 'mfss'), QMARK_SECTION, MFSS_SECTION];
+    lists.qmSecAdded = 3;
   }
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
@@ -4576,6 +4576,7 @@ async function drawSheet(door) {
       <section class="block rep-block" id="rep-block">
         <label class="field"><span>Replacement</span>
           <select id="f-repl">${REPLACEMENTS.map(([v, l]) => `<option value="${v}" ${v === (door.replacement || '') ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></label>
+        <div id="rep-switches"></div>
         <div id="rep-fields"></div>
       </section>
 
@@ -5581,6 +5582,12 @@ async function drawSheet(door) {
     const box = $('#rep-fields');
     if (!box) return;
     const secs = sectionsFor(lists.fieldSections || DEFAULT_FIELD_SECTIONS, current, kitOf(kindNow), kindNow);
+    const sw = switchSectionsFor(lists.fieldSections || DEFAULT_FIELD_SECTIONS, kitOf(kindNow), kindNow);
+    $('#rep-switches').innerHTML = sw.map((x) => `<label class="check-line rep-switch"><input type="checkbox" data-switch="${esc(x.id)}" ${current.switches?.[x.id] ? 'checked' : ''}> ${esc(x.switchLabel || x.name)}</label>`).join('');
+    $$('[data-switch]', $('#rep-switches')).forEach((cb) => (cb.onchange = () => {
+      queue({ switches: { ...(current.switches || {}), [cb.dataset.switch]: cb.checked } });
+      drawRep();
+    }));
     $('#rep-block').hidden = !kitOf(kindNow).base && !secs.length && !(lists.fieldSections || []).some((sc) => sc.when === 'replacement' && (!sc.base || kitOf(kindNow).base === sc.base || kindNow === sc.base));
     const a = current.attrs || {};
     const fieldHtml = (f) => {
@@ -6561,7 +6568,7 @@ function drawFieldsEditor(el) {
     <p class="muted small">Extra details you record on a door, like Fieldwire attributes: a number (with a unit), a list you write, text, or yes/no. Fields in a <b>replacement</b> section show when a door's Replacement box is set; the others always show.</p>
     ${secs.map((sc, si) => `
       <div class="fs-sec">
-        <div class="fs-head"><span><b>${esc(sc.name)}</b><small>${sc.when === 'replacement' ? 'Shows when a door is marked for replacement' : 'Always shows'} · ${sc.base === 'fd' ? 'fire door and final exit checklists' : sc.base ? esc(kitOf(sc.base).name) : 'every inspection type'}</small></span>
+        <div class="fs-head"><span><b>${esc(sc.name)}</b><small>${sc.when === 'replacement' ? 'Shows when a door is marked for replacement' : sc.when === 'switch' ? 'Shows when ticked on the door' : 'Always shows'} · ${sc.base === 'fd' ? 'fire door and final exit checklists' : sc.base ? esc(kitOf(sc.base).name) : 'every inspection type'}</small></span>
           <button class="btn sm ghost" data-sec-edit="${si}">Edit</button></div>
         ${sc.fields.map((f, fi) => `
           <div class="fs-row"><span><b>${esc(f.label)}</b><small>${esc(typeName[f.type] || f.type)}${f.unit ? ` · ${esc(f.unit)}` : ''}${f.type === 'list' ? ` · ${esc((f.options || []).join(', '))}` : ''}</small></span>
@@ -6656,7 +6663,7 @@ async function editSection(sc) {
     title: sc ? `Edit "${sc.name}"` : 'Add a section',
     body: `
       <label class="field"><span>Section name</span><input name="name" required value="${esc(cur.name)}" placeholder="e.g. Door survey" autocomplete="off"></label>
-      <label class="field"><span>When it shows</span><select name="when"><option value="always" ${cur.when !== 'replacement' ? 'selected' : ''}>Always</option><option value="replacement" ${cur.when === 'replacement' ? 'selected' : ''}>When the door is marked for replacement</option></select></label>
+      <label class="field"><span>When it shows</span><select name="when"><option value="always" ${!['replacement', 'switch'].includes(cur.when) ? 'selected' : ''}>Always</option><option value="replacement" ${cur.when === 'replacement' ? 'selected' : ''}>When the door is marked for replacement</option><option value="switch" ${cur.when === 'switch' ? 'selected' : ''}>When switched on for the door (tick box)</option></select></label>
       <label class="field"><span>Which inspections</span><select name="base">
         <option value="fd" ${cur.base === 'fd' ? 'selected' : ''}>Fire door and final exit checklists</option>
         <option value="" ${!cur.base ? 'selected' : ''}>Every inspection type</option>
