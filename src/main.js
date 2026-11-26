@@ -4687,6 +4687,19 @@ async function drawSheet(door) {
   };
 
   $('#sh-close').onclick = () => back();
+  // A final exit door type brings its own checklist (panic EN 1125 / emergency EN 179)
+  const switchForType = async (type) => {
+    const k = /final exit.*panic/i.test(type) ? 'fdpanic' : /final exit.*emergency/i.test(type) ? 'fdemerg' : null;
+    if (!k || k === kindNow || !kindIds().includes(k)) return;
+    if ((current.status || 'not_inspected') !== 'not_inspected' || Object.keys(current.checks || {}).length) {
+      if (!(await confirmBox('Switch to the final exit checklist?', `This is now a ${type.toLowerCase()} door. Switch pin ${door.pinNo} to the "${kitOf(k).name}" checklist? Answers already given are kept on the record.`, 'Switch checklist', false))) return;
+    }
+    queue({ kind: k });
+    await flushSave();
+    await drawSheet(await db.get('doors', door.id));
+    if (state.view === 'plan') refreshPins();
+    toast(`Checklist switched to ${kitOf(k).name}`);
+  };
   $('#sh-kind').onclick = async () => {
     const k = await pickKind(`What is pin ${door.pinNo}?`, kindNow);
     if (!k || k === kindNow) return;
@@ -4752,6 +4765,7 @@ async function drawSheet(door) {
       if (inp.value === '__new') return; // handled by the "Add new category" dialog
       queue({ [inp.dataset.k]: inp.value });
       if (inp.dataset.k === 'doorType' && $('#f-type-note')) $('#f-type-note').textContent = DOOR_TYPE_NOTES.find(([re]) => re.test(inp.value))?.[1] || '';
+      if (inp.dataset.k === 'doorType') switchForType(inp.value);
       if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || K.item + ' ' + door.pinNo;
       if (inp.dataset.k === 'zoneNo' || inp.dataset.k === 'zoneName') {
         // a zone number from the project's zone list fills in its name
