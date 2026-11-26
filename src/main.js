@@ -363,9 +363,9 @@ async function renderProjects() {
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
-  $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'pricing' }); });
-  $('#my-business')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'business' }); });
-  $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'quotes' }); });
+  $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'pricing' }); });
+  $('#my-business')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'business' }); });
+  $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
     if (await backupEverythingToDrive(await db.all('projects'))) return;
     const b = busy('Preparing backup…');
@@ -2796,7 +2796,9 @@ let libUnlocked = false;
 // job are hidden until the PIN is entered. It locks again when the app is
 // closed or put in the background. With no PIN, everything shows.
 const priced = () => !lists?.libPin || libUnlocked;
-async function unlockOwner() {
+// redraw: false when the caller opens another page straight after, so the
+// redraw of the current page can't land on top of the page being opened
+async function unlockOwner({ redraw = true } = {}) {
   if (!lists.libPin) return true;
   const r = await dialog({
     title: 'Owner PIN',
@@ -2807,7 +2809,7 @@ async function unlockOwner() {
   if ((await pinHash(r.data.pin)) !== lists.libPin) { toast('Wrong PIN', 'error'); return false; }
   libUnlocked = true;
   toast('Unlocked: prices showing');
-  refresh();
+  if (redraw) refresh();
   return true;
 }
 document.addEventListener('visibilitychange', () => {
@@ -3942,7 +3944,7 @@ function renderExportTab(body, project, plans, allDoors) {
     toast(`${added} item${added === 1 ? '' : 's'} added on ${nDoors} door${nDoors === 1 ? '' : 's'}. Check the products and quantities on each door`);
     refresh();
   });
-  $('#rep-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) quoteFromReport(project); });
+  $('#rep-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) quoteFromReport(project); });
   fillSiteMoney($('#site-money'), project);
   $('#site-prices')?.addEventListener('click', () => editSitePrices(project, state.coll && state.coll !== '*' && !String(state.coll).startsWith('F:') ? state.coll : null));
   $('#xlsx').onclick = async () => {
