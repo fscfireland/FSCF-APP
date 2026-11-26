@@ -367,7 +367,7 @@ export async function exportPricingXlsx(project, opts = {}) {
     ['Issued', new Date().toLocaleDateString('en-IE')],
     ...(opts.filterText ? [['Covers', opts.filterText]] : []),
     [],
-    ['How to price', 'Enter your unit rate (€, ex VAT) for each item in the "Unit rate (€)" column of the Price schedule sheet. Line totals and the overall total are worked out automatically. Add any notes, exclusions or alternatives in the Comments column. Rates should include labour, materials, access and making good.'],
+    ['How to price', 'Enter your unit rate (€, ex VAT) once for each type of work on the "Rates by type of work" sheet. Every matching line on the Price schedule fills in automatically, with each door\'s total and the overall total. To price one line differently, type over its unit rate on the Price schedule. Add notes, exclusions or alternatives in the Comments column. Rates should include labour, materials, access and making good.'],
     ['Standard of work', opts.instructions || ''],
     [],
     ['Company', ''],
@@ -378,44 +378,63 @@ export async function exportPricingXlsx(project, opts = {}) {
   ws0['!cols'] = [{ wch: 20 }, { wch: 110 }];
   XLSX.utils.book_append_sheet(wb, ws0, 'Read me');
 
-  const head = ['Item', 'Pin', 'Pin ref', 'Location / room', 'Plan / level', 'Door type', 'FA zone', 'Work required', 'Defect / reason', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Comments'];
-  const rows = [];
+  // Price schedule: each door named once, its fail items listed under it.
+  // A line's unit rate comes from the "Rates by type of work" sheet when the
+  // work text matches, so the contractor prices each type of work once.
+  const EUR = '"€"#,##0.00';
+  const RATES = "'Rates by type of work'";
+  const aoa = [['Item', 'Work required', 'Defect / reason', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Comments']];
+  const itemRows = [];
+  const doorTotals = [];
+  const types = new Map();
   let n = 0;
   for (const d of doors) {
-    for (const it of remedialItems(d)) {
+    const items = remedialItems(d);
+    if (!items.length) continue;
+    const where = [d.location, planName[d.planId], d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : ''].filter(Boolean).join(' · ');
+    aoa.push([`PIN ${d.pinNo ?? ''}${d.ref ? ' – ' + d.ref : ''}`, where.toUpperCase(), '', '', '', '', '']);
+    const first = aoa.length + 1;
+    for (const it of items) {
       n++;
-      rows.push([n, d.pinNo ?? '', d.ref || '', d.location || '', planName[d.planId] || '', d.doorType || '', d.zoneNo || '', it.text, it.sub, it.qty || 1, null, null, '']);
+      aoa.push([n, it.text, it.sub, it.qty || 1, null, null, '']);
+      itemRows.push(aoa.length);
+      types.set(it.text, (types.get(it.text) || 0) + Number(it.qty || 1));
     }
+    const lastItem = aoa.length;
+    aoa.push(['Door total', '', '', '', '', null, '']);
+    doorTotals.push({ row: aoa.length, first, lastItem });
+    aoa.push([]);
   }
-  const ws1 = XLSX.utils.aoa_to_sheet([head, ...rows]);
-  const EUR = '"€"#,##0.00';
-  const last = rows.length + 1;
-  for (let r = 2; r <= last; r++) {
-    ws1[`K${r}`] = { t: 'n', v: 0, z: EUR };
-    ws1[`L${r}`] = { t: 'n', f: `J${r}*K${r}`, v: 0, z: EUR };
+  const totalRow = aoa.length + 1;
+  aoa.push(['TOTAL (ex VAT)', '', '', '', '', null, '']);
+  const ws1 = XLSX.utils.aoa_to_sheet(aoa);
+  const typeList = [...types.entries()].sort((x, y) => y[1] - x[1]);
+  const rLast = typeList.length + 1;
+  for (const r of itemRows) {
+    ws1[`E${r}`] = { t: 'n', v: 0, z: EUR, f: `IFERROR(INDEX(${RATES}!$C$2:$C$${rLast},MATCH(B${r},${RATES}!$A$2:$A$${rLast},0)),0)` };
+    ws1[`F${r}`] = { t: 'n', v: 0, z: EUR, f: `D${r}*E${r}` };
   }
-  const totalRow = last + 2;
-  XLSX.utils.sheet_add_aoa(ws1, [['', '', '', '', '', '', '', '', '', '', 'TOTAL (ex VAT)']], { origin: `A${totalRow}` });
-  ws1[`L${totalRow}`] = { t: 'n', f: rows.length ? `SUM(L2:L${last})` : '0', v: 0, z: EUR };
-  ws1['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: totalRow - 1, c: head.length - 1 } });
-  ws1['!cols'] = [5, 5, 10, 22, 14, 16, 7, 55, 38, 6, 13, 14, 34].map((wch) => ({ wch }));
-  ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, rows.length), c: head.length - 1 } }) };
+  for (const t of doorTotals) ws1[`F${t.row}`] = { t: 'n', v: 0, z: EUR, f: `SUM(F${t.first}:F${t.lastItem})` };
+  ws1[`F${totalRow}`] = { t: 'n', v: 0, z: EUR, f: doorTotals.length ? `SUMIF(A2:A${totalRow - 1},"Door total",F2:F${totalRow - 1})` : '0' };
+  ws1['!cols'] = [12, 60, 40, 6, 13, 14, 34].map((wch) => ({ wch }));
+  ws1['!merges'] = doorTotals.map((t) => ({ s: { r: t.first - 2, c: 1 }, e: { r: t.first - 2, c: 6 } }));
   XLSX.utils.book_append_sheet(wb, ws1, 'Price schedule');
 
-  // total quantity of each type of work, for anyone pricing by type
-  const types = new Map();
-  for (const r of rows) {
-    const k = r[8] === 'Recommended action' ? r[7] : `${r[7]}`;
-    types.set(k, (types.get(k) || 0) + Number(r[9] || 1));
-  }
-  const tRows = [...types.entries()].sort((a, b) => b[1] - a[1]).map(([k, q]) => [k, q, null, null]);
-  const ws2 = XLSX.utils.aoa_to_sheet([['Type of work', 'Total qty', 'Unit rate (€)', 'Total (€)'], ...tRows]);
-  for (let r = 2; r <= tRows.length + 1; r++) {
+  // Rates by type of work: price each once; the schedule picks it up
+  const ws2 = XLSX.utils.aoa_to_sheet([['Type of work', 'Total qty', 'Unit rate (€)', 'Total (€)'], ...typeList.map(([k]) => [k, null, null, null])]);
+  const lastSched = totalRow - 1;
+  typeList.forEach(([, q], i) => {
+    const r = i + 2;
+    ws2[`B${r}`] = { t: 'n', v: q, f: `SUMIF('Price schedule'!$B$2:$B$${lastSched},A${r},'Price schedule'!$D$2:$D$${lastSched})` };
     ws2[`C${r}`] = { t: 'n', v: 0, z: EUR };
-    ws2[`D${r}`] = { t: 'n', f: `B${r}*C${r}`, v: 0, z: EUR };
-  }
+    ws2[`D${r}`] = { t: 'n', v: 0, z: EUR, f: `B${r}*C${r}` };
+  });
+  const rt = typeList.length + 3;
+  XLSX.utils.sheet_add_aoa(ws2, [['TOTAL (ex VAT)']], { origin: `A${rt}` });
+  ws2[`D${rt}`] = { t: 'n', v: 0, z: EUR, f: typeList.length ? `SUM(D2:D${typeList.length + 1})` : '0' };
+  ws2['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rt - 1, c: 3 } });
   ws2['!cols'] = [{ wch: 70 }, { wch: 9 }, { wch: 13 }, { wch: 13 }];
-  XLSX.utils.book_append_sheet(wb, ws2, 'Quantities by type');
+  XLSX.utils.book_append_sheet(wb, ws2, 'Rates by type of work');
 
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
