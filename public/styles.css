@@ -701,6 +701,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 /* checklist: Rest N/A toggle and per-question notes */
 .q-rest-na { --c: var(--st-na); }
 .q-rest-pass { --c: var(--st-pass); }
+.q-rest-fail { --c: var(--st-fail); color: var(--st-fail); }
 .q-text { position: relative; }
 .q-label { flex: 1; min-width: 0; }
 .q-note-btn { flex: none; display: inline-flex; align-items: center; gap: 3px; margin-left: 6px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); background: none; color: var(--ink-2); font-size: 12px; font-weight: 600; }

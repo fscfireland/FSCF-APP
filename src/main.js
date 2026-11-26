@@ -4524,6 +4524,7 @@ async function drawSheet(door) {
             <button type="button" class="btn sm q-all q-all-pass" id="q-all-pass" aria-pressed="false" title="Set every question to ${esc(ANSWERS[0].label)}; tap again to undo">${icon('check')} All ${esc(ANSWERS[0].label)}</button>
             <button type="button" class="btn sm q-all q-all-fail" id="q-all-fail" aria-pressed="false" title="Set every question to ${esc(ANSWERS[1].label)}; tap again to undo">${icon('close')} All ${esc(ANSWERS[1].label)}</button>
             <button type="button" class="btn sm q-all q-rest-pass" id="q-rest-pass" aria-pressed="false" title="Answer only the unanswered questions ${esc(ANSWERS[0].label)}; tap again to undo">Rest ${esc(ANSWERS[0].label)}</button>
+            <button type="button" class="btn sm q-all q-rest-fail" id="q-rest-fail" aria-pressed="false" title="Answer only the unanswered questions ${esc(ANSWERS[1].label)}; tap again to undo">Rest ${esc(ANSWERS[1].label)}</button>
             <button type="button" class="btn sm q-all q-rest-na" id="q-rest-na" aria-pressed="false" title="Answer only the unanswered questions ${esc(ANSWERS[2].label)}; tap again to undo">Rest ${esc(ANSWERS[2].label)}</button>
             <button type="button" class="btn ghost sm" id="q-arrange" aria-pressed="false">${icon('grip')} Arrange</button>
             <button class="btn ghost sm" id="q-edit">${icon('gear')} Edit questions</button>
@@ -5043,7 +5044,7 @@ async function drawSheet(door) {
     // questions it filled are still N/A
     const allAre = (a) => qs.length > 0 && qs.every((q) => checks[q.id]?.answer === a);
     const memo = restMemo.get(door.id);
-    for (const [id, on] of [['#q-all-pass', allAre('pass')], ['#q-all-fail', allAre('fail')], ['#q-rest-pass', !!(memo && memo.answer === 'pass' && restStillSet(memo))], ['#q-rest-na', !!(memo && memo.answer === 'na' && restStillSet(memo))]]) {
+    for (const [id, on] of [['#q-all-pass', allAre('pass')], ['#q-all-fail', allAre('fail')], ['#q-rest-pass', !!(memo && memo.answer === 'pass' && restStillSet(memo))], ['#q-rest-fail', !!(memo && memo.answer === 'fail' && restStillSet(memo))], ['#q-rest-na', !!(memo && memo.answer === 'na' && restStillSet(memo))]]) {
       $(id).hidden = !qs.length || arranging;
       $(id).setAttribute('aria-pressed', String(on));
     }
@@ -5162,6 +5163,7 @@ async function drawSheet(door) {
   };
   $('#q-rest-na').onclick = () => toggleRest('na');
   $('#q-rest-pass').onclick = () => toggleRest('pass');
+  $('#q-rest-fail').onclick = () => toggleRest('fail');
 
   // Arrange: show / hide each question and slide them into your order.
   // This changes the question list used for every door.
