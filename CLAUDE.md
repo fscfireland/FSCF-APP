@@ -107,7 +107,17 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   a .ics calendar file (no connector needed), and Gmail drafts (connector `Gmail`, `create_draft`; never sends).
   Already-added items kept in settings `calSync`. Artifact manifest: Google Drive create_file, Google Calendar
   create_event, Gmail create_draft, downloads. Google Tasks: no connector exists yet; the agenda list has stable ids
-  ready for it (TASKS in agenda.js). Next step the owner wants:
+  ready for it (TASKS in agenda.js).
+- Old 8-point fire door check deleted (owner: source unknown). `DEFAULT_QUESTIONS = []`; removed once from saved
+  `lists.questions` (flag `q8Removed`); old door answers still show as removed questions.
+- Fail item costs: each defect (any checklist) can carry `costSet`, `products [{mid, name, qty}]` and `labour` €
+  (Settings › Defect list › Set cost, owner PIN). `setDefectCosts` / `defaultProductsFor` put those products plus a
+  `labourLine` row on the door when the item fails; flows into door totals, reports, pricing sheet and quotes.
+  Items without an owner cost fall back to the old wording guess and are counted in Settings.
+- Business page jump bar (Money, Overdue, Customers, Sites, Work, Costs, Quotes, Reminders, Imports).
+- Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
+  threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
+  all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
   customer portal / website login per customer (needs the Supabase online version).
 - Left for later (owner's choice): the rest of the BM TRADA paperwork – Scheme Procedures Acceptance (SPA 058,
   prescribed wording, client signature), Record of Maintenance Activities (RMA 058) and the RMA pack PDF,

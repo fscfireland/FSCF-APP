@@ -2,7 +2,7 @@
 
 import * as db from './db.js';
 import {
-  STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
+  STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, OLD_8_POINT_IDS, setDefectCosts, defectCostSummary, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, labourTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
   setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION, OLD_DOOR_TYPES, DOOR_TYPES_VERSION, DOOR_TYPE_NOTES, doorTypeGroup,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
@@ -141,12 +141,22 @@ async function loadLists() {
       if (OLD_DOOR_TYPES[d.doorType]) await db.put('doors', { ...d, doorType: OLD_DOOR_TYPES[d.doorType] });
     }
   }
+  if (!lists.q8Removed) {
+    // the old 8-point fire door check is deleted (owner, 26 Nov 2026); answers already given stay on those doors
+    const old = new Set(OLD_8_POINT_IDS);
+    await saveLists({ questions: (lists.questions || []).filter((q) => !old.has(q.id)), q8Removed: true });
+  }
   if (s?.defects && (s.defVersion || 1) < 2) {
     const have = new Set(s.defects.map((d) => d.label));
     const add = DEFAULT_DEFECTS.filter((d) => !have.has(d.label));
     await saveLists({ defects: [...s.defects, ...add], defVersion: 2 });
   }
+  refreshDefectCosts();
   return lists;
+}
+// the owner's cost for every fail item, from every checklist's defect list
+function refreshDefectCosts() {
+  try { setDefectCosts(kindIds().map((k) => kitOf(k).defects || [])); } catch { setDefectCosts([lists?.defects || []]); }
 }
 
 // ---------- Inspection types ("kits") ----------
@@ -196,6 +206,7 @@ const allQuestions = () => kindIds().flatMap((k) => kitOf(k).questions || []);
 
 async function saveLists(patch) {
   lists = await db.put('settings', { ...lists, ...patch });
+  if ('defects' in patch || 'kits' in patch) refreshDefectCosts();
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
   registerHeadTexts();
@@ -1489,6 +1500,7 @@ async function renderBusiness() {
       <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
       <div class="bar-title"><b>Business</b><small>Owner only · never shown to the customer</small></div>
     </header>
+    <nav class="biz-jump" id="biz-jump" aria-label="Jump to" hidden>${[['biz-body', 'Money'], ['bj-overdue', 'Overdue'], ['bj-cust', 'Customers'], ['bj-sites', 'Sites'], ['bj-work', 'Work'], ['bj-costs', 'Costs'], ['bj-quotes', 'Quotes'], ['biz-rem-h', 'Reminders'], ['bj-imports', 'Imports']].map(([id, t]) => `<button type="button" class="chip" data-to="${id}">${t}</button>`).join('')}</nav>
     <main class="page" id="biz-body"></main>`;
   $('#back').onclick = back;
   const body = $('#biz-body');
@@ -1545,7 +1557,7 @@ async function renderBusiness() {
     <h2 class="h2">${yr ? `Work invoiced by month, ${esc(yr)}` : 'Work invoiced by year'} <span class="muted small">ex VAT</span></h2>
     ${bizChart(bars)}
 
-    <h2 class="h2">Overdue <span class="muted">${s.overdue.length}</span></h2>
+    <h2 class="h2" id="bj-overdue">Overdue <span class="muted">${s.overdue.length}</span></h2>
     ${s.overdue.length ? `<div class="biz-ageing">${s.ageing.map((a) => `<div><span>${a.label}</span><b>${money(a.total)}</b><small>${a.n}</small></div>`).join('')}</div>
       <div class="doc-list">${s.overdue.map((e) => invRow(e, { late: true })).join('')}</div>` : '<p class="muted small">Nothing overdue.</p>'}
 
@@ -1557,7 +1569,7 @@ async function renderBusiness() {
     <details class="biz-fold"><summary><b>Paid ${esc(label)}</b> <span class="muted">${s.paid.length} · ${money(s.received)}</span></summary>
       <div class="doc-list">${s.paid.slice(0, 200).map((e) => invRow(e, { paid: true })).join('') || '<p class="muted small">None.</p>'}</div></details>
 
-    <h2 class="h2">Customers <span class="muted">${cs.length}</span></h2>
+    <h2 class="h2" id="bj-cust">Customers <span class="muted">${cs.length}</span></h2>
     <div class="biz-years biz-order">${[['action', 'WIP and owed first'], ['az', 'A–Z'], ['size', 'Largest first']].map(([k, t]) => `<button class="chip ${csOrder === k ? 'is-on' : ''}" data-o="${k}">${t}</button>`).join('')}</div>
     <div class="doc-list">${cs.map((x, i) => `${csOrder === 'action' && (i === 0 || rank(cs[i - 1]) !== rank(x)) ? `<p class="biz-sub biz-group">${groupLabel[rank(x)]} <span class="muted">${cs.filter((y) => rank(y) === rank(x)).length}</span></p>` : ''}<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${esc(x.key)} · ${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'} · ${pct(x.invoiced, s.invoiced)} of the total</small>${x.contacts?.length ? `<small>Contacts: ${esc(x.contacts.slice(0, 4).join(', '))}${x.contacts.length > 4 ? ` +${x.contacts.length - 4}` : ''}</small>` : ''}</span>
         <span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}${x.draft ? `<small class="biz-wip-amt">${money(x.draft)} WIP</small>` : ''}</span></button>
@@ -1572,10 +1584,10 @@ async function renderBusiness() {
           ${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}<button type="button" class="btn sm biz-rename" data-id="${esc(x.key)}" data-name="${esc(x.custName || '')}">${icon('pencil')} Customer name</button></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
     <p class="small muted">Invoiced is the total of that customer's invoices in this period, ex VAT. Owed is their unpaid invoices, inc VAT. Tap a customer to see their invoices and sites, and to set the customer name.</p>
 
-    <h2 class="h2">Type of work</h2>
+    <h2 class="h2" id="bj-work">Type of work</h2>
     <div class="biz-work">${s.work.map((w) => `<div><span>${esc(w.label)} <small class="muted">${w.n}</small></span><i style="--w:${(w.invoiced / topWork) * 100}%"></i><b>${money(w.invoiced)}</b></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
 
-    <h2 class="h2">Costs and margin</h2>
+    <h2 class="h2" id="bj-costs">Costs and margin</h2>
     ${c.n ? `<div class="ps-costs">
         <div><span>Sales on these jobs (ex VAT)</span><b>${money(c.sell)}</b></div>
         <div><span>Materials</span><b>${money(c.materials)}</b></div>
@@ -1585,7 +1597,7 @@ async function renderBusiness() {
       <p class="small muted">From ${c.n} of ${c.of} invoices: the ones whose quote has a pricing document (SERV PD). Jobs priced without one are not counted here.</p>`
       : `<p class="muted small">No invoices in this period have a pricing document (SERV PD) to take materials and labour from.${needsReimport ? ' Re-import the workbook to read them.' : ''}</p>`}
 
-    <h2 class="h2">Quotes ${esc(label)}</h2>
+    <h2 class="h2" id="bj-quotes">Quotes ${esc(label)}</h2>
     <div class="ph-stats">
       <div><span>Quoted</span><b>${money(s.quoted)}</b><small>ex VAT · ${s.quotes.length} quote${s.quotes.length === 1 ? '' : 's'}</small></div>
       <div><span>Won</span><b>${s.won.length}</b><small>${s.winRate != null ? `${s.winRate}% of decided quotes` : 'invoiced'}</small></div>
@@ -1593,7 +1605,7 @@ async function renderBusiness() {
       <div><span>Still open</span><b>${s.open.length}</b><small>${money(s.openTotal)}</small></div>
     </div>
 
-    <h2 class="h2">Top sites</h2>
+    <h2 class="h2" id="bj-sites">Top sites</h2>
     <div class="doc-list">${s.siteRows.map((x, i) => { const custs = [...new Set(x.list.map((e) => e.custName || e.cust))]; return `<button type="button" class="doc-row biz-cust biz-site" data-i="${i}"><span class="q-main"><b>${esc(x.key)}</b><small>${esc(custs.join(', '))} · ${x.n} invoice${x.n === 1 ? '' : 's'}</small></span><span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}${x.draft ? `<small class="biz-wip-amt">${money(x.draft)} WIP</small>` : ''}</span></button>
         <div class="biz-sites biz-site-drop" data-si="${i}" hidden>
           <p class="biz-sub">Invoices <span class="muted">${x.list.length}</span></p>
@@ -1623,7 +1635,7 @@ async function renderBusiness() {
       </div>
       <p class="small muted">The calendar file opens in your Samsung or Google Calendar and adds the ticked items as all-day reminders at 9am. Gmail drafts wait in your Drafts folder: nothing is sent until you send it.</p>
     </section>`}
-    <h2 class="h2">Workbook imports <span class="muted">${arcs.length + (arc ? 0 : book ? 1 : 0)}</span></h2>
+    <h2 class="h2" id="bj-imports">Workbook imports <span class="muted">${arcs.length + (arc ? 0 : book ? 1 : 0)}</span></h2>
     <div class="doc-list">
       ${!arc && book ? `<div class="doc-row biz-imp"><span class="q-main"><b>${esc(book.sourceName || 'Workbook')}</b><small>Current · imported ${fmtDate((book.importedAt || '').slice(0, 10))} · ${book.register.length} tabs up to tab ${book.seq?.tab || 0}</small></span>
         <label class="btn sm">${icon('upload')} Import newer<input type="file" class="biz-import2" accept=".xlsx,.xlsm" hidden></label></div>` : ''}
@@ -1694,6 +1706,18 @@ async function renderBusiness() {
     try { const r = await gmailDraft(conn.mcp, { to, subject: r0.data.subject, body: r0.data.body }); bz.done(); await dialog({ title: 'Draft in Gmail', body: `<p>The chase email for ${esc(e.ref)} is in your Gmail Drafts${to.length ? '' : ' (add the customer\'s address there)'}.</p>${r.link ? `<p><a href="${esc(r.link)}" target="_blank" rel="noopener">Open the draft</a></p>` : ''}` }); }
     catch (err) { bz.done(); await dialog({ title: 'No draft made', body: `<p>${esc(connectorError(err, CONNECTORS.GMAIL))}</p>` }); }
   }));
+  const jump = $('#biz-jump');
+  if (jump) {
+    jump.hidden = false;
+    $$('.chip', jump).forEach((c) => { c.hidden = c.dataset.to !== 'biz-body' && !$('#' + c.dataset.to); });
+    $$('.chip', jump).forEach((c) => (c.onclick = () => {
+      if (c.dataset.to === 'biz-body') return window.scrollTo({ top: 0, behavior: 'smooth' });
+      const t = $('#' + c.dataset.to);
+      if (!t) return;
+      const y = t.getBoundingClientRect().top + window.scrollY - (jump.getBoundingClientRect().bottom + 8);
+      window.scrollTo({ top: y, behavior: 'smooth' });
+    }));
+  }
   $$('.biz-order .chip').forEach((b) => (b.onclick = () => { state.bizCustOrder = b.dataset.o; refresh(); }));
   $('#biz-wip-tile')?.addEventListener('click', () => { const f = $('#biz-wip-fold'); if (f) { f.open = true; f.scrollIntoView({ behavior: 'smooth', block: 'start' }); } });
   $$('.biz-years:not(.biz-order) .chip').forEach((b) => (b.onclick = () => { state.bizYear = b.dataset.y; refresh(); }));
@@ -5458,7 +5482,7 @@ async function drawSheet(door) {
     const rememberProduct = async (id) => {
       const m = (current.materials || []).find((x) => x.id === id);
       const name = (m?.name || '').trim();
-      if (!m || !name) return;
+      if (!m || !name || m.labourLine) return;
       const all = lists.materials || [];
       const own = m.libId && all.find((x) => x.id === m.libId);
       const same = all.find((x) => (x.name || '').trim().toLowerCase() === name.toLowerCase());
@@ -6968,21 +6992,81 @@ async function renderSettings() {
     $$('.me-name').at(-1)?.focus();
   };
 
+  // Each fail item: its products (with quantities) and labour, set by the owner.
+  // When that item fails on a door, these go onto the door and into its quote.
+  const costText = (d) => {
+    const c = defectCostSummary(d, mlist());
+    const parts = c.lines.map((m) => m.labourLine ? `labour ${euro(m.labour)}` : `${m.qty} × ${m.name}`);
+    return { c, html: c.lines.length
+      ? `<b>${c.own ? 'Cost when it fails' : 'Guessed from the wording (not set by you)'}:</b> ${esc(parts.join(' · '))} · <b>${euro(c.total)}</b>${c.labour ? '' : ' · <span class="ps-warn">no labour set</span>'}`
+      : `<span class="ps-warn"><b>No cost set</b>: this fail item adds nothing to a quote yet.</span>` };
+  };
+  const setDefectCost = async (i) => {
+    const d = kd()[i];
+    const all = mlist().filter((m) => m.name?.trim());
+    const cur = defectCostSummary(d, all).lines.filter((m) => !m.labourLine);
+    const curLab = defectCostSummary(d, all).lines.find((m) => m.labourLine)?.labour ?? (d.labour || '');
+    const cats = [...new Set(all.map((m) => matCat(m)))];
+    const mine = defectCat(d);
+    cats.sort((a, b) => (b === mine) - (a === mine));
+    const r = await dialog({
+      title: `Cost: ${d.label}`,
+      body: `<p class="small muted">What this fail item needs, from your price list, and the labour to put it right (your cost before margin). It is added to the door whenever this item fails, and priced into quotes with your margin.</p>
+        <label class="field"><span>Labour € for this repair</span><input name="lab" type="number" inputmode="decimal" min="0" step="any" value="${esc(curLab || '')}" placeholder="0.00"></label>
+        <label class="field"><span>Find a product</span><input type="search" class="pp-find" placeholder="Type to filter, e.g. hinge"></label>
+        ${cats.map((g) => `<h3 class="pp-h" data-g="${esc(g)}">${esc(g)}</h3><div class="pp-list" data-g="${esc(g)}">
+          ${all.map((o, j) => [o, j]).filter(([o]) => matCat(o) === g).map(([o, j]) => { const have = cur.find((m) => m.name.trim().toLowerCase() === o.name.trim().toLowerCase());
+            return `<label class="pp-row" data-n="${esc(o.name.toLowerCase())}"><input type="checkbox" name="c${j}" ${have ? 'checked' : ''}><span><b>${esc(o.name)}</b><small>${o.cost ? euro(o.cost) : 'no price'}${o.labour ? ' + labour ' + euro(o.labour) : ''} ${esc(o.unit && o.unit !== 'each' ? 'per ' + o.unit : 'each')}</small></span>
+              <span class="stepper pp-step"><button type="button" class="pp-minus" aria-label="One fewer">−</button><input class="pp-qty" type="number" inputmode="decimal" min="0" step="any" name="q${j}" value="${esc(have ? have.qty : 1)}" aria-label="Quantity"><button type="button" class="pp-plus" aria-label="One more">+</button></span></label>`; }).join('')}</div>`).join('')}`,
+      buttons: [{ label: 'Cancel', value: false }, ...(d.costSet ? [{ label: 'Clear', value: 'clear' }] : []), { label: 'Save cost', value: true, kind: 'primary' }],
+      onOpen: (form) => {
+        $$('.pp-qty', form).forEach((q) => q.addEventListener('input', () => { q.closest('.pp-row').querySelector('input[type=checkbox]').checked = Number(q.value) > 0; }));
+        $$('.pp-minus, .pp-plus', form).forEach((b) => b.addEventListener('click', (e) => {
+          e.preventDefault();
+          const row = b.closest('.pp-row'); const q = row.querySelector('.pp-qty'); const box = row.querySelector('input[type=checkbox]');
+          const was = Number(q.value) || 0;
+          const next = b.classList.contains('pp-plus') ? (box.checked ? was + 1 : Math.max(1, was)) : Math.max(0, was - 1);
+          q.value = next; box.checked = next > 0;
+        }));
+        $('.pp-find', form).addEventListener('input', (e) => {
+          const t = e.target.value.trim().toLowerCase();
+          $$('.pp-row', form).forEach((row) => { row.hidden = !!t && !row.dataset.n.includes(t) && !row.querySelector('input[type=checkbox]').checked; });
+          $$('.pp-list', form).forEach((l) => { const any = $$('.pp-row', l).some((x) => !x.hidden); l.hidden = !any; $(`.pp-h[data-g="${CSS.escape(l.dataset.g)}"]`, form).hidden = !any; });
+        });
+      },
+    });
+    if (r.value === false || r.value == null) return;
+    const list = [...kd()];
+    if (r.value === 'clear') list[i] = { ...d, costSet: false, products: [], labour: 0 };
+    else {
+      const products = all.map((o, j) => [o, j]).filter(([, j]) => r.data['c' + j] && Number(r.data['q' + j]) > 0).map(([o, j]) => ({ mid: o.id, name: o.name, qty: Number(r.data['q' + j]) }));
+      list[i] = { ...d, costSet: true, products, labour: Math.max(0, Number(r.data.lab) || 0) };
+    }
+    await saveKit({ defects: list });
+    drawDefs();
+    toast(r.value === 'clear' ? 'Cost cleared' : `Cost saved for "${d.label}"`);
+  };
   const drawDefs = () => {
-    $('#s-defs').innerHTML = (kd() || []).map((d, i) => `
+    const defs = kd() || [];
+    const sums = priced() ? defs.map((d) => costText(d)) : [];
+    const none = sums.filter((x) => !x.c.lines.length).length;
+    const guess = sums.filter((x) => x.c.lines.length && !x.c.own).length;
+    $('#s-defs').innerHTML = (priced() ? `<p class="small def-cost-sum">${defs.length - none - guess} of ${defs.length} fail items have your own cost.${guess ? ` ${guess} use a guess from their wording.` : ''}${none ? ` <span class="ps-warn">${none} have no cost at all.</span>` : ''}</p>` : '<p class="small muted">Unlock with your owner PIN to see and set what each fail item costs.</p>') + defs.map((d, i) => `
       <div class="def-edit" data-i="${i}">
         <input class="de-label" id="de-label-${i}" value="${esc(d.label)}" aria-label="Defect">
         <textarea class="de-rem" id="de-rem-${i}" rows="2" aria-label="Remedial work">${esc(d.remedial)}</textarea>
         <button class="icon-btn sm de-del" aria-label="Remove">${icon('trash')}</button>
+        ${priced() ? `<div class="de-cost"><span>${sums[i].html}</span><button type="button" class="btn sm de-setcost">${icon('list')} Set cost</button></div>` : ''}
       </div>`).join('');
     $$('.def-edit').forEach((row) => {
       const i = Number(row.dataset.i);
       const upd = () => {
-        const defects = kd().map((d, j) => (j === i ? { label: $('.de-label', row).value, remedial: $('.de-rem', row).value } : d));
-        saveLists({ defects });
+        const defects = kd().map((d, j) => (j === i ? { ...d, label: $('.de-label', row).value, remedial: $('.de-rem', row).value } : d));
+        saveKit({ defects });
       };
       $('.de-label', row).onchange = upd;
       $('.de-rem', row).onchange = upd;
+      $('.de-setcost', row)?.addEventListener('click', () => setDefectCost(i));
       $('.de-del', row).onclick = async () => {
         await saveKit({ defects: kd().filter((_, j) => j !== i) });
         drawDefs();

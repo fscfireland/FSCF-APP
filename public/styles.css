@@ -1340,3 +1340,17 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .biz-k-send { background: color-mix(in srgb, var(--st-noaccess) 18%, var(--surface)); color: color-mix(in srgb, var(--st-noaccess) 75%, var(--ink)); }
 .biz-k-inspect { background: color-mix(in srgb, var(--st-repaired) 15%, var(--surface)); color: var(--st-repaired); }
 .biz-row .biz-chase { justify-self: end; }
+/* Settings › Defects: cost of each fail item */
+.def-edit .de-cost { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; justify-content: space-between; font-size: 13px; color: var(--ink-2); padding: 2px 0 4px; }
+.def-edit .de-cost > span { min-width: 0; }
+.def-edit .de-cost .btn { flex: none; }
+.def-cost-sum { margin: 0 0 8px; }
+.pp-list[hidden], .pp-h[hidden], .pp-row[hidden] { display: none !important; }
+
+/* Business page jump bar */
+.biz-jump { position: sticky; top: calc(var(--bar-h, 56px) + var(--safe-t)); z-index: 5; display: flex; gap: 6px; overflow-x: auto; padding: 8px 16px; background: var(--bg); border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.biz-jump::-webkit-scrollbar { display: none; }
+.biz-jump .chip { flex: none; }
+.biz-jump .chip[hidden] { display: none; }
+.def-edit .de-cost { flex-wrap: wrap; }
+.def-edit .de-cost > span { flex: 1 1 220px; }

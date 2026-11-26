@@ -133,16 +133,11 @@ export const DEFAULT_ACTIONS = [
 
 // Inspection questions asked of every door (Pass / Fail / N/A).
 // Each has a fixed id so answers survive if the wording is edited.
-export const DEFAULT_QUESTIONS = [
-  { id: 'q-close', text: 'Door self-closes fully and latches from any angle' },
-  { id: 'q-gaps', text: 'Leaf-to-frame gaps within 2–4 mm (threshold within limits)' },
-  { id: 'q-seals', text: 'Intumescent strips and smoke seals present and undamaged' },
-  { id: 'q-hinges', text: 'Minimum 3 hinges, secure, CE marked, all screws fitted' },
-  { id: 'q-iron', text: 'Ironmongery fire-rated and working (lock, latch, handles)' },
-  { id: 'q-glazing', text: 'Glazing and beads fire-rated and intact' },
-  { id: 'q-leaf', text: 'Leaf and frame free of damage or unauthorised modifications' },
-  { id: 'q-sign', text: 'Fire door signage present on both faces' },
-];
+// The old 8-point fire door check was deleted at the owner's request (26 Nov 2026:
+// its source was unknown, so it broke standing rule 1). Doors that answered it
+// keep their answers (questionsFor shows removed questions that were answered).
+export const DEFAULT_QUESTIONS = [];
+export const OLD_8_POINT_IDS = ['q-close', 'q-gaps', 'q-seals', 'q-hinges', 'q-iron', 'q-glazing', 'q-leaf', 'q-sign'];
 
 // Materials catalogue. Prices are left at 0 for you to enter your own
 // (ex VAT) in Settings; they then pre-fill each door.
@@ -559,7 +554,39 @@ const DEFAULT_PRODUCT = [
   [/fire stop|wall not/i, 'm-mastic', 1, ''],
   [/gaps|leaf damaged/i, 'm-lip', 1, ''],
 ];
+// The owner's cost for each fail item (Settings › Defects, owner PIN): the
+// products it needs with quantities, and the labour to put it right. Set by
+// the owner from their own price list, so every cost comes from an FSCF document
+// (the price list / SERV PD MASTER), never from the app.
+let DEFECT_COSTS = new Map();
+export function setDefectCosts(defectLists) {
+  DEFECT_COSTS = new Map();
+  for (const list of defectLists) for (const d of list || []) if (d?.costSet && d.label && !DEFECT_COSTS.has(d.label)) DEFECT_COSTS.set(d.label, d);
+}
+export const defectCostOf = (label) => DEFECT_COSTS.get(label) || null;
+// Products + labour line for a defect from the owner's settings (null when not set)
+function ownCostLines(defect, materials, uid) {
+  const t = DEFECT_COSTS.get(defect.label);
+  if (!t) return null;
+  const out = [];
+  for (const p of t.products || []) {
+    const m = materials.find((x) => x.id === p.mid) || materials.find((x) => (x.name || '').trim().toLowerCase() === (p.name || '').trim().toLowerCase());
+    if (!m || !(Number(p.qty) > 0)) continue;
+    out.push({ id: uid(), name: m.name, unit: m.unit || 'each', cost: Number(m.cost) || 0, labour: Number(m.labour) || 0, qty: Number(p.qty), cat: matCat(m), forKey: 'd:' + defect.label, spec: '' });
+  }
+  if (Number(t.labour) > 0) out.push({ id: uid(), custom: true, labourLine: true, name: `LABOUR: ${defect.label}`, unit: 'job', cost: 0, labour: Number(t.labour), qty: 1, cat: 'Labour', forKey: 'd:' + defect.label, spec: '' });
+  return out;
+}
+// What a fail item costs: { materials, labour, lines, own } (own = set by the owner)
+export function defectCostSummary(defect, materials) {
+  const lines = defaultProductsFor(defect, materials, () => '');
+  const mat = lines.reduce((a, m) => a + (Number(m.qty) || 0) * (Number(m.cost) || 0), 0);
+  const lab = lines.reduce((a, m) => a + (Number(m.qty) || 0) * (Number(m.labour) || 0), 0);
+  return { materials: mat, labour: lab, total: mat + lab, lines, own: DEFECT_COSTS.has(defect.label) };
+}
 export function defaultProductsFor(defect, materials, uid) {
+  const own = ownCostLines(defect, materials, uid);
+  if (own) return own;
   const text = (defect.label || '') + ' ' + (defect.remedial || '');
   if (!/supply|fit|replace|lip|fill/i.test(defect.remedial || '')) return []; // adjust-only work: labour, no parts
   const cat = defectCat(defect);
