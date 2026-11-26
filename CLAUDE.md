@@ -149,6 +149,10 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   Photo / Video / Gallery as icon tiles on phones; no-questions panel is one line with Set up; extra field sections
   (DCS 058 grade level) fold away and open when filled; shorter ironmongery wording (refs kept). Fixed pages that were
   wider than the Galaxy S9+ (320 px): home site search, defect cards (long ART names).
+- FSCF colours (v0.53.1): app and reports use the logo's charcoal #23282d and copper #c2672c (CSS --brand for primary
+  buttons, --accent copper for highlights; dark mode uses copper buttons). Red is kept only for Fail. Phone top bar
+  (theme-color / manifest) and app icon are charcoal. PDF title bar charcoal with a copper rule (report.js C.accent/C.copper).
+  Home: the work-type filter chips under the site search were removed (owner); the search matches site, client, area and type.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

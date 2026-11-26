@@ -25,7 +25,8 @@ const C = {
   muted: [120, 133, 145],
   line: [213, 220, 227],
   soft: [243, 245, 247],
-  accent: [179, 38, 30],
+  accent: [35, 40, 45], // FSCF charcoal (logo)
+  copper: [194, 103, 44], // FSCF copper (logo)
   bar: [61, 90, 115], // single-series bars: one neutral ink-blue
 };
 const STATUS_RGB = {
@@ -189,14 +190,16 @@ function fitImage(doc, lg, x, y, maxW, maxH, align = 'left') {
   return { w, h };
 }
 
-// The report's top band: your logos on white with a red title bar, or the
-// plain red band when no logo has been added
+// The report's top band: your logos on white with a charcoal title bar and copper
+// rule (logo colours), or the plain charcoal band when no logo has been added
 function reportBanner(doc, lists, title, { bandH = 64, titleSize = 26 } = {}) {
   const banner = lists?.logoBanner;
   const round = lists?.logoRound;
   if (!banner && !round) {
     doc.setFillColor(...C.accent);
     doc.rect(0, 0, A4.w, bandH, 'F');
+    doc.setFillColor(...C.copper);
+    doc.rect(0, bandH, A4.w, 1.2, 'F');
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(bandH > 40 ? 12 : 10);
     doc.setTextColor(255, 255, 255);
@@ -204,7 +207,7 @@ function reportBanner(doc, lists, title, { bandH = 64, titleSize = 26 } = {}) {
     if (bandH > 40) {
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(9.5);
-      doc.setTextColor(255, 225, 222);
+      doc.setTextColor(230, 200, 180);
       doc.text(t('Fire safety compliance & facilities'), M, 28);
     }
     doc.setFont('helvetica', 'bold');
@@ -220,6 +223,8 @@ function reportBanner(doc, lists, title, { bandH = 64, titleSize = 26 } = {}) {
   const barH = bandH > 40 ? 18 : 13;
   doc.setFillColor(...C.accent);
   doc.rect(0, top, A4.w, barH, 'F');
+  doc.setFillColor(...C.copper);
+  doc.rect(0, top + barH, A4.w, 1.2, 'F');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(bandH > 40 ? 20 : 15);
   doc.setTextColor(255, 255, 255);
@@ -908,7 +913,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
     let hx = M;
     const rl = lists.logoRound || lists.logoBanner;
     if (rl) hx += fitImage(doc, rl, M, M - 5.5, lists.logoRound ? 7 : 24, 7).w + 2.5;
-    font('bold', 8, C.accent);
+    font('bold', 8, C.copper);
     text('FSCF IRELAND', hx, M);
     font('normal', 8, C.ink2);
     text(t(`${opts.title ? opts.title.replace(/ report$/i, '') : project.workType || 'Inspection'} · ${project.site || ''}`), hx + 26, M);

@@ -346,7 +346,6 @@ async function renderProjects() {
   const types = [...new Set(projects.map((p) => p.workType || '').filter(Boolean))].sort();
   const q = (state.projQ || '').toLowerCase();
   const shown = projects.filter((p) =>
-    (!state.projType || (p.workType || '') === state.projType) &&
     (!q || [p.site, p.client, p.address, p.group, p.workType].join(' ').toLowerCase().includes(q)));
   const keyOf = (p) => (groupBy === 'group' ? p.group : groupBy === 'type' ? p.workType : groupBy === 'client' ? p.client : '') || '';
   const emptyName = { group: 'No group', type: 'Type not set', client: 'No client' }[groupBy] || '';
@@ -394,13 +393,12 @@ async function renderProjects() {
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
         <div class="site-pick">
-          <label class="search">${icon('search')}<input id="proj-q" type="search" placeholder="Search or pick a site…" value="${esc(state.projQ || '')}" autocomplete="off"><button type="button" class="icon-btn sm site-dd-btn" id="proj-dd" aria-label="Show all sites" aria-expanded="${state.siteDd ? 'true' : 'false'}">${icon('down')}</button></label>
+          <label class="search">${icon('search')}<input id="proj-q" type="search" placeholder="Search site, client, area or type…" value="${esc(state.projQ || '')}" autocomplete="off"><button type="button" class="icon-btn sm site-dd-btn" id="proj-dd" aria-label="Show all sites" aria-expanded="${state.siteDd ? 'true' : 'false'}">${icon('down')}</button></label>
           <div class="site-dd" id="site-dd" ${state.siteDd ? '' : 'hidden'}>${(() => {
             const list = [...shown].sort((a, b) => (a.site || '').localeCompare(b.site || ''));
-            return list.length ? list.map((p) => `<button type="button" class="site-dd-row" data-id="${p.id}"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([p.client, p.group].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="muted small pad">No sites match.</p>';
+            return list.length ? list.map((p) => `<button type="button" class="site-dd-row" data-id="${p.id}"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([p.client, p.group, p.workType].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="muted small pad">No sites match.</p>';
           })()}</div>
         </div>
-        ${types.length > 1 ? `<div class="chips wrap">${['', ...types].map((t) => `<button class="chip type-chip ${(state.projType || '') === t ? 'is-on' : ''}" data-t="${esc(t)}">${esc(t || 'All types')} ${t ? `<b>${projects.filter((p) => (p.workType || '') === t).length}</b>` : ''}</button>`).join('')}</div>` : ''}
       </div>` : ''}
       <div id="project-groups">${groupedHtml}</div>
       ${projects.length ? '' : `
@@ -5419,7 +5417,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.53.0';
+const VERSION_TAG = 'app v0.53.1';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

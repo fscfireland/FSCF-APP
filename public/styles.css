@@ -1,6 +1,6 @@
 /* FSCF Ireland — a field tool. Layout: one column on phones, plan viewer full
    screen, door record as a bottom sheet (side panel on wide screens).
-   Palette: ink-blue neutrals from drawing sheets, a fire-door red accent,
+   Palette: ink-blue neutrals from drawing sheets, charcoal and copper from the FSCF logo,
    and status colours kept separate from the accent. */
 :root {
   --bg: #f3f5f7;
@@ -9,7 +9,9 @@
   --line: #d5dce3;
   --ink: #15212c;
   --ink-2: #4c5c6b;
-  --accent: #b3261e;
+  --accent: #b65a22;
+  --brand: #23282d;
+  --brand-ink: #ffffff;
   --accent-ink: #ffffff;
   --plan-bg: #dfe4ea;
   --st-todo: #5b6875;
@@ -37,7 +39,9 @@
     --line: #2c3c4c;
     --ink: #e7edf2;
     --ink-2: #9fb0bf;
-    --accent: #e5554b;
+    --accent: #d9843f;
+    --brand: #c96f35;
+    --brand-ink: #ffffff;
     --accent-ink: #ffffff;
     --plan-bg: #0b1117;
     --st-todo: #a9b6c2;
@@ -57,7 +61,9 @@
   --line: #2c3c4c;
   --ink: #e7edf2;
   --ink-2: #9fb0bf;
-  --accent: #e5554b;
+  --accent: #d9843f;
+  --brand: #c96f35;
+  --brand-ink: #ffffff;
   --accent-ink: #ffffff;
   --plan-bg: #0b1117;
   --st-todo: #a9b6c2;
@@ -1524,3 +1530,7 @@ body.sheet-open .tabbar { display: none; }
   #sj-photos .block-head .row-btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%; }
   #sj-photos .block-head .row-btns .btn { flex-direction: column; gap: 2px; min-height: 56px; font-size: 12px; padding: 4px 2px; }
 }
+/* FSCF colours (owner, 26 Nov 2026): charcoal and copper from the logo; red is kept only for Fail */
+.btn.primary, .fab { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.brand-mark { background: var(--brand); color: var(--brand-ink); }
+.tabbar button.on { color: var(--accent); }
