@@ -39,6 +39,7 @@ import { loadScript, saveFile, safeName } from './files.js';
 import { startVoice } from './voice.js';
 import { statementRows, statementPdf } from './statement.js';
 import { writeIntoWorkbook } from './bookwriter.js';
+import { roundLogo } from './logo.js';
 import { buildAgenda, saveIcs, connectorStatus, CONNECT_HELP, connectorError, addToCalendar, gmailDraft, chaseEmail, listEmail, TASKS, CONNECTORS } from './agenda.js';
 import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, isDraftInv, archiveOf, compareBooks } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
@@ -697,6 +698,10 @@ async function importFromDrawing(file, { manual = false } = {}) {
 // ---------- Quotes & invoices ----------
 // Matches the "INVOICES AND QUOTES" workbook: same numbers, customers, sites,
 // VAT precedent, rates and terms. Owner only (hidden while prices are locked).
+// Settings with the long logo's corners rounded: what every PDF is given
+async function pdfLists(extra = {}) {
+  return { ...lists, logoBanner: await roundLogo(lists.logoBanner), ...extra };
+}
 async function quoteBook() {
   return (await db.get('settings', 'quoteBook')) || null;
 }
@@ -1034,7 +1039,7 @@ async function renderQuoteDoc() {
       await db.put('quotes', cur);
       const b = busy('Making the PDF…');
       try {
-        const blob = await quotePdf(cur, { jsPDF: await loadJsPdfLib(), lists, book });
+        const blob = await quotePdf(cur, { jsPDF: await loadJsPdfLib(), lists: await pdfLists(), book });
         b.done();
         await saveFile(`${safeName(tabName(cur))}.pdf`, blob);
       } catch (err) { b.done(); console.error(err); toast('PDF failed: ' + err.message, 'error'); }
@@ -1527,7 +1532,7 @@ async function statementFor(custId, ledger, book, conn) {
   if (!st.rows.length) return toast('No invoices for that period', 'error');
   const bz = busy('Making the statement…');
   try {
-    const blob = await statementPdf({ jsPDF: await loadJsPdfLib(), lists, book, cust: custId, custLines: custLines.length ? custLines : [name], from, to, asAt: t, st });
+    const blob = await statementPdf({ jsPDF: await loadJsPdfLib(), lists: await pdfLists(), book, cust: custId, custLines: custLines.length ? custLines : [name], from, to, asAt: t, st });
     const mon = new Date(to + 'T12:00:00').toLocaleDateString('en-IE', { month: 'short', year: 'numeric' }).toUpperCase();
     const fname = `${custId} ${mon} SOA.pdf`;
     bz.done();
@@ -2749,7 +2754,7 @@ async function closeService(project, plan, doors) {
     const closedAt = new Date().toISOString();
     const rec = { startedAt: svc?.startedAt || '', closedAt, closedBy: d.closedBy, coll: name, planId: plan.id, questions, answers: d.answers, declIds: d.declIds, declaration: { reason: declFiles.length ? '' : d.reason }, weather: d.weather };
     b.update('Building the final PDF report…');
-    const pdf = await exportProjectPdf(p, { ...lists, questions: allQuestions() }, { title: kitOf(kindOfPlan(plan)).report, photos: true, passDetail: true, costs: false, doors, plans, filterText: '', returnBlob: true, closeout: { ...rec, declarationBlobs: declFiles.map((f) => f.blob) } }, b.update);
+    const pdf = await exportProjectPdf(p, await pdfLists({ questions: allQuestions() }), { title: kitOf(kindOfPlan(plan)).report, photos: true, passDetail: true, costs: false, doors, plans, filterText: '', returnBlob: true, closeout: { ...rec, declarationBlobs: declFiles.map((f) => f.blob) } }, b.update);
     const stamp = closedAt.slice(0, 10);
     const label = [p.site || p.client || 'Project', rec.coll].filter(Boolean).join(' – ');
     const pdfRec = await addBlob(p.id, pdf.blob, `Closed report – ${label} – ${stamp}.pdf`, 'Reports', { notes: `Final report, service closed ${fmtDate(stamp)}${rec.closedBy ? ' by ' + rec.closedBy : ''}` });
@@ -3552,11 +3557,11 @@ function renderRepairsTab(body, project, plans, doors) {
       toast(`Could not build the ${label}: ${e.message}`, 'error');
     }
   };
-  $('#rep-pdf').onclick = () => run('repair sheet', (up) => exportRemedialPdf(project, lists, repOpts(), up));
-  $('#rep-report').onclick = () => run('completion report', (up) => exportRemedialPdf(project, lists, { ...repOpts(), mode: 'report' }, up));
+  $('#rep-pdf').onclick = () => run('repair sheet', async (up) => exportRemedialPdf(project, await pdfLists(), repOpts(), up));
+  $('#rep-report').onclick = () => run('completion report', async (up) => exportRemedialPdf(project, await pdfLists(), { ...repOpts(), mode: 'report' }, up));
   $('#rep-xlsx').onclick = () => run('repairs workbook', () => exportRemedialXlsx(project, repOpts()));
   $('#price-xlsx').onclick = () => run('pricing sheet', () => exportPricingXlsx(project, repOpts()));
-  $('#price-pdf').onclick = () => run('pricing sheet', (up) => exportRemedialPdf(project, lists, { ...repOpts(), mode: 'price' }, up));
+  $('#price-pdf').onclick = () => run('pricing sheet', async (up) => exportRemedialPdf(project, await pdfLists(), { ...repOpts(), mode: 'price' }, up));
 }
 
 // Who is verifying? Asked once per session; must not be the person who did the work
@@ -4214,7 +4219,7 @@ function renderExportTab(body, project, plans, allDoors) {
     try {
       if (!doors.length) return b.done(), noneMsg();
       const opts = { photos: $('#pdf-photos').checked, passDetail: $('#pdf-pass').checked, costs: priced() && $('#pdf-costs').checked, doors, filterText, plans };
-      const r = await exportProjectPdf(project, { ...lists, questions: allQuestions() }, opts, b.update);
+      const r = await exportProjectPdf(project, await pdfLists({ questions: allQuestions() }), opts, b.update);
       b.done();
       if (r === 'saved') toast('PDF report saved');
     } catch (e) {
@@ -5203,7 +5208,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.50.0';
+const VERSION_TAG = 'app v0.50.1';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
