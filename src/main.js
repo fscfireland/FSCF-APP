@@ -4489,7 +4489,10 @@ async function drawSheet(door) {
         ${STATUSES.filter((st) => !autoRes || !['pass', 'fail'].includes(st.id)).map((st) => `<label class="status-opt" style="--c:${st.color}"><input type="radio" name="status" value="${st.id}" ${st.id === (door.status || 'not_inspected') ? 'checked' : ''}><span>${st.label}</span></label>`).join('')}
       </fieldset>
       ${autoRes ? '<p class="auto-res" id="auto-res"></p>' : ''}
-      <button type="button" class="btn dup-top" id="sh-dup">${icon('plus')} Duplicate this ${esc(K.item.toLowerCase())}</button>
+      <div class="dup-row">
+        <button type="button" class="btn" id="sh-dup">${icon('plus')} Duplicate this ${esc(K.item.toLowerCase())}</button>
+        <button type="button" class="btn" id="sh-copyfrom">${icon('sheet')} Copy details from…</button>
+      </div>
 
       <div class="grid2">
         <label class="field"><span>Pin ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. 001" autocomplete="off"></label>
@@ -5501,6 +5504,14 @@ async function drawSheet(door) {
   $('#f-zone')?.addEventListener('change', learnZone);
   $('#f-zname')?.addEventListener('change', learnZone);
   $('#sh-dup').onclick = () => duplicateDoor(current);
+  $('#sh-copyfrom').onclick = async () => {
+    await flushSave();
+    const changed = await copyDetailsFrom(await db.get('doors', door.id));
+    if (changed) {
+      await drawSheet(changed);
+      if (state.view === 'plan') refreshPins();
+    }
+  };
   $('#sh-del').onclick = async () => {
     if (await confirmBox('Delete door?', `Delete pin ${door.pinNo}${door.ref ? ' (' + door.ref + ')' : ''} and its photos?${state.view === 'plan' ? ' You can undo this from the drawing\'s Undo button until you leave the drawing.' : ' This cannot be undone.'}`)) {
       clearTimeout(saveTimer);
@@ -5538,14 +5549,19 @@ async function duplicateDoor(src) {
   const d0 = (await db.get('doors', src.id)) || src;
   const all = await db.projectDoors(d0.projectId);
   const suggest = nextFreeRef(all);
+  const plans = (await db.projectPlans(d0.projectId)).sort((a, b) => (a.collection || '').localeCompare(b.collection || '') || (a.order || 0) - (b.order || 0));
+  const planOpts = plans.map((pl) => `<option value="${pl.id}" ${pl.id === d0.planId ? 'selected' : ''}>${esc([pl.collection, pl.name].filter(Boolean).join(' › '))}${pl.id === d0.planId ? ' (this drawing)' : ''}</option>`).join('');
   const r = await dialog({
     title: `Duplicate ${kitOf(kindOfDoor(d0, await db.get('plans', d0.planId))).item.toLowerCase()}`,
     body: `<p>Makes a new pin next to pin ${d0.pinNo} with the same details: status, checklist, defects and products, actions, signs and notes. Photos are not copied.</p>
       <label class="field"><span>New pin ref / ID</span><input name="ref" value="${esc(suggest)}" required autocomplete="off"></label>
-      <label class="field"><span>Location / room</span><input name="location" value="${esc(d0.location || '')}" autocomplete="off"></label>`,
+      <label class="field"><span>Location / room</span><input name="location" value="${esc(d0.location || '')}" autocomplete="off"></label>
+      ${plans.length > 1 ? `<label class="field"><span>Put it on drawing</span><select name="plan">${planOpts}</select><small class="muted">On another drawing it lands in the same spot; press and hold the pin to drag it into place.</small></label>` : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Duplicate', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return;
+  const toPlan = plans.find((pl) => pl.id === r.data.plan) || null;
+  const moved = toPlan && toPlan.id !== d0.planId;
   const pinNo = await db.nextPinNo(d0.projectId);
   const clone = JSON.parse(JSON.stringify({ ...d0, blob: undefined }));
   for (const k of ['id', 'log', 'history', 'remedials', 'gps', 'createdAt', 'updatedAt', 'dirty']) delete clone[k];
@@ -5556,13 +5572,55 @@ async function duplicateDoor(src) {
     pinNo,
     ref: r.data.ref.trim(),
     location: r.data.location.trim(),
-    x: shift(d0.x, 0.03),
-    y: shift(d0.y, 0.03),
+    ...(moved ? { planId: toPlan.id } : {}),
+    x: moved ? d0.x : shift(d0.x, 0.03),
+    y: moved ? d0.y : shift(d0.y, 0.03),
     materials: (clone.materials || []).map((m) => ({ ...m, id: db.uid() })),
   }, [`Copied from pin ${d0.pinNo}${d0.ref ? ' (' + d0.ref + ')' : ''}`]);
-  if (state.view === 'plan') pushUndo(`Pin ${pinNo} added`, () => db.deleteDoor(copy.id));
-  toast(`Pin ${pinNo} ${copy.ref ? '(' + copy.ref + ') ' : ''}created. Drag it into place if needed`);
-  go({ ...state, doorId: copy.id }, { replace: true });
+  if (state.view === 'plan' && !moved) pushUndo(`Pin ${pinNo} added`, () => db.deleteDoor(copy.id));
+  toast(`Pin ${pinNo} ${copy.ref ? '(' + copy.ref + ') ' : ''}created${moved ? ` on ${toPlan.name}` : ''}. Drag it into place if needed`);
+  if (moved) go({ view: 'plan', projectId: d0.projectId, planId: toPlan.id, doorId: copy.id });
+  else go({ ...state, doorId: copy.id }, { replace: true });
+}
+
+// Copy the details of another door (any drawing in the project) onto this one.
+// Keeps this pin's number, ref, place on the drawing and its photos.
+async function copyDetailsFrom(target) {
+  const all = (await db.projectDoors(target.projectId)).filter((d) => d.id !== target.id);
+  if (!all.length) return toast('There are no other pins in this project to copy from.'), null;
+  const plans = Object.fromEntries((await db.projectPlans(target.projectId)).map((pl) => [pl.id, pl]));
+  const byPlan = new Map();
+  for (const d of all.sort((a, b) => (a.pinNo || 0) - (b.pinNo || 0))) {
+    const k = d.planId || '';
+    if (!byPlan.has(k)) byPlan.set(k, []);
+    byPlan.get(k).push(d);
+  }
+  const groups = [...byPlan.entries()].sort(([a], [b]) => (a === target.planId ? -1 : b === target.planId ? 1 : 0));
+  const opt = (d) => `<option value="${d.id}">${esc([d.ref || `Pin ${d.pinNo}`, d.location, d.doorType].filter(Boolean).join(' · '))}</option>`;
+  const has = (target.status && target.status !== 'not_inspected') || Object.keys(target.checks || {}).length || (target.defects || []).length;
+  const r = await dialog({
+    title: 'Copy details from another pin',
+    body: `<p>Copies the door type, leaf / swing, status, checklist answers and notes, defects, products, actions, signs and notes onto pin ${target.pinNo}. This pin keeps its own ref, place on the drawing and photos.</p>
+      <label class="field"><span>Copy from</span><select name="src">${groups.map(([pid, ds]) => `<optgroup label="${esc(plans[pid] ? [plans[pid].collection, plans[pid].name].filter(Boolean).join(' › ') + (pid === target.planId ? ' (this drawing)' : '') : 'No drawing')}">${ds.map(opt).join('')}</optgroup>`).join('')}</select></label>
+      <label class="check-line"><input type="checkbox" name="loc" ${target.location ? '' : 'checked'}> Copy the location / room too</label>
+      ${has ? '<p class="muted small">This pin already has answers; they will be replaced. You can undo from the door history.</p>' : ''}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Copy details', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return null;
+  const src = all.find((d) => d.id === r.data.src);
+  if (!src) return null;
+  const keep = ['id', 'projectId', 'planId', 'pinNo', 'ref', 'x', 'y', 'log', 'history', 'remedials', 'gps', 'createdAt', 'updatedAt', 'dirty', 'location'];
+  const clone = JSON.parse(JSON.stringify(src));
+  for (const k of keep) delete clone[k];
+  const next = {
+    ...target,
+    ...clone,
+    location: r.data.loc ? src.location || '' : target.location,
+    materials: (clone.materials || []).map((m) => ({ ...m, id: db.uid() })),
+  };
+  const saved = await saveDoor(next, [`Details copied from pin ${src.pinNo}${src.ref ? ' (' + src.ref + ')' : ''}`]);
+  toast(`Details copied from ${src.ref || 'pin ' + src.pinNo}`);
+  return saved || (await db.get('doors', target.id));
 }
 
 // Whole project: give every defect that has no products its usual product
