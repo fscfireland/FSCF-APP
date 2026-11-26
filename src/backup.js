@@ -23,7 +23,7 @@ function deserialise(rec) {
   return out;
 }
 
-export async function backupProjects(projects, { library = false } = {}) {
+async function collectBackup(projects, { library = false } = {}) {
   const data = { format: FORMAT, version: 1, exportedAt: new Date().toISOString(), projects: [], plans: [], doors: [], photos: [], files: [] };
   let videosLeftOut = 0;
   for (const p of projects) {
@@ -47,10 +47,110 @@ export async function backupProjects(projects, { library = false } = {}) {
   }
   if (library) data.quotes = await db.all('quotes'); // quotes & invoices made in the app
   data.settings = await db.all('settings');
+  return { data, videosLeftOut };
+}
+
+export async function backupProjects(projects, { library = false } = {}) {
+  const { data, videosLeftOut } = await collectBackup(projects, { library });
   const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
   const name = projects.length === 1 ? safeName(projects[0].site || projects[0].client) : 'all-projects';
   const result = await saveFile(`FSCF_backup_${name}_${new Date().toISOString().slice(0, 10)}.json`, blob);
   return { result, videosLeftOut };
+}
+
+// Split one backup into files small enough to send (each part is a complete,
+// restorable backup file; restoring all the parts puts everything back).
+function splitBackup(data, limit) {
+  const parts = [];
+  const blank = () => ({ format: data.format, version: data.version, exportedAt: data.exportedAt, projects: [], plans: [], doors: [], photos: [], files: [], size: 0 });
+  let cur = blank();
+  cur.settings = data.settings;
+  cur.quotes = data.quotes;
+  cur.size = JSON.stringify(data.settings || []).length + JSON.stringify(data.quotes || []).length;
+  for (const store of ['projects', 'plans', 'doors', 'photos', 'files']) {
+    for (const r of data[store]) {
+      const n = JSON.stringify(r).length;
+      if (cur.size + n > limit && cur.size > 0) {
+        parts.push(cur);
+        cur = blank();
+      }
+      cur[store].push(r);
+      cur.size += n;
+    }
+  }
+  parts.push(cur);
+  return parts.map((p, i) => {
+    const { size, ...rest } = p;
+    return { ...rest, part: i + 1, parts: parts.length };
+  });
+}
+
+// Back up straight into the viewer's Google Drive through their Google Drive
+// connector (only inside the Claude app / claude.ai). Returns null when that
+// route isn't available here, so the caller can save a file instead.
+const DRIVE = 'Google Drive';
+const FOLDER = 'FSCF App Backups';
+export async function driveAvailable() {
+  try {
+    const mcp = await window.claude?.use?.('mcp');
+    if (!mcp) return null;
+    const lt = await mcp.listTools();
+    if (!lt?.fileArgs || !lt.servers?.some((s) => s.server === DRIVE)) return null;
+    return mcp;
+  } catch {
+    return null;
+  }
+}
+
+export async function backupToDrive(projects, { library = false, folderId = '', onProgress = () => {} } = {}) {
+  const mcp = await driveAvailable();
+  if (!mcp) return null;
+  onProgress('Gathering your sites, drawings, photos and files…');
+  const { data, videosLeftOut } = await collectBackup(projects, { library });
+  const parts = splitBackup(data, 12 * 1048576);
+  const stamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '-');
+  const name = projects.length === 1 ? safeName(projects[0].site || projects[0].client) : 'all-sites';
+  const newFolder = async () => {
+    const r = await mcp.callTool(DRIVE, 'create_file', { title: FOLDER, contentMimeType: 'application/vnd.google-apps.folder' });
+    const id = r?.payload?.id;
+    if (!id) throw new Error('Could not make the backup folder in Google Drive.');
+    return id;
+  };
+  let folder = folderId || (await newFolder());
+  let first = null;
+  for (const [i, part] of parts.entries()) {
+    const title = `FSCF_backup_${name}_${stamp}${parts.length > 1 ? `_part${i + 1}of${parts.length}` : ''}.json`;
+    onProgress(parts.length > 1 ? `Sending part ${i + 1} of ${parts.length} to Google Drive…` : 'Sending to Google Drive…');
+    const blob = new Blob([JSON.stringify(part)], { type: 'application/json' });
+    const send = (parentId) => mcp.callTool(DRIVE, 'create_file', {
+      title,
+      parentId,
+      contentMimeType: 'application/json',
+      disableConversionToGoogleType: true,
+      base64Content: { $file: { data: blob, name: title, type: 'application/json' } },
+    });
+    let r;
+    try {
+      r = await send(folder);
+    } catch (e) {
+      // the folder was deleted or moved: make a new one and try once more
+      if (i === 0 && e?.code === 'tool_error') {
+        folder = await newFolder();
+        r = await send(folder);
+      } else throw e;
+    }
+    first ||= r?.payload;
+  }
+  return { parts: parts.length, videosLeftOut, folderId: folder, folderUrl: `https://drive.google.com/drive/folders/${folder}` };
+}
+
+// Plain-language message for a Drive backup that failed
+export function driveError(e) {
+  const c = e?.code;
+  if (c === 'not_in_manifest' || c === 'approval_required') return 'Google Drive was not allowed for the app. Tap Back up again and choose Allow.';
+  if (c === 'server_not_connected' || c === 'needs_reauth' || c === 'selection_required') return 'Connect Google Drive in claude.ai Settings › Connectors, then try again.';
+  if (c === 'bad_request') return 'That backup part was too large to send. Use "Save backup file" instead.';
+  return 'Google Drive backup failed: ' + (e?.message || 'unknown error');
 }
 
 export async function restoreBackup(file) {

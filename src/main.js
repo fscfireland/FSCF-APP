@@ -28,7 +28,7 @@ import {
   collLabel, listCollections, activeCollection, plansIn, suggestName, copyCollection, renameCollection, deleteCollection,
   splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
-import { backupProjects, restoreBackup } from './backup.js';
+import { backupProjects, restoreBackup, backupToDrive, driveError } from './backup.js';
 import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport.js';
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
@@ -298,7 +298,7 @@ async function renderProjects() {
         const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
         const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
         if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} Saved on this device · backed up ${days ? 'yesterday' : 'today'}</div>`;
-        return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Save a backup to Google Drive or email.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
+        return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Back up everything to Google Drive.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
       })()}
       ${liveHtml}
       <button class="lib-card ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Ask about your sites, doors and reports, or have it update them for you</small></span>${icon('more')}</button>
@@ -338,6 +338,7 @@ async function renderProjects() {
   $('#my-prices')?.addEventListener('click', () => pricesHome());
   $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
+    if (await backupEverythingToDrive(await db.all('projects'))) return;
     const b = busy('Preparing backup…');
     try {
       const { result, videosLeftOut } = await backupProjects(await db.all('projects'), { library: true });
@@ -6056,9 +6057,11 @@ async function renderSettings() {
         <h2 class="h2">Backup &amp; restore</h2>
         <p class="muted small">${projects.length} project(s) on this phone${est ? ` · using ${(est.usage / 1048576).toFixed(1)} MB` : ''}</p>
         <div class="row-btns">
-          <button class="btn" id="s-backup" ${projects.length ? '' : 'disabled'}>Back up all projects</button>
-          <label class="btn">Restore from file<input type="file" accept="application/json,.json" id="s-restore" hidden></label>
+          <button class="btn primary" id="s-backup-drive" ${projects.length ? '' : 'disabled'}>${icon('cloud')} Back up everything to Google Drive</button>
+          <button class="btn" id="s-backup" ${projects.length ? '' : 'disabled'}>Save backup file</button>
+          <label class="btn">Restore from file(s)<input type="file" accept="application/json,.json" id="s-restore" multiple hidden></label>
         </div>
+        <p class="muted small">Google Drive backups go in the <b>FSCF App Backups</b> folder: every site, drawing, pin, photo, file, quote and your settings. Big backups are split into parts; to restore, pick all the parts together. Videos over 50 MB stay on the phone.${lists.lastBackupAt ? ` Last backup: ${esc(new Date(lists.lastBackupAt).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' }))}.` : ''}</p>
       </section>
       <p class="muted small pad">FSCF Ireland app · data stays on this device until cloud sync is set up.</p>
     </main>`;
@@ -6357,6 +6360,7 @@ async function renderSettings() {
       drawDefs();
     }
   };
+  $('#s-backup-drive').onclick = () => backupEverythingToDrive(projects);
   $('#s-backup').onclick = async () => {
     const b = busy('Preparing backup…');
     try {
@@ -6369,11 +6373,13 @@ async function renderSettings() {
     }
   };
   $('#s-restore').onchange = async (e) => {
-    const f = e.target.files[0];
-    if (!f) return;
+    const fs = [...e.target.files];
+    e.target.value = '';
+    if (!fs.length) return;
     const b = busy('Restoring…');
     try {
-      const n = await restoreBackup(f);
+      let n = 0;
+      for (const f of fs) n += await restoreBackup(f);
       await loadLists();
       b.done();
       toast(`Restored ${n} project(s)`);
@@ -6383,6 +6389,30 @@ async function renderSettings() {
       toast(err.message, 'error');
     }
   };
+}
+
+// Back up every site and file to Google Drive. Returns false when Drive
+// isn't reachable from here (the caller then saves a file instead).
+async function backupEverythingToDrive(projects) {
+  const b = busy('Preparing backup…');
+  try {
+    const r = await backupToDrive(projects, { library: true, folderId: lists.driveBackupFolder || '', onProgress: b.update });
+    b.done();
+    if (!r) {
+      toast('Google Drive is not reachable from here, so the backup will be saved as a file. Choose Google Drive when asked where to save it.');
+      if (state.view === 'settings') $('#s-backup')?.click();
+      return false;
+    }
+    await saveLists({ lastBackupAt: new Date().toISOString(), driveBackupFolder: r.folderId });
+    toast(`Backed up to Google Drive › FSCF App Backups${r.parts > 1 ? ` (${r.parts} parts)` : ''}${r.videosLeftOut ? ` · ${r.videosLeftOut} large video(s) left on the phone` : ''}`);
+    refresh();
+    return true;
+  } catch (e) {
+    b.done();
+    console.error(e);
+    toast(driveError(e), 'error');
+    return true;
+  }
 }
 
 // ---------- start ----------
