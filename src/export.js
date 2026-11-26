@@ -277,7 +277,7 @@ export async function exportRemedialXlsx(project, opts = {}) {
   useScheme(project);
   const doors = opts.doors || [];
   const planName = Object.fromEntries((opts.plans || []).map((p) => [p.id, p.name]));
-  const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE') : '');
+  const day = (iso) => (iso ? new Date(iso).toLocaleString('en-IE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''); // date and time
   const rows = [];
   const byDoor = [];
   for (const d of doors) {

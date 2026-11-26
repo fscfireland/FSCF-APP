@@ -1196,7 +1196,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
       body: items.map((it) => {
         const r = d.remedials?.[it.key];
         if (isPrice) return [String(++itemNo), t(it.text), t(it.sub), String(it.qty || 1), '', ''];
-        const day = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE') : '');
+        const day = (iso) => (iso ? new Date(iso).toLocaleString('en-IE', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''); // date and time
         return ['', t(it.text) + (it.qty ? ` (x${it.qty})` : ''), t(it.sub), r?.done ? t(`${r.by || ''}\n${day(r.at)}`) : isReport ? 'Outstanding' : '', r?.done && r.verified ? t(`${r.vby || ''}\n${day(r.vat)}`) : ''];
       }),
       styles: { font: 'helvetica', fontSize: 8.5, cellPadding: 1.8, textColor: C.ink, lineColor: C.line, lineWidth: 0.15, minCellHeight: 8 },

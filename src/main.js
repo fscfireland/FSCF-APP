@@ -2547,7 +2547,7 @@ async function drawRepairSheet(door) {
   useScheme(project);
   const plan = door.planId ? await db.get('plans', door.planId) : null;
   let d = door;
-  const when = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  const when = (iso) => (iso ? new Date(iso).toLocaleString('en-IE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
   const save = async (patch, note) => {
     d = await saveDoor({ ...(await db.get('doors', d.id)), ...patch }, note ? [note] : []);
     delete repPhotoCache[project.id];
@@ -2695,7 +2695,7 @@ function renderRepairsTab(body, project, plans, doors) {
       if (Object.keys(c).length && body.isConnected) renderRepairsTab(body, project, plans, doors);
     });
   }
-  const when = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  const when = (iso) => (iso ? new Date(iso).toLocaleString('en-IE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
   body.innerHTML = `
     <section class="panel rep-intro">
       <div class="block-head"><h2 class="h2">${icon('shield')} Instructions for the repairer</h2>
