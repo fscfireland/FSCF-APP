@@ -1039,3 +1039,6 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .q-edit textarea { width: 100%; }
 .q-edit .block-head { flex-wrap: wrap; gap: 8px; }
 .q-edit .block-head .row-btns { flex-wrap: wrap; }
+
+.q-tie { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
+.q-tie small { display: block; color: var(--ink-2); font-size: 12.5px; }

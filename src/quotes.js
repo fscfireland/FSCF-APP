@@ -378,7 +378,7 @@ export async function quotePdf(doc, ctx) {
 // ---------- Excel tab laid out like the samples ----------
 // A sheet in the same cells as FD WORKS / FD INSP QUOTE SAMPLE and INV-114,
 // with live formulas, plus the SUMMARY register row ready to paste.
-export async function quoteXlsx(doc, book) {
+export async function quoteXlsx(doc, book, pd = null) {
   const XLSX = await loadSheetJS();
   const isInv = doc.kind === 'INV';
   const t = totals(doc);
@@ -431,6 +431,18 @@ export async function quoteXlsx(doc, book) {
   dateCell(3);
   ws[isInv ? 'D6' : 'D6'] = { t: 'n', f: `D3+${doc.days || 30}`, z: 'dd/mm/yyyy' };
   items.forEach((_, i) => { ws['D' + (24 + i)] = { t: 'n', f: `B${24 + i}*C${24 + i}` }; });
+  // lines tied to the pricing document: description and price come from its door summary
+  let pdOut = null;
+  if (pd && doc.pd) {
+    pdOut = pdSheet(XLSX, doc, pd);
+    const ref = `'${pdName(doc)}'!`;
+    items.forEach((it, i) => {
+      const k = pd.doors.findIndex((d) => d.doorId === it.doorId);
+      if (k < 0) return;
+      ws['A' + (24 + i)] = { t: 's', v: it.desc, f: `${ref}A${pdOut.sumRows[k]}` };
+      ws['C' + (24 + i)] = { t: 'n', v: it.unit, f: `${ref}B${pdOut.sumRows[k]}` };
+    });
+  }
   ws['D' + (s + 1)] = { t: 'n', f: `SUM(D24:D${last})` };
   ws['D' + (s + 5)] = { t: 'n', f: doc.vatMode === 'rct' ? '0' : `D${s + 1}*D${s + 4}` };
   ws['D' + (s + 6)] = { t: 'n', f: `SUM(D${s + 1}:D${s + 3})+D${s + 5}` };
@@ -438,6 +450,7 @@ export async function quoteXlsx(doc, book) {
   ws['!cols'] = [{ wch: 70 }, { wch: 11 }, { wch: 16 }, { wch: 16 }];
   const wb = XLSX.utils.book_new();
   const name = tabName(doc).slice(0, 31);
+  if (pdOut) XLSX.utils.book_append_sheet(wb, pdOut.ws, pdName(doc).slice(0, 31));
   XLSX.utils.book_append_sheet(wb, ws, name);
   // SUMMARY register row (columns A–M)
   const reg = [['Tab #', 'Sheet Name', 'Document Type', 'Customer ID', 'Quote No', 'LOCATION', 'WORK TYPE', 'Invoice No', 'Paid', 'Date', 'Subtotal (€)', 'Total (€)', 'Paid On Date'],
@@ -463,4 +476,141 @@ export function readableTag(tag) {
   const q = m ? +m[1] : 1;
   const name = (m ? m[2] : tag || '').replace(/^\d{3}[a-z]_/, '').replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
   return { qty: q, name: name.charAt(0).toUpperCase() + name.slice(1) };
+}
+
+// ---------- Pricing document (PD) from a report's failed doors ----------
+// Laid out like "CHES-001 SERV PD-031": a block per door with its tags
+// (quantity, price, labour, ex margin, with margin), door spec, the report's
+// recommendations and notes, a DOOR PRICING SUMMARY, and the ITEM QUANTITIES &
+// RATES table every door looks its rates up from. The quote's lines link to
+// the summary, so changing a rate in Excel updates every door and the quote.
+
+const keyOf = (s) => String(s || '').toLowerCase().replace(/^\d+\s*no[_\s]+/, '').replace(/[^a-z0-9]+/g, '');
+// spelling variants Fieldwire tags come in: plural, "_sign(s)" suffix, "001b" code
+function variants(k) {
+  const out = new Set();
+  const base = k.replace(/^\d{3}[a-z]/, '');
+  for (const x of [k, base]) {
+    out.add(x); out.add(x.replace(/s$/, '')); out.add(x + 's');
+    out.add(x.replace(/signs?$/, '')); out.add(x.replace(/signs?$/, '') + 'sign'); out.add(x.replace(/signs?$/, '') + 'signs');
+  }
+  return out;
+}
+export const multiplier = (rule) => (rule === 'margin40' ? 1 / 0.6 : 1.4);
+
+// A door's tags: Fieldwire tags (kept in its notes) and the app's products
+function doorTags(d) {
+  const out = [];
+  const tagLine = /(?:^|\n)Tags:\s*(.+)/.exec(d.notes || '')?.[1] || '';
+  for (const raw of tagLine.split(',').map((x) => x.trim()).filter(Boolean)) {
+    const m = /^(\d+)\s*no\s+(.+)$/i.exec(raw);
+    const name = (m ? m[2] : raw).trim().replace(/\s+/g, '_');
+    out.push({ tag: (m ? `${m[1]}no_` : '') + name, key: name, qty: m ? +m[1] : 1, from: 'tag' });
+  }
+  for (const m of d.materials || []) {
+    out.push({ tag: m.name, key: m.name, qty: Number(m.qty) || 1, from: 'product', appCost: Number(m.cost) || 0 });
+  }
+  return out;
+}
+
+// Price every failed door from the workbook rates (or the app's own price)
+export function priceDoors(doors, book, rule = 'x1.4') {
+  const mult = multiplier(rule);
+  const rateBy = new Map();
+  for (const r of book?.rates || []) {
+    for (const k of [r.item, r.tag]) if (k && !rateBy.has(keyOf(k))) rateBy.set(keyOf(k), r);
+  }
+  const failed = doors.filter((d) => d.status === 'fail' || (d.actions || []).length || (d.materials || []).length).sort((a, b) => (a.pinNo || 0) - (b.pinNo || 0));
+  const items = new Map();
+  const priced = failed.map((d) => {
+    const rows = doorTags(d).map((t) => {
+      const k = keyOf(t.key);
+      let it = items.get(k);
+      if (!it) {
+        const r = rateBy.get(k) || [...variants(k)].map((v) => rateBy.get(v)).find(Boolean);
+        it = r ? { key: t.key, cost: r.cost, labour: r.labour, status: 'Priced', source: 'SERV PD MASTER' }
+          : t.from === 'product' && t.appCost ? { key: t.key, cost: t.appCost, labour: 0, status: 'App price', source: 'App price list (labour not set)' }
+          : { key: t.key, cost: 0, labour: 0, status: 'MISSING', source: 'Not in SERV PD MASTER' };
+        items.set(k, it);
+      }
+      return { tag: t.tag, qty: t.qty, key: it.key, cost: it.cost, labour: it.labour };
+    });
+    const exMargin = rows.reduce((a, x) => a + x.qty * (x.cost + x.labour), 0);
+    const rating = /Door rating:\s*(.+)/i.exec(d.notes || '')?.[1] || d.doorType || '';
+    const notes = (/(?:^|\n)Notes:\s*(.+)/.exec(d.notes || '')?.[1] || '').split(' · ').filter(Boolean);
+    return {
+      doorId: d.id, label: `ID: ${d.pinNo} - ${(d.location || d.ref || '').toUpperCase()}`.trim(),
+      rows, rating, recs: d.actions || [], notes, exMargin: r2(exMargin), price: r2(exMargin * mult),
+    };
+  });
+  const list = [...items.values()];
+  return { doors: priced, items: list, mult, missing: list.filter((i) => i.status === 'MISSING').length };
+}
+
+export function nextPd(book, appDocs) {
+  return Math.max(book?.seq?.pd || 0, ...appDocs.map((d) => +(/\d+/.exec(d.pd || '') || [0])[0])) + 1;
+}
+
+export const pdName = (doc) => `${doc.cust.id} SERV ${doc.pd}`;
+
+// Write the PD sheet; returns the sheet and the row of each door's summary line
+export function pdSheet(XLSX, doc, pd) {
+  const aoa = [];
+  const f = {};
+  const put = (r, c, v) => { (aoa[r - 1] ||= [])[c] = v; };
+  const site = doc.site?.lines || [];
+  put(1, 0, [site[0], site[1]].filter(Boolean).join(' ').toUpperCase() || doc.cust.id);
+  put(2, 0, 'Margin multiplier'); put(2, 1, Math.round(pd.mult * 10000) / 10000);
+  put(2, 3, 'Tag rates come from the ITEM QUANTITIES & RATES table below. Change a rate there and every door and the quote update.');
+  let r = 4;
+  const blocks = [];
+  for (const d of pd.doors) {
+    put(r++, 0, d.label);
+    ['Tag', 'QUANTITY', 'INFO', 'PRICE', 'LABOUR', 'EX MARGIN', 'WITH MARGIN'].forEach((h, i) => put(r, i, h));
+    r++;
+    const first = r;
+    const tagRows = [];
+    for (const t of d.rows) { put(r, 0, t.tag); put(r, 1, t.qty); put(r, 2, t.key); tagRows.push(r); r++; }
+    put(r, 0, 'Door spec'); put(r, 1, d.rating ? `Door Rating: ${d.rating}` : 'Door Rating:'); r++;
+    const recRows = [];
+    d.recs.forEach((t, i) => { put(r, 0, `Recommendation ${i + 1}`); put(r, 1, `Not set: ${t}`); put(r, 5, 0); recRows.push(r); r++; });
+    d.notes.forEach((t, i) => { put(r, 0, `Note ${i + 1}`); put(r, 1, t); r++; });
+    const totRow = r;
+    put(r, 2, 'TOTALS EX VAT');
+    r += 2;
+    blocks.push({ first, tagRows, recRows, totRow, d });
+  }
+  put(r++, 0, 'DOOR PRICING SUMMARY');
+  put(r, 0, 'Door'); put(r, 1, 'Customer Price Ex VAT'); r++;
+  const sumRows = [];
+  for (const bl of blocks) { put(r, 0, bl.d.label); sumRows.push(r); r++; }
+  const grandRow = r;
+  put(r++, 0, 'GRAND TOTAL EX VAT');
+  r += 2;
+  put(r++, 0, 'ITEM QUANTITIES & RATES');
+  ['Item', 'Price', 'Labour', 'Total Quantity', 'Status', 'Source / note'].forEach((h, i) => put(r, i, h));
+  r++;
+  const rateFirst = r;
+  for (const it of pd.items) { put(r, 0, it.key); put(r, 1, it.cost); put(r, 2, it.labour); put(r, 4, it.status); put(r, 5, it.source); r++; }
+  const rateLast = Math.max(rateFirst, r - 1);
+  const firstDoorRow = blocks[0]?.first || 6;
+  const lastDoorRow = blocks.length ? blocks[blocks.length - 1].totRow : 6;
+  pd.items.forEach((_, i) => { f[`D${rateFirst + i}`] = `SUMIF($C$${firstDoorRow}:$C$${lastDoorRow},A${rateFirst + i},$B$${firstDoorRow}:$B$${lastDoorRow})`; });
+  for (const bl of blocks) {
+    for (const tr of bl.tagRows) {
+      f[`D${tr}`] = `IFERROR(INDEX($B$${rateFirst}:$B$${rateLast},MATCH(C${tr},$A$${rateFirst}:$A$${rateLast},0)),0)`;
+      f[`E${tr}`] = `IFERROR(INDEX($C$${rateFirst}:$C$${rateLast},MATCH(C${tr},$A$${rateFirst}:$A$${rateLast},0)),0)`;
+      f[`F${tr}`] = `B${tr}*(D${tr}+E${tr})`;
+      f[`G${tr}`] = `F${tr}*$B$2`;
+    }
+    for (const rr of bl.recRows) f[`G${rr}`] = `IF(F${rr}="","",F${rr}*$B$2)`;
+    for (const c of 'DEFG') f[`${c}${bl.totRow}`] = `SUM(${c}${bl.first}:${c}${bl.totRow - 1})`;
+  }
+  sumRows.forEach((sr, i) => { f[`B${sr}`] = `G${blocks[i].totRow}`; });
+  f[`B${grandRow}`] = sumRows.length ? `SUM(B${sumRows[0]}:B${sumRows[sumRows.length - 1]})` : '0';
+  for (let i = 0; i < aoa.length; i++) aoa[i] ||= [];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  for (const [cell, fx] of Object.entries(f)) ws[cell] = { t: 'n', f: fx };
+  ws['!cols'] = [{ wch: 46 }, { wch: 40 }, { wch: 34 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 13 }];
+  return { ws, sumRows };
 }

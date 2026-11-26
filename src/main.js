@@ -12,7 +12,7 @@ import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx } from './export.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
-import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
+import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
@@ -682,6 +682,7 @@ async function renderQuotes() {
       <label class="btn primary">${icon('upload')} Import workbook (.xlsx)<input type="file" class="qb-import" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" hidden></label></section>`}
     <div class="row-btns">
       <button class="btn primary" id="q-new">${icon('plus')} New quote</button>
+      <button class="btn" id="q-fromrep">${icon('door')} Quote from a report</button>
       <button class="btn" id="q-newinv">${icon('plus')} New invoice</button>
     </div>
     <h2 class="h2">Made in the app <span class="muted">${docs.length}</span></h2>
@@ -703,6 +704,7 @@ async function renderQuotes() {
   $$('.q-row[data-id]').forEach((b) => (b.onclick = () => go({ view: 'quote', quoteId: b.dataset.id })));
   $('#q-new').onclick = () => newQuoteDoc('Q');
   $('#q-newinv').onclick = () => newInvoiceFrom(null);
+  $('#q-fromrep').onclick = () => quoteFromReport(null);
   $$('.wb-inv').forEach((b) => (b.onclick = () => newInvoiceFrom(book.register.find((r) => r.sheet === b.dataset.sheet))));
 }
 
@@ -766,7 +768,7 @@ async function newQuoteDoc(kind = 'Q', preset = null) {
   if (!pick) return;
   const nx = nextNumbers(book, await db.all('quotes'));
   const insp = pick.workType === 'FDINSP';
-  const vat = pick.vatRate != null ? pick.vatRate : insp ? 0.23 : 0.135;
+  const vat = vatPrecedent(book, pick.cust.id, pick.workType) ?? (insp ? 0.23 : pick.vatRate ?? 0.135);
   const doc = await db.put('quotes', {
     id: db.uid(), kind, tab: nx.tab, quote: nx.quote, inv: '', part: '', date: today(), days: 30,
     cust: pick.cust, site: pick.site, po: pick.po || '', workType: pick.workType, status: 'PROC',
@@ -850,10 +852,13 @@ async function renderQuoteDoc() {
   const el = $('#qd');
   let cur = doc;
   let timer = null;
+  const tiedSite = doc.projectId ? (await db.get('projects', doc.projectId))?.site || '' : '';
   const save = () => { clearTimeout(timer); timer = setTimeout(async () => { cur = await db.put('quotes', cur); }, 400); };
   const draw = () => {
     const t = totals(cur);
     el.innerHTML = `
+      ${cur.projectId ? `<section class="panel q-tie">${icon('door')}<span><b>From the report: ${esc(tiedSite || 'project')}</b><small>Breakdown: ${esc(pdName(cur))} · ${(cur.items || []).filter((i) => i.doorId).length} doors</small></span>
+        <button class="btn sm" id="q-refresh">Refresh prices</button></section>` : ''}
       <section class="panel">
         <div class="grid2">
           <label class="field"><span>Date</span><input type="date" data-k="date" value="${esc(cur.date)}"></label>
@@ -911,7 +916,7 @@ async function renderQuoteDoc() {
         ${!isInv ? `<button class="btn" id="q-toinv">${icon('plus')} Make invoice</button>` : ''}
         <button class="btn ghost danger-text" id="q-del">${icon('trash')} Delete</button>
       </div>
-      <p class="muted small pad">The Excel file has one tab, named <b>${esc(tabName(cur))}</b>, in the same cells as your samples with live formulas, plus a SUMMARY ROW tab. In Excel: right-click the tab › Move or Copy › into INVOICES AND QUOTES, placed after tab ${cur.tab - 1}; then copy the SUMMARY ROW into the register.</p>`;
+      <p class="muted small pad">${cur.pd ? `The Excel file has the pricing doc <b>${esc(pdName(cur))}</b> and the quote tab, linked: the quote lines read each door's price from the PD's DOOR PRICING SUMMARY. Move <b>both</b> tabs into the workbook together (select both, then Move or Copy) so the links follow. ` : ''}The Excel file has the tab <b>${esc(tabName(cur))}</b>, in the same cells as your samples with live formulas, plus a SUMMARY ROW tab. In Excel: right-click the tab › Move or Copy › into INVOICES AND QUOTES, placed after tab ${cur.tab - 1}; then copy the SUMMARY ROW into the register.</p>`;
     // field edits
     $$('[data-k]', el).forEach((inp) => (inp.oninput = inp.onchange = () => {
       cur = { ...cur, [inp.dataset.k]: inp.dataset.num ? Number(inp.value) || 0 : inp.dataset.k === 'days' ? +inp.value || 30 : inp.value };
@@ -946,7 +951,21 @@ async function renderQuoteDoc() {
         await saveFile(`${safeName(tabName(cur))}.pdf`, blob);
       } catch (err) { b.done(); console.error(err); toast('PDF failed: ' + err.message, 'error'); }
     };
-    $('#q-xlsx').onclick = async () => { await db.put('quotes', cur); try { await quoteXlsx(cur, book); } catch (err) { console.error(err); toast('Excel failed: ' + err.message, 'error'); } };
+    $('#q-xlsx').onclick = async () => {
+      await db.put('quotes', cur);
+      try {
+        const pd = cur.projectId && cur.pd ? priceDoors(await db.projectDoors(cur.projectId), book, pricingRule()) : null;
+        await quoteXlsx(cur, book, pd);
+      } catch (err) { console.error(err); toast('Excel failed: ' + err.message, 'error'); }
+    };
+    $('#q-refresh')?.addEventListener('click', async () => {
+      const pd = priceDoors(await db.projectDoors(cur.projectId), book, pricingRule());
+      const manual = (cur.items || []).filter((i) => !i.doorId);
+      cur = { ...cur, items: [...pd.doors.map((d) => ({ desc: d.label, qty: 1, unit: d.price, doorId: d.doorId })), ...manual] };
+      cur = await db.put('quotes', cur);
+      draw();
+      toast(`Prices refreshed from the report${pd.missing ? ` · ${pd.missing} item${pd.missing === 1 ? '' : 's'} still missing a rate` : ''}`);
+    });
     $('#q-toinv')?.addEventListener('click', async () => { await db.put('quotes', cur); newInvoiceFrom(cur); });
     $('#q-del').onclick = async () => {
       if (!(await confirmBox('Delete this document?', `${tabName(cur)} is removed from the app. Its number is not reused.`))) return;
@@ -1036,6 +1055,61 @@ async function linesFromProject() {
   }
   if (!out.length) toast('No door in that project has priced products yet. Use Cost all fails on the project first.', 'error');
   return out;
+}
+
+
+// A customer quote from a report: one line per failed door at its full price;
+// the breakdown is a pricing doc in the SERV PD layout, linked to the quote.
+// the standard lines under the items on your works quotes (as A-229)
+const DEFAULT_WORKS_NOTES = ['E/O for weekend or OOH works', 'Touch up paint works if required by others', 'Each repair element to be repaired using industry best practice guidance', 'ASDMA, BS8214:2016, BWF Guidance documents', 'Costs inclusive of waste disposal. H&S, handover folder, insurance', 'admin and site supervision.', 'Drop seals are face fix drop seals.'];
+// VAT the customer was last charged for this type of work
+function vatPrecedent(book, custId, workType) {
+  const hit = [...(book?.register || [])].reverse().find((x) => x.cust === custId && x.workType === workType && x.vatRate != null);
+  return hit ? hit.vatRate : null;
+}
+async function quoteFromReport(project) {
+  const book = await quoteBook();
+  if (!book) return toast('Import your INVOICES AND QUOTES workbook first (Quotes & invoices).', 'error');
+  if (!project) {
+    const projects = (await db.all('projects')).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    if (!projects.length) return toast('No projects yet', 'error');
+    const r = await dialog({
+      title: 'Quote from which report?',
+      body: `<label class="field"><span>Project</span><select name="p">${projects.map((p) => `<option value="${p.id}">${esc(p.site)}${p.client ? ' · ' + esc(p.client) : ''}</option>`).join('')}</select></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
+    });
+    if (r.value !== true) return;
+    project = projects.find((p) => p.id === r.data.p);
+  }
+  const doors = await db.projectDoors(project.id);
+  const pd = priceDoors(doors, book, pricingRule());
+  if (!pd.doors.length) return toast('No failed doors in this report to price.', 'error');
+  const appDocs = await db.all('quotes');
+  const pdNo = 'PD-' + pad3(nextPd(book, appDocs));
+  const total = pd.doors.reduce((a, d) => a + d.price, 0);
+  const ok = await dialog({
+    title: `Quote for ${project.site}`,
+    body: `<p><b>${pd.doors.length}</b> failed door${pd.doors.length === 1 ? '' : 's'} priced at <b>${money(total)}</b> ex VAT (cost + labour ${pricingRule() === 'margin40' ? '÷ 0.6' : '× 1.4'}).</p>
+      ${pd.missing ? `<p class="small">${pd.missing} item${pd.missing === 1 ? ' is' : 's are'} not in SERV PD MASTER yet. ${pd.missing === 1 ? 'It shows' : 'They show'} as <b>MISSING</b> at €0 in the pricing doc; add the rate there in Excel and the door and quote update.</p>` : ''}
+      <p class="small">Next: choose the customer and site. Pricing doc: <b>${pdNo}</b>.</p>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Next', value: true, kind: 'primary' }],
+  });
+  if (ok.value !== true) return;
+  const pick = await pickCustomer(book);
+  if (!pick) return;
+  const nx = nextNumbers(book, appDocs);
+  const notes = [...DEFAULT_WORKS_NOTES];
+  const vat = vatPrecedent(book, pick.cust.id, 'FDREM') ?? 0.135;
+  const doc = await db.put('quotes', {
+    id: db.uid(), kind: 'Q', tab: nx.tab, quote: nx.quote, inv: '', part: '', date: today(), days: 30,
+    cust: pick.cust, site: pick.site, po: pick.po || '', workType: 'FDREM', status: 'PROC',
+    vatRate: vat, vatMode: vat === 0 ? 'rct' : 'normal', preLims: 0, fuel: 0, specialOrder: '',
+    items: pd.doors.map((d) => ({ desc: d.label, qty: 1, unit: d.price, doorId: d.doorId })),
+    notes,
+    p1Terms: QTERMS.worksQuote.replace('13.5%', `${+(vat * 100).toFixed(1)}%`),
+    projectId: project.id, pd: pdNo,
+  });
+  go({ view: 'quote', quoteId: doc.id });
 }
 
 async function importFieldwire(file) {
@@ -2670,6 +2744,11 @@ function renderExportTab(body, project, plans, allDoors) {
       })()}
       <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
     </section>
+    ${priced() ? `<section class="panel">
+      <h2 class="h2">${icon('report')} Customer quote from this report</h2>
+      <p>One line per failed door at its full price, numbered on from your workbook. The door-by-door breakdown goes in a pricing doc tab laid out like your SERV PDs, with the quote's lines linked to it, so changing a rate in Excel updates the quote.</p>
+      <button class="btn primary" id="rep-quote">${icon('report')} Make the quote</button>
+    </section>` : ''}
     <section class="panel">
       <h2 class="h2">${icon('shield')} Backup</h2>
       <p>Until cloud sync is switched on, this project is stored only on this phone. Save a backup file (includes plans and photos; videos are too large and stay on the phone) and keep it in Google Drive or email it to yourself.</p>
@@ -2733,6 +2812,7 @@ function renderExportTab(body, project, plans, allDoors) {
     toast(`${added} item${added === 1 ? '' : 's'} added on ${nDoors} door${nDoors === 1 ? '' : 's'}. Check the products and quantities on each door`);
     refresh();
   });
+  $('#rep-quote')?.addEventListener('click', () => quoteFromReport(project));
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
     try {
