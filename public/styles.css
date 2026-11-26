@@ -1183,5 +1183,6 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .site-dd-row small { color: var(--ink-2); font-size: 12.5px; }
 
 /* duplicate / copy details buttons in the door sheet */
-.dup-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0 4px; }
+.dup-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; margin: 8px 0 4px; }
+.dup-row .btn { padding: 6px 8px; font-size: 14px; min-height: 48px; }
 .dup-row .btn { justify-content: center; white-space: normal; text-align: center; line-height: 1.2; }

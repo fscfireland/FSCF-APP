@@ -4490,7 +4490,8 @@ async function drawSheet(door) {
       </fieldset>
       ${autoRes ? '<p class="auto-res" id="auto-res"></p>' : ''}
       <div class="dup-row">
-        <button type="button" class="btn" id="sh-dup">${icon('plus')} Duplicate this ${esc(K.item.toLowerCase())}</button>
+        <button type="button" class="btn" id="sh-dup">${icon('plus')} Duplicate here</button>
+        <button type="button" class="btn" id="sh-copyto">${icon('plan')} Copy to drawing…</button>
         <button type="button" class="btn" id="sh-copyfrom">${icon('sheet')} Copy details from…</button>
       </div>
 
@@ -5504,6 +5505,7 @@ async function drawSheet(door) {
   $('#f-zone')?.addEventListener('change', learnZone);
   $('#f-zname')?.addEventListener('change', learnZone);
   $('#sh-dup').onclick = () => duplicateDoor(current);
+  $('#sh-copyto').onclick = () => duplicateDoor(current, { other: true });
   $('#sh-copyfrom').onclick = async () => {
     await flushSave();
     const changed = await copyDetailsFrom(await db.get('doors', door.id));
@@ -5544,24 +5546,27 @@ function nextFreeRef(all) {
   while (used.has(String(n).padStart(3, '0'))) n++;
   return String(n).padStart(3, '0');
 }
-async function duplicateDoor(src) {
+async function duplicateDoor(src, { other = false } = {}) {
   await flushSave();
   const d0 = (await db.get('doors', src.id)) || src;
   const all = await db.projectDoors(d0.projectId);
   const suggest = nextFreeRef(all);
-  const plans = (await db.projectPlans(d0.projectId)).sort((a, b) => (a.collection || '').localeCompare(b.collection || '') || (a.order || 0) - (b.order || 0));
-  const planOpts = plans.map((pl) => `<option value="${pl.id}" ${pl.id === d0.planId ? 'selected' : ''}>${esc([pl.collection, pl.name].filter(Boolean).join(' › '))}${pl.id === d0.planId ? ' (this drawing)' : ''}</option>`).join('');
+  const plans = (await db.projectPlans(d0.projectId)).filter((pl) => pl.id !== d0.planId).sort((a, b) => (a.collection || '').localeCompare(b.collection || '') || (a.order || 0) - (b.order || 0));
+  if (other && !plans.length) return toast('There is no other drawing in this project to copy to. Upload one first.');
+  const planOpts = plans.map((pl) => `<option value="${pl.id}">${esc([pl.collection, pl.name].filter(Boolean).join(' › '))}</option>`).join('');
+  const item = kitOf(kindOfDoor(d0, await db.get('plans', d0.planId))).item.toLowerCase();
   const r = await dialog({
-    title: `Duplicate ${kitOf(kindOfDoor(d0, await db.get('plans', d0.planId))).item.toLowerCase()}`,
-    body: `<p>Makes a new pin next to pin ${d0.pinNo} with the same details: status, checklist, defects and products, actions, signs and notes. Photos are not copied.</p>
+    title: other ? `Copy ${item} to another drawing` : `Duplicate ${item}`,
+    body: `<p>Makes a new pin ${other ? 'on the drawing you pick' : `next to pin ${d0.pinNo}`} with the same details as pin ${d0.pinNo}: status, checklist, defects and products, actions, signs and notes. Photos are not copied.</p>
+      ${other ? `<label class="field"><span>Copy to drawing</span><select name="plan">${planOpts}</select><small class="muted">It lands in the same spot on that drawing; press and hold the pin to drag it into place.</small></label>` : ''}
       <label class="field"><span>New pin ref / ID</span><input name="ref" value="${esc(suggest)}" required autocomplete="off"></label>
       <label class="field"><span>Location / room</span><input name="location" value="${esc(d0.location || '')}" autocomplete="off"></label>
-      ${plans.length > 1 ? `<label class="field"><span>Put it on drawing</span><select name="plan">${planOpts}</select><small class="muted">On another drawing it lands in the same spot; press and hold the pin to drag it into place.</small></label>` : ''}`,
+      `,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Duplicate', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return;
-  const toPlan = plans.find((pl) => pl.id === r.data.plan) || null;
-  const moved = toPlan && toPlan.id !== d0.planId;
+  const toPlan = other ? plans.find((pl) => pl.id === r.data.plan) || null : null;
+  const moved = !!toPlan;
   const pinNo = await db.nextPinNo(d0.projectId);
   const clone = JSON.parse(JSON.stringify({ ...d0, blob: undefined }));
   for (const k of ['id', 'log', 'history', 'remedials', 'gps', 'createdAt', 'updatedAt', 'dirty']) delete clone[k];
