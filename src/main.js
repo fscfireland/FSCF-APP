@@ -1081,6 +1081,81 @@ function vatPrecedent(book, custId, workType) {
   const hit = [...(book?.register || [])].reverse().find((x) => x.cust === custId && x.workType === workType && x.vatRate != null);
   return hit ? hit.vatRate : null;
 }
+// ---------- Prices for one site ----------
+// A product can cost more or less on one job (e.g. a handle at €25 for Kells
+// but €28 in Cork). project.prices holds that site's own material / labour per
+// product; everything else uses the main price list.
+let siteProject = null;
+const mlist = () => siteMaterials(siteProject);
+function siteMaterials(project) {
+  const own = project?.prices || {};
+  return (lists.materials || []).map((m) => {
+    const o = own[m.id];
+    return o ? { ...m, cost: o.cost ?? m.cost, labour: o.labour ?? m.labour, sitePrice: true } : m;
+  });
+}
+async function editSitePrices(project) {
+  const p0 = await db.get('projects', project.id);
+  const own = p0.prices || {};
+  const all = (lists.materials || []).filter((m) => m.name?.trim());
+  const cats = [...new Set([...MAT_CATEGORIES, ...all.map(matCat)])].filter((c) => all.some((m) => matCat(m) === c));
+  const r = await dialog({
+    title: `Prices for ${p0.site}`,
+    body: `<p class="small">Set a different material or labour price for this site only. Leave a box empty to use your normal price (shown underneath). Doors already priced on this site are updated.</p>
+      <label class="search sp-search">${icon('search')}<input type="search" id="sp-q" placeholder="Search products…"></label>
+      <label class="check-line small"><input type="checkbox" id="sp-only"> Only show products with a site price</label>
+      ${cats.map((c) => `<h3 class="pp-h sp-cat" data-cat="${esc(c)}">${esc(c)}</h3>
+        ${all.filter((m) => matCat(m) === c).map((m) => `<div class="sp-row ${own[m.id] ? 'is-set' : ''}" data-cat="${esc(c)}" data-name="${esc(m.name.toLowerCase())}">
+          <span class="sp-name"><b>${esc(m.name)}</b><small>Normal: ${euro(m.cost)} + ${euro(m.labour || 0)} labour${m.unit && m.unit !== 'each' ? ' per ' + esc(m.unit) : ''}</small></span>
+          <label><small>Material €</small><input name="c_${m.id}" type="number" inputmode="decimal" min="0" step="0.01" value="${own[m.id]?.cost ?? ''}" placeholder="${esc(m.cost || 0)}"></label>
+          <label><small>Labour €</small><input name="l_${m.id}" type="number" inputmode="decimal" min="0" step="0.01" value="${own[m.id]?.labour ?? ''}" placeholder="${esc(m.labour || 0)}"></label>
+        </div>`).join('')}`).join('')}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Save site prices', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      const filter = () => {
+        const q = $('#sp-q', form).value.trim().toLowerCase();
+        const only = $('#sp-only', form).checked;
+        $$('.sp-row', form).forEach((row) => {
+          const set = [...row.querySelectorAll('input')].some((i) => i.value !== '');
+          row.classList.toggle('is-set', set);
+          row.hidden = (q && !row.dataset.name.includes(q)) || (only && !set);
+        });
+        $$('.sp-cat', form).forEach((h) => { h.hidden = !$$(`.sp-row[data-cat="${CSS.escape(h.dataset.cat)}"]`, form).some((r) => !r.hidden); });
+      };
+      $('#sp-q', form).addEventListener('input', filter);
+      $('#sp-only', form).addEventListener('change', filter);
+      form.addEventListener('input', (e) => { if (e.target.closest('.sp-row')) e.target.closest('.sp-row').classList.toggle('is-set', [...e.target.closest('.sp-row').querySelectorAll('input')].some((i) => i.value !== '')); });
+    },
+  });
+  if (r.value !== true) return;
+  const prices = {};
+  for (const m of all) {
+    const c = r.data['c_' + m.id];
+    const l = r.data['l_' + m.id];
+    if ((c ?? '') === '' && (l ?? '') === '') continue;
+    prices[m.id] = { ...(c !== '' ? { cost: Number(c) || 0 } : {}), ...(l !== '' ? { labour: Number(l) || 0 } : {}) };
+  }
+  const rec = await db.put('projects', { ...p0, prices });
+  // re-price products already on this site's doors (typed-in ones keep their own price)
+  const mats = siteMaterials(rec);
+  const touched = new Set([...Object.keys(own), ...Object.keys(prices)]);
+  const byName = new Map(mats.filter((m) => touched.has(m.id)).map((m) => [m.name.trim().toLowerCase(), m]));
+  let n = 0;
+  for (const d of await db.projectDoors(rec.id)) {
+    let changed = false;
+    const materials = (d.materials || []).map((x) => {
+      const m = !x.custom && byName.get((x.name || '').trim().toLowerCase());
+      if (!m || ((Number(x.cost) || 0) === (Number(m.cost) || 0) && (Number(x.labour) || 0) === (Number(m.labour) || 0))) return x;
+      changed = true;
+      return { ...x, cost: Number(m.cost) || 0, labour: Number(m.labour) || 0 };
+    });
+    if (changed) { await saveDoor({ ...d, materials }, ['Re-priced from the site prices']); n++; }
+  }
+  const k = Object.keys(prices).length;
+  toast(`${k} site price${k === 1 ? '' : 's'} saved${n ? ` · ${n} door${n === 1 ? '' : 's'} re-priced` : ''}`);
+  refresh();
+}
+
 // Before a quote is made from a report: the cost (materials + labour), the
 // margin to put on it, and prelims. The margin is for the owner only: the
 // quote shows each door's price, never the cost or margin.
@@ -1229,7 +1304,7 @@ const aiCtx = {
     drawChat();
   }),
   applyFrequency: (p) => applyFrequency(p),
-  productsFor: (def) => defaultProductsFor(def, lists.materials || [], db.uid),
+  productsFor: async (def, projectId) => defaultProductsFor(def, siteMaterials(await db.get('projects', projectId)), db.uid),
   pdfText,
   questionText: (d, plan) => {
     const qs = questionsFor(d, kitOf(kindOfDoor(d, plan)).questions || []);
@@ -3024,7 +3099,8 @@ function renderExportTab(body, project, plans, allDoors) {
     ${`<section class="panel">
       <h2 class="h2">${icon('report')} Customer quote from this report</h2>
       <p>One line per failed door at its full price, numbered on from your workbook. The door-by-door breakdown goes in a pricing doc tab laid out like your SERV PDs, with the quote's lines linked to it, so changing a rate in Excel updates the quote.</p>
-      <button class="btn primary" id="rep-quote">${icon(priced() ? 'report' : 'shield')} Make the quote${priced() ? '' : ' (owner PIN)'}</button>
+      <div class="row-btns"><button class="btn primary" id="rep-quote">${icon(priced() ? 'report' : 'shield')} Make the quote${priced() ? '' : ' (owner PIN)'}</button>
+      ${priced() ? `<button class="btn" id="site-prices">${icon('list')} Prices for this site${Object.keys(project.prices || {}).length ? ` (${Object.keys(project.prices).length})` : ''}</button>` : ''}</div>
     </section>`}
     <section class="panel">
       <h2 class="h2">${icon('shield')} Backup</h2>
@@ -3090,6 +3166,7 @@ function renderExportTab(body, project, plans, allDoors) {
     refresh();
   });
   $('#rep-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) quoteFromReport(project); });
+  $('#site-prices')?.addEventListener('click', () => editSitePrices(project));
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
     try {
@@ -4041,6 +4118,7 @@ async function drawSheet(door) {
   const autoRes = lists.autoResult !== false && questionsFor(door, kq() || []).length > 0;
   // fire alarm zones already used on this project: number → name
   const project = await db.get('projects', door.projectId);
+  siteProject = project;
   const freq = Number(project?.frequency) || 0;
   const zoneMap = new Map((project?.zones || []).filter((z) => z.no).map((z) => [String(z.no), z.name || '']));
   for (const x of await db.byIndex('doors', 'projectId', door.projectId)) {
@@ -4178,7 +4256,7 @@ async function drawSheet(door) {
         const tmpl = (kd() || []).find((x) => x.label === label) || { label, remedial: '' };
         const nd = { label, remedial: tmpl.remedial || '', qty: 1, fromQ: q.id };
         defects.push(nd);
-        mats.push(...defaultProductsFor(nd, lists.materials || [], db.uid));
+        mats.push(...defaultProductsFor(nd, mlist(), db.uid));
         changed = true;
       } else if (!failed && has?.fromQ === q.id) {
         defects = defects.filter((x) => x !== has);
@@ -4405,7 +4483,7 @@ async function drawSheet(door) {
   const prodOptions = (d) => {
     const cat = defectCat(d);
     const cats = cat === 'Ironmongery' ? ['Ironmongery', 'Hinges'] : [cat];
-    return { cat, opts: (lists.materials || []).filter((m) => m.name?.trim() && (!cat || cats.includes(matCat(m)))) };
+    return { cat, opts: mlist().filter((m) => m.name?.trim() && (!cat || cats.includes(matCat(m)))) };
   };
   const drawDefects = () => {
     const list = current.defects || [];
@@ -4503,12 +4581,23 @@ async function drawSheet(door) {
                 const have = mine.find((m) => m.name.trim().toLowerCase() === o.name.trim().toLowerCase());
                 return `<label class="pp-row"><input type="checkbox" name="c${j}" ${have ? 'checked' : ''}>
                   <span><b>${esc(o.name)}</b>${priced() && o.cost ? `<small>${euro(o.cost)} ${esc(o.unit && o.unit !== 'each' ? 'per ' + o.unit : 'each')}</small>` : ''}</span>
-                  <input class="pp-qty" type="number" inputmode="decimal" min="0" step="any" name="q${j}" value="${esc(have ? have.qty ?? 1 : 1)}" aria-label="Quantity"></label>`;
+                  <span class="stepper pp-step"><button type="button" class="pp-minus" aria-label="One fewer">−</button><input class="pp-qty" type="number" inputmode="decimal" min="0" step="any" name="q${j}" value="${esc(have ? have.qty ?? 1 : 1)}" aria-label="Quantity"><button type="button" class="pp-plus" aria-label="One more">+</button></span></label>`;
               }).join('')}</div>`).join('')}`,
           buttons: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, kind: 'primary' }],
           onOpen: (form) => {
             // typing a quantity ticks the product
             $$('.pp-qty', form).forEach((q) => q.addEventListener('input', () => { q.closest('.pp-row').querySelector('input[type=checkbox]').checked = Number(q.value) > 0; }));
+            $$('.pp-minus, .pp-plus', form).forEach((b) => b.addEventListener('click', (e) => {
+              e.preventDefault();
+              const row = b.closest('.pp-row');
+              const q = row.querySelector('.pp-qty');
+              const box = row.querySelector('input[type=checkbox]');
+              const was = Number(q.value) || 0;
+              // the first + on an unticked product just ticks it at its quantity
+              const next = b.classList.contains('pp-plus') ? (box.checked ? was + 1 : Math.max(1, was)) : Math.max(0, was - 1);
+              q.value = next;
+              box.checked = next > 0;
+            }));
           },
         });
         if (r.value !== true) return;
@@ -4544,7 +4633,7 @@ async function drawSheet(door) {
           $('.dp-lab', pr)?.addEventListener('change', () => rememberProduct(id));
         } else {
           $('.dp-name', pr).onchange = (e) => {
-            const o = (lists.materials || []).find((x) => x.id === e.target.value);
+            const o = mlist().find((x) => x.id === e.target.value);
             if (o) { setMat(id, { name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, labour: Number(o.labour) || 0, cat: matCat(o) }); drawMaterials(); }
           };
         }
@@ -4559,7 +4648,7 @@ async function drawSheet(door) {
     if (!picked) return;
     const fresh = picked.map((d) => ({ ...d, qty: 1 }));
     const defects = [...(current.defects || []), ...fresh];
-    const patch = { defects, materials: [...(current.materials || []), ...fresh.flatMap((d) => defaultProductsFor(d, lists.materials || [], db.uid))] };
+    const patch = { defects, materials: [...(current.materials || []), ...fresh.flatMap((d) => defaultProductsFor(d, mlist(), db.uid))] };
     if (picked.length) autoFail(patch);
     queue(patch);
     drawDefects();
@@ -4869,7 +4958,7 @@ async function drawSheet(door) {
   };
   drawMaterials();
   const showFill = () => {
-    const u = uncostedFails(current, kq() || [], lists.materials || []);
+    const u = uncostedFails(current, kq() || [], mlist());
     const b = $('#fill-mats');
     b.hidden = !u.count;
     b.innerHTML = `${icon('check')} Cost all fails (${u.count})`;
@@ -4879,7 +4968,7 @@ async function drawSheet(door) {
     $('.cost-fails-btn', n)?.addEventListener('click', costFails);
   };
   const costFails = () => {
-    const r = costAllFails(current, kq() || [], kd() || [], lists.materials || [], db.uid);
+    const r = costAllFails(current, kq() || [], kd() || [], mlist(), db.uid);
     queue({ defects: r.defects, materials: r.materials });
     drawDefects();
     drawMaterials();
@@ -5108,7 +5197,7 @@ async function fillProjectMaterials(doors) {
     const d = await db.get('doors', d0.id);
     if (!d) continue;
     const K = kitOf(kindOfDoor(d, await db.get('plans', d.planId)));
-    const r = costAllFails(d, K.questions, K.defects, lists.materials || [], db.uid);
+    const r = costAllFails(d, K.questions, K.defects, siteMaterials(await db.get('projects', d.projectId)), db.uid);
     if (!r.addedDefects && !r.addedProducts) continue;
     await saveDoor({ ...d, defects: r.defects, materials: r.materials }, [`Fails costed: ${r.addedDefects} defect(s), ${r.addedProducts} product(s) added`]);
     added += r.addedDefects + r.addedProducts;
@@ -5181,7 +5270,7 @@ async function pickMaterials() {
     title: 'Add materials',
     body: `
       <div class="pick-list">
-        ${(lists.materials || []).map((m, i) => ({ m, i })).sort((a, b) => MAT_CATEGORIES.indexOf(matCat(a.m)) - MAT_CATEGORIES.indexOf(matCat(b.m))).map(({ m, i }, k, arr) => !m.name?.trim() ? "" : `
+        ${mlist().map((m, i) => ({ m, i })).sort((a, b) => MAT_CATEGORIES.indexOf(matCat(a.m)) - MAT_CATEGORIES.indexOf(matCat(b.m))).map(({ m, i }, k, arr) => !m.name?.trim() ? "" : `
           ${k === 0 || matCat(arr[k - 1].m) !== matCat(m) ? `<h4 class="pick-cat">${esc(matCat(m))}</h4>` : ''}
           <label class="pick">
             <input type="checkbox" name="m${i}" value="${i}">
@@ -5202,7 +5291,7 @@ async function pickMaterials() {
   });
   if (r.value !== true) return null;
   const picked = Object.entries(r.data).filter(([k]) => /^m\d+$/.test(k)).map(([, v]) => {
-    const m = lists.materials[Number(v)];
+    const m = mlist()[Number(v)];
     return { id: db.uid(), name: m.name, unit: m.unit || '', qty: 1, cost: Number(m.cost) || 0, labour: Number(m.labour) || 0, cat: matCat(m) };
   });
   const name = (r.data.cname || '').trim();
