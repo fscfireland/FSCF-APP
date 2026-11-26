@@ -21,16 +21,16 @@ export const FIELD_TYPES = [
 
 // BM TRADA Q-Mark condition survey header details (DCS 058 Iss 2)
 export const QMARK_SECTION = {
-  id: 'qm', name: 'BM TRADA Q-Mark survey details', when: 'always', base: 'qmark',
+  id: 'qm', name: 'Fire door grade level (BM TRADA DCS 058)', when: 'always', base: 'fd', notKits: ['fdpanic', 'fdemerg', 'fdexit'],
   fields: [
-    { id: 'qmDeclared', label: 'Client declared fire resistance period', type: 'list', own: true, options: ['30 minutes', '60 minutes', '90 minutes', '120 minutes'] },
-    { id: 'qmEvidence', label: 'Supporting evidence available', type: 'text', placeholder: 'e.g. test report, FoA, label, plug, none' },
-    { id: 'qmGrade', label: 'Grade level (DCS 058)', type: 'list', options: [
+    { id: 'qmGrade', label: 'Door grade level (evidence available)', type: 'list', options: [
       '1 – test report / FoA / assessment / 3rd party certification AND installed by a 3rd party certified installer',
       '2 – test report / FoA / assessment / 3rd party certification, no record of 3rd party certified installation',
       '3 – fire door manufacturer identifier (marking or labelling)',
       '4 – no records, declared fire resisting by the Responsible Person',
     ] },
+    { id: 'qmDeclared', label: 'Client declared fire resistance period', type: 'list', own: true, options: ['30 minutes', '60 minutes', '90 minutes', '120 minutes'] },
+    { id: 'qmEvidence', label: 'Supporting evidence available', type: 'text', placeholder: 'e.g. test report, FoA, label, plug, none' },
   ],
 };
 
@@ -61,6 +61,7 @@ export const DEFAULT_FIELD_SECTIONS = [
 export function sectionsFor(sections, door, kit, kitId) {
   return (sections || []).filter((s) => {
     if (s.base && !(kit?.base === s.base || kitId === s.base)) return false;
+    if (s.notKits?.includes(kitId)) return false; // e.g. final exits are not fire doors
     return s.when === 'replacement' ? !!door.replacement : true;
   });
 }

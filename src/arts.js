@@ -5,7 +5,8 @@
 // fits and it becomes the defect's remedial work, with its reference.
 // Option wording is a short summary: the ART document holds the full method.
 
-export const ART_SOURCE = 'BM TRADA Q-Mark ART, issued 01/01/2026';
+export const ART_INDEX_ISSUE = 10;
+export const ART_SOURCE = 'BM TRADA Q-Mark ART index Iss 10, ARTs issued 01/01/2026';
 
 export const ARTS = [
   { no: '01', title: 'Lipping repair', rev: 12, options: [
@@ -140,5 +141,5 @@ export function artOption(key) {
 export function artRemedial(key) {
   const x = artOption(key);
   if (!x) return '';
-  return `${x.text} (BM TRADA ART ${x.art.no} ${x.art.title}${x.id ? `, option ${x.id}` : ''}, rev ${x.art.rev}, issued 01/01/2026)`;
+  return `${x.text} (BM TRADA ART ${x.art.no} ${x.art.title}${x.id ? `, option ${x.id}` : ''}, rev ${x.art.rev}, ART index Iss ${ART_INDEX_ISSUE}, issued 01/01/2026)`;
 }

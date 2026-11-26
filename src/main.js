@@ -111,10 +111,10 @@ async function loadLists() {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
     questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, fieldSections: DEFAULT_FIELD_SECTIONS, inspector: '', logoBanner: BRAND_BANNER, logoRound: BRAND_ROUND, ...(s || {}),
   };
-  if (!lists.qmSecAdded) {
-    // BM TRADA Q-Mark survey details section (added Nov 2026)
+  if (lists.qmSecAdded !== 2) {
+    // BM TRADA grade level section on every fire door checklist (Nov 2026)
     lists.fieldSections = [...(lists.fieldSections || DEFAULT_FIELD_SECTIONS).filter((x) => x.id !== 'qm'), QMARK_SECTION];
-    lists.qmSecAdded = true;
+    lists.qmSecAdded = 2;
   }
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);

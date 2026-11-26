@@ -16,7 +16,7 @@ Tick each item when it is complete. Photograph every door after repair and repor
 // (switch off per door). Wording from FSCF's remedial reports, recommendation (10).
 export const IRON_MAINT = {
   label: 'IRONMONGERY: maintenance required',
-  remedial: 'Clean the hinges of oil and filings and monitor them for signs of wear; lightly oil the keeper plate so the door latches as required (BM TRADA Q-Mark Fire Door Maintenance, ART 10 Operational maintenance, rev 7, issued 01/01/2026; GAI Specifier\'s Guide, Ironmongery for Fire and Escape Doors, section 8 Maintenance of ironmongery)',
+  remedial: 'Clean the hinges of oil and filings and monitor them for signs of wear; lightly oil the keeper plate so the door latches as required (BM TRADA Q-Mark Fire Door Maintenance, ART 10 Operational maintenance, rev 7, ART index Iss 10, issued 01/01/2026; GAI Specifier\'s Guide, Ironmongery for Fire and Escape Doors, section 8 Maintenance of ironmongery)',
 };
 const NON_DOOR = ['dampers', 'alarm', 'emlight', 'ext'];
 export function ironMaintOn(d) {
