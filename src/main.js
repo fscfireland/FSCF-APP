@@ -236,6 +236,7 @@ async function render() {
     else if (state.view === 'settings') await renderSettings();
     else if (state.view === 'library') await renderLibrary();
     else if (state.view === 'quotes') await renderQuotes();
+    else if (state.view === 'pricing') await renderPricing();
     else if (state.view === 'quote') await renderQuoteDoc();
     else if (state.view === 'assistant') await renderAssistant();
   } else if (state.view === 'plan') {
@@ -329,7 +330,7 @@ async function renderProjects() {
       })()}
       ${liveHtml}
       <button class="lib-card ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Ask about your sites, doors and reports, or have it update them for you</small></span>${icon('more')}</button>
-      ${priced() ? `<button class="lib-card" id="my-prices">${icon('list')}<span><b>Prices</b><small>Normal price list, and prices for a site or collection</small></span>${icon('more')}</button>` : ''}
+      <button class="lib-card" id="my-pricing">${icon('list')}<span><b>Pricing Hub</b><small>${priced() ? 'Price list, site prices, margin, quotes and invoices in one place' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>${priced() ? 'Same numbers, customers and prices as your Excel workbook' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -359,7 +360,7 @@ async function renderProjects() {
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
-  $('#my-prices')?.addEventListener('click', () => pricesHome());
+  $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'pricing' }); });
   $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
     if (await backupEverythingToDrive(await db.all('projects'))) return;
@@ -1256,6 +1257,74 @@ async function editSitePrices(project, scope = null) {
   const k = Object.keys(prices).length;
   toast(`${k} price${k === 1 ? '' : 's'} saved for ${scope == null ? 'the whole site' : collLabel(scope)}${n ? ` · ${n} door${n === 1 ? '' : 's'} re-priced` : ''}`);
   refresh();
+}
+
+// Pricing Hub: every pricing tool in one owner-only page. It only gathers the
+// existing tools (price list, site/collection prices, margin rule, quotes and
+// invoices); it adds no new rates or rules of its own.
+async function renderPricing() {
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>Pricing Hub</b><small>Owner only · never shown to the customer</small></div>
+    </header>
+    <main class="page" id="ph-body"></main>`;
+  $('#back').onclick = back;
+  const body = $('#ph-body');
+  if (!priced()) {
+    body.innerHTML = `<p class="muted pad">Prices are locked. Unlock with your owner PIN to use the Pricing Hub.</p>
+      <div class="row-btns"><button class="btn primary" id="ph-unlock">${icon('shield')} Unlock</button></div>`;
+    $('#ph-unlock').onclick = () => unlockOwner();
+    return;
+  }
+  const mats = lists.materials || [];
+  const noCost = mats.filter((m) => !(Number(m.cost) > 0) && !(Number(m.labour) > 0)).length;
+  const projects = (await db.all('projects')).sort((a, b) => (a.site || '').localeCompare(b.site || ''));
+  const own = [];
+  for (const p of projects) {
+    const colls = Object.entries(p.collPrices || {}).filter(([, v]) => Object.keys(v || {}).length);
+    if (priceCount(p) || colls.length) own.push({ p, colls });
+  }
+  const book = await quoteBook();
+  const docs = await db.all('quotes');
+  const qs = docs.filter((d) => d.kind !== 'INV');
+  const invs = docs.filter((d) => d.kind === 'INV');
+  const sum = (list) => list.reduce((a, d) => a + (totals(d).total || 0), 0);
+  const unpaid = invs.filter((d) => d.status === 'UP');
+  const openQ = qs.filter((d) => d.status === 'PROC' || d.status === 'WIP');
+  body.innerHTML = `
+    <div class="ph-stats">
+      <div><span>Products</span><b>${mats.length}</b>${noCost ? `<small class="ps-warn">${noCost} with no price</small>` : '<small>all priced</small>'}</div>
+      <div><span>Sites with own prices</span><b>${own.length}</b><small>of ${projects.length}</small></div>
+      <div><span>Open quotes</span><b>${openQ.length}</b><small>${money(sum(openQ))}</small></div>
+      <div><span>Unpaid invoices</span><b>${unpaid.length}</b><small>${money(sum(unpaid))}</small></div>
+    </div>
+    <h2 class="h2">Prices</h2>
+    <button class="lib-card" id="ph-list">${icon('list')}<span><b>Normal price list</b><small>${mats.length} products · used on every site · Settings › Products</small></span>${icon('more')}</button>
+    <button class="lib-card" id="ph-site">${icon('door')}<span><b>Site and collection prices</b><small>Give a site, or a collection on a site, its own prices</small></span>${icon('more')}</button>
+    ${own.length ? `<div class="doc-list">${own.map(({ p, colls }) => `<button class="doc-row ph-own" data-id="${p.id}"><span class="q-main"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([priceCount(p) ? `Whole site: ${priceCount(p)}` : '', ...colls.map(([c, v]) => `${collLabel(c)}: ${Object.keys(v).length}`)].filter(Boolean).join(' · '))}</small></span>${icon('more')}</button>`).join('')}</div>` : '<p class="muted small">No site has its own prices yet. Every site uses the normal price list.</p>'}
+    <h2 class="h2">Margin</h2>
+    <section class="panel">
+      <label class="field"><span>Selling price from cost + labour</span><select id="ph-rule">
+        <option value="x1.4" ${pricingRule() === 'x1.4' ? 'selected' : ''}>× 1.4 (as your pricing docs, e.g. PD-031)</option>
+        <option value="margin40" ${pricingRule() === 'margin40' ? 'selected' : ''}>40% margin, ÷ 0.6 (as SERV PD MASTER)</option></select></label>
+      <p class="small muted">Used when a door or a report is priced. You can still change the margin on each quote.</p>
+    </section>
+    <h2 class="h2">Quotes and invoices</h2>
+    <button class="lib-card" id="ph-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>${qs.length} quote${qs.length === 1 ? '' : 's'} · ${invs.length} invoice${invs.length === 1 ? '' : 's'} made in the app${book ? '' : ' · workbook not imported yet'}</small></span>${icon('more')}</button>
+    <div class="row-btns">
+      <button class="btn primary" id="ph-fromrep">${icon('door')} Quote from a report</button>
+      <button class="btn" id="ph-new">${icon('plus')} New quote</button>
+      <button class="btn" id="ph-newinv">${icon('plus')} New invoice</button>
+    </div>`;
+  $('#ph-list').onclick = () => { state.allMats = true; openFolds.add('mats'); go({ view: 'settings' }); };
+  $('#ph-site').onclick = () => pricesHome();
+  $$('.ph-own').forEach((b) => (b.onclick = async () => { const p = projects.find((x) => x.id === b.dataset.id); if (p) await editSitePrices(p, null); }));
+  $('#ph-rule').onchange = (e) => saveLists({ pricingRule: e.target.value });
+  $('#ph-quotes').onclick = () => go({ view: 'quotes' });
+  $('#ph-new').onclick = () => newQuoteDoc('Q');
+  $('#ph-newinv').onclick = () => newInvoiceFrom(null);
+  $('#ph-fromrep').onclick = () => quoteFromReport(null);
 }
 
 // Home screen: pick any site and collection to price, or the normal list
