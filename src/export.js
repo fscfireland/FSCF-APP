@@ -1,3 +1,4 @@
+import { capsWorkbook } from './caps.js';
 // Excel export, laid out to feed the pricing workbook.
 // Sheets: Summary · Doors · Checklist · Defects (pricing) · Materials ·
 //         Material totals · Defect totals
@@ -268,7 +269,7 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
   ws7['!cols'] = [6, 12, 22, 18, 14, 16, 8, 50, 40, 14, 10].map((wch) => ({ wch }));
   XLSX.utils.book_append_sheet(wb, ws7, 'Inspection history');
 
-  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const out = XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const filename = `FSCF_${safeName(project.site || project.client)}_${(project.date || new Date().toISOString().slice(0, 10))}${opts.filterText ? '_filtered' : ''}.xlsx`;
   if (opts.returnBlob) return { blob, filename };
@@ -347,7 +348,7 @@ export async function exportRemedialXlsx(project, opts = {}) {
     ...[...types.entries()].sort((a, b) => b[1].total - a[1].total).map(([k, x]) => [k, x.total, x.done, x.total - x.done, Math.round((x.done / x.total) * 100)])]);
   ws3['!cols'] = [{ wch: 55 }, { wch: 7 }, { wch: 7 }, { wch: 11 }, { wch: 11 }];
   XLSX.utils.book_append_sheet(wb, ws3, 'By repair type');
-  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const out = XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   return saveFile(`FSCF_Remedial_works_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
 }
@@ -446,7 +447,7 @@ export async function exportPricingXlsx(project, opts = {}) {
   ws2['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, typeList.length), c: 3 } }) };
   XLSX.utils.book_append_sheet(wb, ws2, 'Rates by type of work');
 
-  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const out = XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' });
   const blob = new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   return saveFile(`FSCF_Pricing_schedule_${safeName(project.site || project.client)}_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
 }
@@ -490,6 +491,6 @@ export async function exportProductionXlsx(project, opts = {}) {
   const wq = XLSX.utils.aoa_to_sheet(q);
   wq['!cols'] = [{ wch: 10 }, { wch: 28 }, { wch: 70 }];
   XLSX.utils.book_append_sheet(wb, wq, 'Open queries');
-  const blob = new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const blob = new Blob([XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   return saveFile(`${safeName(project.site || project.client || 'Project')}_Production_list_${new Date().toISOString().slice(0, 10)}.xlsx`, blob);
 }

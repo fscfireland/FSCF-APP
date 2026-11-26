@@ -1,3 +1,4 @@
+import { capsPdf, capsWorkbook } from './caps.js';
 // Quotes and invoices, matching Mark's "INVOICES AND QUOTES" Excel workbook.
 //
 // The workbook is the master record. It holds one tab per document, named
@@ -248,7 +249,7 @@ const GREY = [110, 118, 128];
 
 export async function quotePdf(doc, ctx) {
   const { jsPDF, lists, book } = ctx;
-  const pdf = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pdf = capsPdf(new jsPDF({ unit: 'mm', format: 'a4' }));
   const W = 210;
   const M = 14;
   const co = book?.company || {};
@@ -459,7 +460,7 @@ export async function quoteXlsx(doc, book, pd = null) {
   const ws2 = XLSX.utils.aoa_to_sheet(reg);
   ws2['!cols'] = [{ wch: 6 }, { wch: 34 }, { wch: 10 }, { wch: 11 }, { wch: 9 }, { wch: 30 }, { wch: 9 }, { wch: 9 }, { wch: 6 }, { wch: 11 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws2, 'SUMMARY ROW');
-  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const out = XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' });
   return saveFile(`${safeName(tabName(doc))}.xlsx`, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }
 

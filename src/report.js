@@ -3,6 +3,7 @@
 // Built entirely on the phone (works offline once the library is cached).
 
 import { replacementLine } from './fields.js';
+import { capsPdf } from './caps.js';
 import * as db from './db.js';
 import { STATUSES, statusById, doorActions, materialsTotal, euro, questionsFor, useScheme, isInspected, statusesInUse, matLabel, zoneText, riskText, signText } from './defaults.js';
 import { loadScript, saveFile, safeName, compressImage } from './files.js';
@@ -258,7 +259,7 @@ export async function exportProjectPdf(project, lists, opts = {}, onProgress = (
   const jsPDF = await loadJsPdf();
   const scheme = useScheme(project);
   const ANSWER_TXT = scheme.answers;
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+  const doc = capsPdf(new jsPDF({ unit: 'mm', format: 'a4', compress: true }));
   doc.setFont('helvetica', 'normal');
 
   const doors = opts.doors || (await db.projectDoors(project.id)).map((d) => ({ ...d, _current: true }));
@@ -934,7 +935,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   onProgress('Loading PDF tools…');
   const jsPDF = await loadJsPdf();
   useScheme(project);
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+  const doc = capsPdf(new jsPDF({ unit: 'mm', format: 'a4', compress: true }));
   const doors = opts.doors || [];
   const plans = (opts.plans || []).filter((pl) => doors.some((d) => d.planId === pl.id));
   const planById = Object.fromEntries((opts.plans || []).map((p) => [p.id, p]));
@@ -994,8 +995,11 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     ay += (note.length - 1) * 4.3;
   } else {
     tickBox(M + 5, ay - 3.6, 5, !!opts.ack);
-    font('bold', 9.5);
-    text('I have read these instructions and have the competencies required to carry out these repairs', M + 13, ay);
+    const ackText = 'I have read these instructions and have the competencies required to carry out these repairs';
+    let fs = 9.5;
+    font('bold', fs);
+    while (doc.getTextWidth(t(ackText)) > CW - 18 && fs > 6.5) font('bold', (fs -= 0.25));
+    text(ackText, M + 13, ay);
   }
   ay += 9;
   font('normal', 9, C.ink2);

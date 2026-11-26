@@ -1,3 +1,4 @@
+import { capsWorkbook } from './caps.js';
 // Import and export checklist templates.
 // Import reads: a Fieldwire (or similar) report PDF, finding the questions in
 // its "Checklist" sections; an Excel / CSV list (one question per row, an
@@ -98,6 +99,6 @@ export async function downloadChecklist(kit) {
   const info = XLSX.utils.aoa_to_sheet([['Checklist', kit.name], ['Inspection type', kit.baseName || ''], ['Each item is a', kit.item || ''], ['Report title', kit.report || ''], [], ['Edit the Checklist sheet and import it again in Settings › Import checklist.']]);
   info['!cols'] = [{ wch: 18 }, { wch: 60 }];
   XLSX.utils.book_append_sheet(wb, info, 'About');
-  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const out = XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' });
   return saveFile(`Checklist_${safeName(kit.name)}.xlsx`, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }

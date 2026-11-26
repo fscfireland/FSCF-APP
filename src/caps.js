@@ -54,3 +54,73 @@ export function startCaps(root = document.body) {
     }
   }).observe(root, { childList: true, subtree: true, characterData: true });
 }
+
+// ---------- reports: PDFs and Excel workbooks in the same house style ----------
+// Question, defect and repair texts keep the "HEADING: rest as written" rule;
+// links and e-mail addresses are left alone.
+let headTexts = new Set();
+export function setHeadTexts(list) {
+  headTexts = new Set(list.filter(Boolean).map((s) => String(s).trim()));
+}
+export function smartCaps(s) {
+  if (typeof s !== 'string') return s;
+  if (!/[a-z]/.test(s)) return s.replace(RATING, '$1a$2');
+  if (/https?:\/\/|www\.|@[\w-]+\./i.test(s)) return s;
+  const k = s.trim();
+  if (headTexts.has(k)) return headCaps(s);
+  if (/…$/.test(k)) {
+    const pre = k.slice(0, -1).trim();
+    for (const h of headTexts) if (h.startsWith(pre)) return headCaps(s);
+  }
+  // "Q3: question text" / "Defect – remedial": the known text after a label
+  for (const sep of [': ', ' – ', ' - ']) {
+    const i = s.indexOf(sep);
+    if (i > 0 && headTexts.has(s.slice(i + sep.length).trim())) return caps(s.slice(0, i + sep.length)) + headCaps(s.slice(i + sep.length));
+  }
+  return caps(s);
+}
+
+// Every text cell in a SheetJS workbook (formulas and numbers untouched)
+export function capsWorkbook(wb) {
+  for (const name of wb.SheetNames) {
+    const ws = wb.Sheets[name];
+    for (const ref of Object.keys(ws)) {
+      if (ref[0] === '!') continue;
+      const c = ws[ref];
+      if (c && c.t === 's' && !c.f && typeof c.v === 'string') {
+        c.v = smartCaps(c.v);
+        if (c.w) delete c.w;
+        if (c.h) delete c.h;
+        if (c.r) delete c.r;
+      }
+    }
+  }
+  return wb;
+}
+
+// A jsPDF document whose text comes out in the house style. Lines that
+// splitTextToSize has already styled are drawn as they are.
+export function capsPdf(doc) {
+  const styled = new Set();
+  const map = (v) => (Array.isArray(v) ? v.map(map) : typeof v === 'string' && !styled.has(v) ? smartCaps(v) : v);
+  const text = doc.text.bind(doc);
+  const split = doc.splitTextToSize.bind(doc);
+  const width = doc.getTextWidth.bind(doc);
+  doc.text = (t, ...a) => text(map(t), ...a);
+  doc.splitTextToSize = (t, ...a) => {
+    const out = split(map(t), ...a);
+    (Array.isArray(out) ? out : [out]).forEach((l) => styled.add(l));
+    return out;
+  };
+  doc.getTextWidth = (t, ...a) => width(map(t), ...a);
+  // table plug-ins measure with these
+  if (doc.getStringUnitWidth) {
+    const unit = doc.getStringUnitWidth.bind(doc);
+    doc.getStringUnitWidth = (t, ...a) => unit(map(t), ...a);
+  }
+  if (doc.getTextDimensions) {
+    const dim = doc.getTextDimensions.bind(doc);
+    doc.getTextDimensions = (t, ...a) => dim(map(t), ...a);
+  }
+  return doc;
+}

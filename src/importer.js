@@ -1,3 +1,4 @@
+import { capsWorkbook } from './caps.js';
 // Import a list of doors from Excel (.xlsx / .xls) or CSV.
 // Column headings are matched loosely, so most existing door schedules work
 // as they are: "Door ref" / "Door No." / "ID", "Location" / "Room",
@@ -31,7 +32,7 @@ export async function downloadTemplate() {
   ws['!cols'] = [12, 24, 16, 14, 16, 12, 26, 12, 18, 30].map((wch) => ({ wch }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Doors');
-  const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const out = XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' });
   return saveFile('FSCF_door_import_template.xlsx', new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }
 

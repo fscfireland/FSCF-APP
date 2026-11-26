@@ -12,7 +12,7 @@ import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas, loadPdfJs } from './files.js';
 import { TOOLS as AI_TOOLS, systemPrompt, makeRunner, activityText } from './assistant.js';
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx, exportProductionXlsx } from './export.js';
-import { startCaps } from './caps.js';
+import { startCaps, setHeadTexts } from './caps.js';
 import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
 import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
@@ -190,6 +190,23 @@ async function saveLists(patch) {
   lists = await db.put('settings', { ...lists, ...patch });
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
+  registerHeadTexts();
+}
+
+// Questions, defects and remedials keep "HEADING: rest as written" in reports
+function registerHeadTexts() {
+  try {
+    const t = [];
+    for (const k of kindIds()) {
+      const K = kitOf(k);
+      for (const q of K.questions || []) t.push(q.text);
+      for (const d of K.defects || []) t.push(d.label, d.remedial);
+    }
+    for (const d of lists.defects || []) t.push(d.label, d.remedial);
+    setHeadTexts(t);
+  } catch (e) {
+    console.warn(e);
+  }
 }
 
 // ---------- render ----------
@@ -6721,6 +6738,7 @@ async function start() {
     app.innerHTML = `<main class="page"><section class="empty"><h1 class="h1">Storage unavailable</h1><p>This browser is blocking on-device storage (private browsing?). Open the app in a normal browser window.</p></section></main>`;
     return;
   }
+  registerHeadTexts();
   startCaps(document.body);
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.claude) {
