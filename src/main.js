@@ -1115,13 +1115,13 @@ async function pricingStep(project, pd, pdNo) {
         <label class="ps-opt"><input type="radio" name="mg" value="pct" ${last.choice === 'pct' ? 'checked' : ''}><span><b>Margin %</b><small>of the selling price</small></span><input class="ps-pct" name="pct" type="number" inputmode="decimal" min="0" max="90" step="0.5" value="${esc(last.pct ?? 35)}"></label>
       </fieldset>
       <fieldset class="ps-set"><legend>Pre Lims</legend>
-        <label class="field"><span>Amount € (added to the quote as entered)</span><input name="pl" type="number" inputmode="decimal" min="0" step="0.01" value="" placeholder="0.00"></label>
+        <label class="field"><span>Cost € (your margin is added on top)</span><input name="pl" type="number" inputmode="decimal" min="0" step="0.01" value="" placeholder="0.00"></label>
         <label class="field"><span>What it covers (for you)</span><input name="pln" placeholder="e.g. site set-up, access equipment, travel"></label>
       </fieldset>
       <div class="ps-costs ps-out">
         <div><span>Doors at selling price</span><b id="ps-sell"></b></div>
         <div><span>Your margin</span><b id="ps-margin"></b></div>
-        <div><span>Pre Lims</span><b id="ps-pl"></b></div>
+        <div><span>Pre Lims at selling price</span><b id="ps-pl"></b></div>
         <div class="ps-tot"><span>Quote total ex VAT</span><b id="ps-total"></b></div>
       </div>
       <p class="small muted">Next: choose the customer and site. Pricing doc: <b>${pdNo}</b>.</p>`,
@@ -1131,9 +1131,12 @@ async function pricingStep(project, pd, pdNo) {
         const fd = Object.fromEntries(new FormData(form).entries());
         const mult = marginMult(fd.mg, fd.pct);
         const sell = pd.doors.reduce((a, d) => a + Math.round(d.exMargin * mult * 100) / 100, 0);
-        const pl = Number(fd.pl) || 0;
+        const plCost = Number(fd.pl) || 0;
+        const pl = Math.round(plCost * mult * 100) / 100;
+        const allCost = cost + plCost;
+        const allSell = sell + pl;
         $('#ps-sell', form).textContent = money(sell);
-        $('#ps-margin', form).textContent = `${money(sell - cost)}${sell ? ` (${((1 - cost / sell) * 100).toFixed(1)}%)` : ''}`;
+        $('#ps-margin', form).textContent = `${money(allSell - allCost)}${allSell ? ` (${((1 - allCost / allSell) * 100).toFixed(1)}%)` : ''}`;
         $('#ps-pl', form).textContent = money(pl);
         $('#ps-total', form).textContent = money(sell + pl);
       };
@@ -1146,7 +1149,9 @@ async function pricingStep(project, pd, pdNo) {
   if (r.value !== true) return null;
   const choice = r.data.mg || 'x1.4';
   await saveLists({ lastMargin: { choice, pct: Number(r.data.pct) || 0 } });
-  return { mult: marginMult(choice, r.data.pct), choice: choice === 'pct' ? `${Number(r.data.pct) || 0}%` : choice, preLims: Math.round((Number(r.data.pl) || 0) * 100) / 100, preLimsNote: (r.data.pln || '').trim() };
+  const mult = marginMult(choice, r.data.pct);
+  const plCost = Math.round((Number(r.data.pl) || 0) * 100) / 100;
+  return { mult, choice: choice === 'pct' ? `${Number(r.data.pct) || 0}%` : choice, preLims: Math.round(plCost * mult * 100) / 100, preLimsCost: plCost, preLimsNote: (r.data.pln || '').trim() };
 }
 
 async function quoteFromReport(project) {
@@ -1179,7 +1184,7 @@ async function quoteFromReport(project) {
   const doc = await db.put('quotes', {
     id: db.uid(), kind: 'Q', tab: nx.tab, quote: nx.quote, inv: '', part: '', date: today(), days: 30,
     cust: pick.cust, site: pick.site, po: pick.po || '', workType: 'FDREM', status: 'PROC',
-    vatRate: vat, vatMode: vat === 0 ? 'rct' : 'normal', preLims: setup.preLims, preLimsNote: setup.preLimsNote, fuel: 0, specialOrder: '',
+    vatRate: vat, vatMode: vat === 0 ? 'rct' : 'normal', preLims: setup.preLims, preLimsCost: setup.preLimsCost, preLimsNote: setup.preLimsNote, fuel: 0, specialOrder: '',
     items: priced2.doors.map((d) => ({ desc: d.label, qty: 1, unit: d.price, doorId: d.doorId })),
     notes, mult: setup.mult, marginChoice: setup.choice,
     p1Terms: QTERMS.worksQuote.replace('13.5%', `${+(vat * 100).toFixed(1)}%`),
