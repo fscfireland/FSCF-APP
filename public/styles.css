@@ -1362,3 +1362,7 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .sheet-jump .chip[hidden] { display: none; }
 .sheet-jump .chip b:empty { display: none; }
 .sheet-jump .chip b { margin-left: 4px; font-variant-numeric: tabular-nums; }
+/* End of service: colour by pass / fail, not by yes / no */
+.co-opt.is-pass input:checked + span { background: var(--st-pass); border-color: var(--st-pass); color: #fff; }
+.co-opt.is-fail input:checked + span { background: var(--st-fail); border-color: var(--st-fail); color: #fff; }
+.co-all { margin: 4px 0 10px; }

@@ -25,6 +25,13 @@ export const CLOSE_ANSWERS = [
   { id: 'na', label: 'N/A' },
 ];
 
+// Each question starts on its FAIL answer (owner, 26 Nov 2026) and "All pass"
+// sets every one to its pass answer. Pass is Yes, except a question asking
+// whether something wrong was found (doors wedged / held open), where pass is No.
+const NO_IS_PASS = /wedged|held open without|any (?:defects?|damage|problems?)\b/i;
+export const passAnswer = (q) => (NO_IS_PASS.test(q) ? 'no' : 'yes');
+export const failAnswer = (q) => (passAnswer(q) === 'yes' ? 'no' : 'yes');
+
 export const closeQuestions = (lists) => (lists.closeQuestions?.length ? lists.closeQuestions : DEFAULT_CLOSE_QUESTIONS);
 
 // Each drawing is its own service: Start service on the drawing, End service

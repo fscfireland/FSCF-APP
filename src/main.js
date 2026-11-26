@@ -44,7 +44,7 @@ const aiDoors = async (...a) => (await reader()).aiDoors(...a);
 const testKey = async (...a) => (await reader()).testKey(...a);
 import { BRAND_BANNER, BRAND_ROUND } from './brandlogo.js';
 import { LIB, DEFAULT_LIB_FOLDERS, fileFolders, guessFolder, fileKind, KIND_LABEL, projectFiles, addFiles, addBlob, openFile, downloadFile } from './projectfiles.js';
-import { CLOSE_ANSWERS, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, sessionsOf, isRunning, elapsedMs, fmtDuration as fmtJobTime, pauseService, resumeService, saveSessions, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
+import { CLOSE_ANSWERS, passAnswer, failAnswer, closeQuestions, planKey, closeoutOf, serviceOf, isLive, liveKeys, startService, reopenService, sessionsOf, isRunning, elapsedMs, fmtDuration as fmtJobTime, pauseService, resumeService, saveSessions, recordWeather, weatherDays, weatherLine, todayDublin, WEATHER_SOURCE } from './closeout.js';
 import { fmtSize as fmtBytes } from './media.js';
 import { icon, $, $$, esc, toast, dialog, confirmBox, busy, fmtDate, today, makeSortable } from './ui.js';
 
@@ -2537,12 +2537,14 @@ async function closeService(project, plan, doors) {
   const r = await dialog({
     title: 'End of service',
     body: `
-      <p><b>${esc(name)}</b> · ${doors.length} door${doors.length === 1 ? '' : 's'} · inspected ${esc(dates.map((d) => fmtDate(d)).join(', '))}. Answer every question to close.</p>
+      <p><b>${esc(name)}</b> · ${doors.length} door${doors.length === 1 ? '' : 's'} · inspected ${esc(dates.map((d) => fmtDate(d)).join(', '))}. Every question starts as a fail: tap All pass, then change any that did not pass.</p>
+      <div class="row-btns co-all"><button type="button" class="btn sm" id="co-all-pass">${icon('check')} All pass</button><button type="button" class="btn ghost sm" id="co-all-fail">${icon('close')} All fail</button></div>
       <div class="co-qs">
         ${questions.map((q, i) => {
           const a = draft.answers[q] || {};
+          const chosen = a.a || failAnswer(q); // not answered yet: starts on its fail answer
           return `<fieldset class="co-q"><legend><b>${i + 1}.</b> ${esc(q)}</legend>
-            <div class="co-ans">${CLOSE_ANSWERS.map((o) => `<label class="co-opt co-${o.id}"><input type="radio" name="q${i}" value="${o.id}" ${a.a === o.id ? 'checked' : ''} required><span>${o.label}</span></label>`).join('')}</div>
+            <div class="co-ans">${CLOSE_ANSWERS.map((o) => `<label class="co-opt co-${o.id} ${o.id === passAnswer(q) ? 'is-pass' : o.id === failAnswer(q) ? 'is-fail' : ''}"><input type="radio" name="q${i}" value="${o.id}" ${chosen === o.id ? 'checked' : ''} required><span>${o.label}</span></label>`).join('')}</div>
             <input class="co-note" name="n${i}" value="${esc(a.note || '')}" placeholder="Note (optional)">
           </fieldset>`;
         }).join('')}
@@ -2563,6 +2565,13 @@ async function closeService(project, plan, doors) {
       <label class="field"><span>Closed by</span><input name="closedBy" value="${esc(draft.closedBy || lists.inspector || '')}" placeholder="Your name"></label>`,
     buttons: [{ label: 'Save for later', value: false }, { label: 'Close service', value: true, kind: 'primary' }],
     onOpen: (form) => {
+      const setAll = (pass) => questions.forEach((q, i) => {
+        const v = pass ? passAnswer(q) : failAnswer(q);
+        const r = form.querySelector(`input[name="q${i}"][value="${v}"]`);
+        if (r) r.checked = true;
+      });
+      $('#co-all-pass', form).onclick = () => { setAll(true); toast('All questions set to pass'); };
+      $('#co-all-fail', form).onclick = () => { setAll(false); toast('All questions set to fail'); };
       const ok = $('#co-decl-ok', form);
       const setValid = () => {
         const v = declFiles.length || $('#co-reason', form).value.trim();
@@ -5091,7 +5100,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.48.2';
+const VERSION_TAG = 'app v0.48.3';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
