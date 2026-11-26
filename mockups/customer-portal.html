@@ -1,0 +1,263 @@
+<title>FSCF Customer Portal</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one phone-width column like the app; a switch at the top flips between the customer's screens and the owner's. */
+:root {
+  --bg: #f3f4f5;
+  --surface: #ffffff;
+  --surface-2: #e9ebed;
+  --line: #d9dde1;
+  --ink: #1d2227;
+  --ink-2: #5a636c;
+  --brand: #23282d;
+  --brand-ink: #ffffff;
+  --copper: #b65a22;
+  --pass: #2e8540;
+  --fail: #cc2a1f;
+  --noacc: #c27a00;
+  --repaired: #2166c4;
+  --todo: #6b7680;
+  --f-head: 'Archivo', system-ui, sans-serif;
+  --f-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121619; --surface: #1b2126; --surface-2: #252d34; --line: #323c45; --ink: #e8ecef; --ink-2: #a2adb7;
+  --brand: #c96f35; --brand-ink: #ffffff; --copper: #d9843f; --pass: #4caf63; --fail: #e5554b; --noacc: #e0a030; --repaired: #5b9be8; --todo: #93a0ab; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #121619; --surface: #1b2126; --surface-2: #252d34; --line: #323c45; --ink: #e8ecef; --ink-2: #a2adb7;
+  --brand: #c96f35; --brand-ink: #ffffff; --copper: #d9843f; --pass: #4caf63; --fail: #e5554b; --noacc: #e0a030; --repaired: #5b9be8; --todo: #93a0ab; color-scheme: dark; }
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 15px/1.45 var(--f-body); text-transform: uppercase; }
+.keep { text-transform: none; }
+.wrap { max-width: 460px; margin: 0 auto; padding-block: 12px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 14px; }
+button, input, select { font: inherit; color: inherit; text-transform: inherit; }
+h1, h2, h3 { font-family: var(--f-head); margin: 0; text-wrap: balance; letter-spacing: .01em; }
+h1 { font-size: 22px; } h2 { font-size: 17px; } h3 { font-size: 15px; }
+small, .muted { color: var(--ink-2); }
+.small { font-size: 12.5px; }
+
+/* mock-up switch */
+.switch { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border-radius: 12px; background: var(--surface-2); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.switch button { min-height: 44px; border: 0; border-radius: 9px; background: transparent; font-weight: 600; font-size: 13px; cursor: pointer; }
+.switch button[aria-pressed="true"] { background: var(--surface); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.mock-note { font-size: 12px; color: var(--ink-2); text-align: center; margin: -4px 0 0; }
+
+/* app frame */
+.screen { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; min-width: 0; }
+.topbar { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--brand); color: var(--brand-ink); }
+.logo { flex: none; width: 34px; height: 34px; border-radius: 50%; background: #23282d; border: 2px solid #c2672c; display: grid; place-items: center; }
+.logo svg { width: 18px; height: 18px; }
+.topbar b { font-family: var(--f-head); font-size: 15px; display: block; }
+.topbar small { color: inherit; opacity: .75; font-size: 11px; }
+.topbar .grow { flex: 1; min-width: 0; }
+.back { border: 0; background: rgba(255,255,255,.14); color: inherit; border-radius: 9px; min-height: 36px; padding: 0 10px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.body { padding: 16px; display: grid; gap: 14px; min-width: 0; }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 46px; padding: 0 16px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; cursor: pointer; }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.btn.block { width: 100%; }
+.field { display: grid; gap: 4px; }
+.field span { font-size: 12px; font-weight: 600; color: var(--ink-2); letter-spacing: .03em; }
+.field input, .field select { min-height: 48px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); text-transform: none; }
+
+.card { display: grid; gap: 8px; padding: 14px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); text-align: left; width: 100%; cursor: pointer; }
+.card:hover { border-color: var(--copper); }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.row > :first-child { min-width: 0; }
+.bar { display: flex; height: 7px; border-radius: 4px; overflow: hidden; background: var(--surface-2); }
+.bar i { display: block; }
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+.tile { padding: 10px 6px; border-radius: 12px; background: var(--bg); text-align: center; border-top: 3px solid var(--c); }
+.tile b { display: block; font: 700 22px/1 var(--f-head); font-variant-numeric: tabular-nums; }
+.tile small { font-size: 10.5px; font-weight: 600; }
+.pill { flex: none; display: inline-block; padding: 2px 9px; border-radius: 10px; font-size: 11.5px; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+.doc { display: flex; align-items: center; gap: 12px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; }
+.doc .ico { flex: none; width: 36px; height: 44px; border-radius: 6px; background: var(--surface-2); display: grid; place-items: center; font-size: 10px; font-weight: 800; color: var(--copper); }
+.doc > div { flex: 1; min-width: 0; }
+.list { display: grid; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.list > * + * { border-top: 1px solid var(--line); }
+.li { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: var(--surface); width: 100%; border: 0; text-align: left; cursor: pointer; }
+.li > div { flex: 1; min-width: 0; }
+.pin { flex: none; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: #fff; font: 700 13px var(--f-head); background: var(--c); }
+.pin.hollow { background: transparent; border: 2px solid var(--c); color: var(--c); }
+.defect { border-left: 4px solid var(--fail); background: var(--bg); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; }
+.defect p { margin: 0; font-size: 13.5px; }
+.photos { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.photo { aspect-ratio: 1; max-width: 100%; border-radius: 10px; background: var(--surface-2); display: grid; place-items: center; font-size: 10.5px; font-weight: 600; color: var(--ink-2); text-align: center; padding: 6px; }
+.notice { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--copper) 12%, transparent); font-size: 12.5px; }
+.toast { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--pass) 14%, transparent); color: var(--ink); font-size: 13px; font-weight: 600; }
+
+/* owner */
+.kpis { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.kpi { padding: 12px 8px; border-radius: 12px; background: var(--bg); text-align: center; }
+.kpi b { display: block; font: 700 24px/1 var(--f-head); font-variant-numeric: tabular-nums; }
+.kpi small { font-size: 10.5px; font-weight: 600; }
+.tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+.tabs button { flex: none; min-height: 40px; padding: 0 14px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); font-size: 13px; font-weight: 600; cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.log { display: grid; }
+.ev { display: grid; grid-template-columns: 54px 1fr; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.ev:first-child { border-top: 0; }
+.ev time { font-size: 12px; color: var(--ink-2); font-variant-numeric: tabular-nums; padding-top: 2px; }
+.ev b { font-weight: 600; }
+.ev .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--c); margin-right: 6px; vertical-align: 1px; }
+.day { font: 700 12px var(--f-head); letter-spacing: .05em; color: var(--copper); padding: 10px 0 2px; }
+.chip { display: inline-block; padding: 3px 9px; margin: 2px 4px 2px 0; border-radius: 9px; background: var(--surface-2); font-size: 11.5px; font-weight: 600; }
+.check { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.check input { width: 22px; height: 22px; accent-color: var(--copper); }
+.ex { font-size: 10.5px; font-weight: 700; color: var(--copper); letter-spacing: .04em; }
+:focus-visible { outline: 3px solid var(--copper); outline-offset: 2px; }
+@media (max-width: 360px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+</style>
+
+<div class="wrap">
+  <div class="switch" role="group" aria-label="Whose screen">
+    <button type="button" id="sw-cust" aria-pressed="true">What your customer sees</button>
+    <button type="button" id="sw-own" aria-pressed="false">What you see</button>
+  </div>
+  <p class="mock-note">Mock-up with example data · tap around · nothing is saved</p>
+  <div id="view"></div>
+</div>
+
+<script>
+const LOGO = '<span class="logo"><svg viewBox="0 0 24 24" fill="none" stroke="#c2672c" stroke-width="2.2" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 9-8 11-4.5-2-8-6-8-11V5z"/><path d="M8 12l3 3 5-6" stroke="#fff"/></svg></span>';
+const ST = {
+  pass: ['Pass', 'var(--pass)'], fail: ['Fail', 'var(--fail)'], noacc: ['No access', 'var(--noacc)'],
+  repaired: ['Repaired', 'var(--repaired)'], todo: ['To do', 'var(--todo)'],
+};
+const SITES = [
+  { id: 'rw', name: 'Rosewood Nursing Home', place: 'Bailieborough, Co. Cavan', last: '26 Nov 2026', next: '26 Feb 2027',
+    counts: { pass: 3, fail: 3, noacc: 1, repaired: 1 },
+    docs: [['PDF', 'Fire door inspection report', '26 Nov 2026 · 14 pages'], ['PDF', 'Remedial works schedule', '26 Nov 2026 · 3 pages'], ['PDF', 'Repairs completion record', '12 Dec 2026 · 2 pages']],
+    doors: [
+      { no: '001', room: 'Bedroom 1', type: 'E30Sa (FD30S)', st: 'pass' },
+      { no: '002', room: 'Bedroom 2', type: 'E30Sa (FD30S)', st: 'fail', defects: [
+        ['LEAF-TO-FRAME GAPS:', 'outside 2–4 mm at the lock jamb.', 'BS 8214:2016, 9.5.2'],
+        ['SELF-CLOSER:', 'missing.', 'BS 8214:2016, 11.4']],
+        action: 'Rehang the leaf to 2–4 mm gaps and fit a closer to EN 1154' },
+      { no: '003', room: 'Day room', type: 'E30Sa (FD30S)', st: 'fail', defects: [
+        ['SMOKE SEALS:', 'missing or damaged on the head.', 'BS 8214:2016, 12.3']],
+        action: 'Fit combined intumescent and smoke seals full length' },
+      { no: '004', room: 'Store', type: 'E30 (FD30)', st: 'noacc' },
+      { no: '005', room: 'Kitchen', type: 'E60Sa (FD60S)', st: 'repaired' },
+      { no: '006', room: 'Dining', type: 'E30Sa (FD30S)', st: 'pass' },
+      { no: '008', room: 'Stair', type: 'E30Sa (FD30S)', st: 'fail', defects: [
+        ['DOOR:', 'wedged or held open.', 'BS 8214:2016, 11.4']], action: 'Remove the wedge; hold-open device linked to the fire alarm if the door must stay open' },
+      { no: '009', room: 'Laundry', type: 'E30Sa (FD30S)', st: 'pass' },
+    ] },
+  { id: 'dc', name: 'Rosewood Day Centre', place: 'Bailieborough, Co. Cavan', last: '03 Oct 2026', next: '03 Jan 2027',
+    counts: { pass: 11, fail: 1, noacc: 0, repaired: 0 },
+    docs: [['PDF', 'Fire door inspection report', '03 Oct 2026 · 18 pages']],
+    doors: [{ no: '001', room: 'Entrance lobby', type: 'E30Sa (FD30S)', st: 'pass' }, { no: '002', room: 'Office', type: 'E30Sa (FD30S)', st: 'fail', defects: [['INTUMESCENT STRIPS:', 'missing or damaged.', 'BS 8214:2016, 13.2.3']], action: 'Replace seals full length' }] },
+];
+const CUSTOMERS = [
+  { id: 'c1', name: 'Example Client', who: 'Facilities manager (example)', email: 'facilities@example.ie', sites: ['rw', 'dc'], seen: 'Today 09:42', on: true },
+  { id: 'c2', name: 'Example Housing Trust', who: 'Property manager (example)', email: 'property@example.ie', sites: ['ht'], seen: '21 Nov 2026', on: true },
+  { id: 'c3', name: 'Example School', who: 'Principal (example)', email: 'office@example.ie', sites: ['sc'], seen: 'Invited · not signed in yet', on: true },
+];
+const SITE_NAMES = { rw: 'Rosewood Nursing Home', dc: 'Rosewood Day Centre', ht: 'Example Housing, Block A', sc: 'Example National School' };
+const LOG = [
+  ['Today', '09:47', 'c1', 'Downloaded', 'Fire door inspection report · Rosewood Nursing Home', 'var(--copper)'],
+  ['Today', '09:45', 'c1', 'Opened door', '002 · Bedroom 2 · Rosewood Nursing Home', 'var(--ink-2)'],
+  ['Today', '09:44', 'c1', 'Viewed site', 'Rosewood Nursing Home', 'var(--repaired)'],
+  ['Today', '09:42', 'c1', 'Signed in', 'Samsung phone · Chrome', 'var(--pass)'],
+  ['Yesterday', '16:10', 'c2', 'Viewed site', 'Example Housing, Block A', 'var(--repaired)'],
+  ['Yesterday', '16:08', 'c2', 'Signed in', 'Windows PC · Edge', 'var(--pass)'],
+  ['21 Nov 2026', '11:02', 'c2', 'Downloaded', 'Repairs completion record · Example Housing, Block A', 'var(--copper)'],
+  ['21 Nov 2026', '10:58', 'c2', 'Signed in', 'iPhone · Safari', 'var(--pass)'],
+  ['20 Nov 2026', '08:30', 'c3', 'Invite sent', 'office@example.ie · Example National School', 'var(--todo)'],
+];
+
+let side = 'cust';
+let cs = { screen: 'login', site: null, door: null };
+let os = { tab: 'overview', who: '', invited: false };
+const $ = (s) => document.querySelector(s);
+const pill = (k) => `<span class="pill" style="--c:${ST[k][1]}">${ST[k][0]}</span>`;
+const frame = (title, sub, body, backTo) => `<div class="screen"><div class="topbar">${backTo ? `<button class="back" data-go="${backTo}">‹ Back</button>` : LOGO}<div class="grow"><b>${title}</b><small>${sub}</small></div></div><div class="body">${body}</div></div>`;
+const total = (c) => c.pass + c.fail + c.noacc + c.repaired;
+
+function cust() {
+  if (cs.screen === 'login') return frame('FSCF Ireland', 'Customer portal', `
+    <h1>Sign in</h1>
+    <p class="muted small" style="margin:0">Enter the email address FSCF Ireland has for you. We'll email you a link to sign in. No password to remember.</p>
+    <label class="field"><span>Email address</span><input id="em" type="email" value="facilities@example.ie" autocomplete="email"></label>
+    <button class="btn primary block" data-go="sent">Email me a sign-in link</button>`);
+  if (cs.screen === 'sent') return frame('FSCF Ireland', 'Customer portal', `
+    <div class="toast">Sign-in link sent to facilities@example.ie</div>
+    <p class="small muted" style="margin:0">Open the email on this phone and tap the link. It works once and expires after 1 hour.</p>
+    <button class="btn primary block" data-go="sites">(Mock-up) Pretend I tapped the link</button>`);
+  if (cs.screen === 'sites') return frame('Your sites', 'Example Client · signed in', `
+    ${SITES.map((s) => { const t = total(s.counts); return `<button class="card" data-site="${s.id}">
+      <div class="row"><div><h2>${s.name}</h2><small>${s.place}</small></div><span class="pill" style="--c:var(--copper)">${t} doors</span></div>
+      <div class="bar">${['pass', 'repaired', 'noacc', 'fail'].map((k) => `<i style="width:${s.counts[k] / t * 100}%;background:${ST[k][1]}"></i>`).join('')}</div>
+      <div class="row small"><span>Last inspection ${s.last}</span><span>Next due <b>${s.next}</b></span></div></button>`; }).join('')}
+    <p class="small muted" style="margin:0">You only see the sites FSCF Ireland has shared with you.</p>`);
+  const s = SITES.find((x) => x.id === cs.site);
+  if (cs.screen === 'site') return frame(s.name, s.place, `
+    <div class="tiles">${[['pass', 'Pass'], ['fail', 'Fail'], ['noacc', 'No access'], ['repaired', 'Repaired']].map(([k, l]) => `<div class="tile" style="--c:${ST[k][1]}"><b>${s.counts[k]}</b><small>${l}</small></div>`).join('')}</div>
+    <div class="notice">Next inspection due <b>${s.next}</b> (every 3 months for this site)</div>
+    <h3>Reports and certificates</h3>
+    ${s.docs.map(([k, t, d]) => `<div class="doc"><span class="ico">${k}</span><div><b>${t}</b><br><small>${d}</small></div><button class="btn" data-dl="${t}">Open</button></div>`).join('')}
+    <div id="dl-note"></div>
+    <h3>Doors</h3>
+    <div class="list">${s.doors.map((d) => `<button class="li" data-door="${d.no}"><span class="pin ${d.st === 'todo' ? 'hollow' : ''}" style="--c:${ST[d.st][1]}">${+d.no}</span><div><b>${d.no} · ${d.room}</b><br><small class="keep">${d.type}</small></div>${pill(d.st)}</button>`).join('')}</div>`, 'sites');
+  const d = s.doors.find((x) => x.no === cs.door);
+  return frame(`Door ${d.no} · ${d.room}`, s.name, `
+    <div class="row"><div><small>Door type</small><br><b class="keep">${d.type}</b></div>${pill(d.st)}</div>
+    <div class="photos"><div class="photo">Photo · door closed</div><div class="photo">Photo · hinge side</div><div class="photo">Photo · head gap</div></div>
+    ${d.defects ? `<h3>Defects found</h3>${d.defects.map(([h, t, ref]) => `<div class="defect"><p><b>${h}</b> <span class="keep">${t}</span></p><small>(${ref})</small></div>`).join('')}
+      <h3>Recommended work</h3><p class="small" style="margin:0">${d.action}</p>
+      <div class="notice">For a price on this work, contact FSCF Ireland. Prices are not shown in the portal.</div>`
+    : `<p class="small muted" style="margin:0">${d.st === 'noacc' ? 'We could not get into this room on the day. It will be inspected on the next visit.' : 'No defects found at the last inspection.'}</p>`}`, 'site');
+}
+
+function own() {
+  const tabs = `<div class="tabs">${[['overview', 'Overview'], ['activity', 'Activity log'], ['access', 'Customers & access']].map(([k, l]) => `<button data-tab="${k}" aria-pressed="${os.tab === k}">${l}</button>`).join('')}</div>`;
+  if (os.tab === 'overview') return frame('Customer portal', 'Owner only · in your app, Business tab', `${tabs}
+    <div class="kpis"><div class="kpi"><b>3</b><small>Customers with access</small></div><div class="kpi"><b>9</b><small>Sign-ins this month</small></div><div class="kpi"><b>4</b><small>Reports downloaded</small></div></div>
+    <h3>Last seen</h3>
+    <div class="list">${CUSTOMERS.map((c) => `<button class="li" data-who="${c.id}"><div><b>${c.name}</b><br><small>${c.who}</small><br><small>Last seen: <b>${c.seen}</b></small></div><span class="pill" style="--c:var(--copper)">Activity ›</span></button>`).join('')}</div>
+    <div class="notice">Not opened their report yet: <b>Example School</b> (invited 20 Nov 2026). <button class="btn" style="min-height:34px;margin-top:6px" data-tab="access">Send the invite again</button></div>`);
+  if (os.tab === 'activity') {
+    const rows = LOG.filter((r) => !os.who || r[2] === os.who);
+    let day = '';
+    return frame('Customer portal', 'Activity log · newest first', `${tabs}
+      <label class="field"><span>Customer</span><select id="who"><option value="">All customers</option>${CUSTOMERS.map((c) => `<option value="${c.id}" ${os.who === c.id ? 'selected' : ''}>${c.name}</option>`).join('')}</select></label>
+      <div class="log">${rows.map(([dy, tm, c, what, detail, col]) => `${dy !== day ? `<div class="day">${(day = dy)}</div>` : ''}<div class="ev"><time>${tm}</time><div><span class="dot" style="--c:${col}"></span><b>${what}</b> · ${CUSTOMERS.find((x) => x.id === c).name}<br><small>${detail}</small></div></div>`).join('') || '<p class="muted small">No activity yet.</p>'}</div>
+      <p class="small muted" style="margin:0">Kept for 2 years. Download as Excel from here in the live version.</p>`);
+  }
+  return frame('Customer portal', 'Who can see what', `${tabs}
+    ${os.invited ? '<div class="toast">Invite emailed to the new contact (mock-up: nothing was sent)</div>' : ''}
+    ${CUSTOMERS.map((c) => `<div class="card" style="cursor:default"><div class="row"><div><b>${c.name}</b><br><small>${c.who} · <span class="keep">${c.email}</span></small></div><span class="pill" style="--c:var(--pass)">Access on</span></div>
+      <div>${c.sites.map((x) => `<span class="chip">${SITE_NAMES[x]}</span>`).join('')}</div><small>Last seen: ${c.seen}</small></div>`).join('')}
+    <h3>Invite a customer</h3>
+    <label class="field"><span>Customer</span><select id="inv-c"><option>Pick from your customer list…</option><option>Example Client</option><option>Example Housing Trust</option><option>Example School</option></select></label>
+    <label class="field"><span>Contact email</span><input id="inv-e" type="email" placeholder="name@company.ie"></label>
+    <div><span class="small muted">Sites they can see</span>${Object.entries(SITE_NAMES).map(([k, n]) => `<label class="check"><input type="checkbox" id="inv-${k}"> ${n}</label>`).join('')}</div>
+    <button class="btn primary block" data-invite="1">Send invite</button>
+    <p class="small muted" style="margin:0">Turn access off at any time; they are signed out straight away. Prices, margins and other customers are never shown in the portal.</p>`);
+}
+
+function draw() {
+  $('#sw-cust').setAttribute('aria-pressed', side === 'cust');
+  $('#sw-own').setAttribute('aria-pressed', side === 'own');
+  $('#view').innerHTML = side === 'cust' ? cust() : own();
+  const who = $('#who'); if (who) who.onchange = () => { os.who = who.value; draw(); };
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest('button'); if (!t) return;
+  if (t.id === 'sw-cust') { side = 'cust'; return draw(); }
+  if (t.id === 'sw-own') { side = 'own'; return draw(); }
+  if (t.dataset.go) { cs.screen = t.dataset.go; return draw(); }
+  if (t.dataset.site) { cs = { screen: 'site', site: t.dataset.site }; return draw(); }
+  if (t.dataset.door) { cs.screen = 'door'; cs.door = t.dataset.door; return draw(); }
+  if (t.dataset.dl) { $('#dl-note').innerHTML = `<div class="toast">${t.dataset.dl}: in the live portal this opens the PDF, and you see it in your activity log.</div>`; return; }
+  if (t.dataset.tab) { os.tab = t.dataset.tab; os.invited = false; return draw(); }
+  if (t.dataset.who) { os.tab = 'activity'; os.who = t.dataset.who; return draw(); }
+  if (t.dataset.invite) { os.invited = true; draw(); window.scrollTo(0, 0); }
+});
+draw();
+</script>
