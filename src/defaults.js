@@ -512,6 +512,8 @@ export const QUESTION_DEFECT = {
 
 // The usual product (and quantity) for a defect; the inspector can change it.
 const DEFAULT_PRODUCT = [
+  [/lipping damaged|lipping/i, 'm-lip', 1, ''],
+  [/leaf out of alignment|thickness not consistent|material not consistent/i, '', 0, ''], // adjust / report: no part by default
   [/panic bar|not a panic|wrong exit device/i, 'm-panic', 1, ''],
   [/needs a key|exit hardware/i, '', 0, ''], // the right part depends on the door: chosen on site
   [/keep clear/i, 'm-sg-exit', 1, 'outside face'],
@@ -892,6 +894,48 @@ export const DEFAULT_TEMPLATES = {
       ['Exit signage missing or incorrect', 'Supply and fit correct exit signage (I.S. 3217 / ISO 7010)'],
       ['Emergency light at exit failed', 'Repair or replace the emergency light above the exit'],
       ['Glazing manifestation missing', 'Apply manifestation to the glass at eye level'],
+    ],
+  },
+  // BM TRADA Q-Mark Fire Door Maintenance scheme: Fire Door Condition Survey,
+  // DCS 058 Iss 2 (in SUIN 058 Survey & Maintenance Process, Iss 1, 05/01/2026).
+  // 23 survey points; repairs use the scheme's Accepted Repair Techniques (ART index Iss 5).
+  qmark: {
+    base: 'fd', name: 'Fire doors – BM TRADA Q-Mark condition survey (DCS 058)', item: 'Door', report: 'Fire Door Condition Survey – BM TRADA Q-Mark Fire Door Maintenance Scheme (DCS 058)',
+    questions: tq('qm', [
+      ['DOOR LEAF: overall condition acceptable (BM TRADA DCS 058 Iss 2)', 'Door leaf damaged'],
+      ['DOOR LEAF: edge condition (lippings) acceptable (BM TRADA DCS 058 Iss 2)', 'Lipping damaged or split'],
+      ['DOOR LEAF: leaf alignment acceptable (BM TRADA DCS 058 Iss 2)', 'Door leaf out of alignment'],
+      ['DOOR LEAF: leaf thickness consistent with the declared rating (BM TRADA DCS 058 Iss 2)', 'Leaf thickness not consistent with rating'],
+      ['DOOR LEAF: door gaps within tolerance (BM TRADA DCS 058 Iss 2)', 'Leaf-to-frame gaps outside 2–4 mm'],
+      ['DOOR FRAME: overall condition acceptable (BM TRADA DCS 058 Iss 2)', 'Frame damaged or loose'],
+      ['DOOR FRAME: frame material consistent with the declared rating (BM TRADA DCS 058 Iss 2)', 'Frame material not consistent with rating'],
+      ['DOOR FRAME: architrave condition acceptable (BM TRADA DCS 058 Iss 2)', 'Architrave damaged or not sealed'],
+      ['DOOR FRAME: frame / architrave overlap acceptable (BM TRADA DCS 058 Iss 2)', 'Architrave does not overlap frame joint'],
+      ['SEALS: overall condition acceptable (BM TRADA DCS 058 Iss 2)', 'Intumescent strips missing or damaged'],
+      ['SEALS: size correct for the declared rating (BM TRADA DCS 058 Iss 2)', 'Intumescent seal size not correct'],
+      ['SEALS: smoke seal condition acceptable (BM TRADA DCS 058 Iss 2)', 'Smoke seals missing or damaged'],
+      ['HARDWARE: hinge condition acceptable (BM TRADA DCS 058 Iss 2)', 'Hinges: fewer than 3, missing screws or worn'],
+      ['HARDWARE: hinge operation acceptable (BM TRADA DCS 058 Iss 2)', 'Hinges dropped or binding'],
+      ['HARDWARE: lock / latch operation acceptable (BM TRADA DCS 058 Iss 2)', 'Lock or latch defective'],
+      ['HARDWARE: door closer operation acceptable (BM TRADA DCS 058 Iss 2)', 'Self-closer defective / not adjusted'],
+      ['HARDWARE: hold open device operation acceptable (BM TRADA DCS 058 Iss 2)', 'Hold-open device not linked to fire alarm'],
+      ['HARDWARE: intumescent protection to hardware present (BM TRADA DCS 058 Iss 2)', 'Lock not wrapped in intumescent'],
+      ['GLAZING: bead condition acceptable (BM TRADA DCS 058 Iss 2)', 'Glazing not fire-rated or beads defective'],
+      ['GLAZING: glass condition acceptable (BM TRADA DCS 058 Iss 2)', 'Glass damaged'],
+      ['GLAZING: glass type consistent with the declared rating (BM TRADA DCS 058 Iss 2)', 'Glazing not fire-rated or beads defective'],
+      ['GLAZING: fixing detail acceptable (BM TRADA DCS 058 Iss 2)', 'Glazing not fire-rated or beads defective'],
+      ['OTHER: signage acceptable (BM TRADA DCS 058 Iss 2)', 'Fire door signage missing'],
+    ]),
+    extraDefects: [
+      ['Lipping damaged or split', 'Repair lipping with a hardwood butt-jointed section (BM TRADA ART 01 Lipping repair; BM TRADA ART 15 Split lipping at hinge fixing)'],
+      ['Door leaf out of alignment', 'Realign the leaf (BM TRADA ART 06 Door leaf out of alignment)'],
+      ['Leaf thickness not consistent with rating', 'Report to the Responsible Person; outside the scheme, call in expertise (BM TRADA ART 23 Calling in expertise)'],
+      ['Frame material not consistent with rating', 'Report to the Responsible Person; outside the scheme, call in expertise (BM TRADA ART 23 Calling in expertise)'],
+      ['Architrave damaged or not sealed', 'Refit and seal the architrave (BM TRADA ART 16 Architrave re-fitting and sealing)'],
+      ['Architrave does not overlap frame joint', 'Refit the architrave to overlap the frame / wall joint (BM TRADA ART 16 Architrave re-fitting and sealing)'],
+      ['Intumescent seal size not correct', 'Replace with seals of the size given in the door manufacturer\'s evidence (BM TRADA ART 11 Damaged perimeter seals)'],
+      ['Hinges dropped or binding', 'Re-set or replace hinges (BM TRADA ART 08 Hinges dropped; BM TRADA ART 13 Hinge fixings are loose)'],
+      ['Glass damaged', 'Replace glass and glazing system like for like (BM TRADA ART 14 Damaged glazing and glass)'],
     ],
   },
   // Final exits with panic hardware: users may not know the building (EN 1125).

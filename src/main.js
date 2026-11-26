@@ -13,7 +13,7 @@ import { importDrawing, compressImage, thumbFromCanvas, loadPdfJs } from './file
 import { TOOLS as AI_TOOLS, systemPrompt, makeRunner, activityText } from './assistant.js';
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx, exportProductionXlsx } from './export.js';
 import { startCaps, setHeadTexts } from './caps.js';
-import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
+import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, QMARK_SECTION, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
 import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
 import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
@@ -110,6 +110,11 @@ async function loadLists() {
     id: 'lists', doorTypes: DEFAULT_DOOR_TYPES, defects: DEFAULT_DEFECTS, actions: DEFAULT_ACTIONS,
     questions: DEFAULT_QUESTIONS, materials: DEFAULT_MATERIALS, risks: DEFAULT_RISKS, categories: DEFAULT_CATEGORIES, workTypes: DEFAULT_WORK_TYPES, fieldSections: DEFAULT_FIELD_SECTIONS, inspector: '', logoBanner: BRAND_BANNER, logoRound: BRAND_ROUND, ...(s || {}),
   };
+  if (!lists.qmSecAdded) {
+    // BM TRADA Q-Mark survey details section (added Nov 2026)
+    lists.fieldSections = [...(lists.fieldSections || DEFAULT_FIELD_SECTIONS).filter((x) => x.id !== 'qm'), QMARK_SECTION];
+    lists.qmSecAdded = true;
+  }
   setActor(lists.inspector);
   setCustomSchemes(lists.customSchemes);
   if (s?.materials && (s.matVersion || 1) < MATERIALS_VERSION) {

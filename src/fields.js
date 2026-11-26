@@ -19,6 +19,21 @@ export const FIELD_TYPES = [
   ['yesno', 'Yes / no'],
 ];
 
+// BM TRADA Q-Mark condition survey header details (DCS 058 Iss 2)
+export const QMARK_SECTION = {
+  id: 'qm', name: 'BM TRADA Q-Mark survey details', when: 'always', base: 'qmark',
+  fields: [
+    { id: 'qmDeclared', label: 'Client declared fire resistance period', type: 'list', own: true, options: ['30 minutes', '60 minutes', '90 minutes', '120 minutes'] },
+    { id: 'qmEvidence', label: 'Supporting evidence available', type: 'text', placeholder: 'e.g. test report, FoA, label, plug, none' },
+    { id: 'qmGrade', label: 'Grade level (DCS 058)', type: 'list', options: [
+      '1 – test report / FoA / assessment / 3rd party certification AND installed by a 3rd party certified installer',
+      '2 – test report / FoA / assessment / 3rd party certification, no record of 3rd party certified installation',
+      '3 – fire door manufacturer identifier (marking or labelling)',
+      '4 – no records, declared fire resisting by the Responsible Person',
+    ] },
+  ],
+};
+
 export const DEFAULT_FIELD_SECTIONS = [
   {
     id: 'rep', name: 'Replacement details', when: 'replacement', base: 'fd',
@@ -39,6 +54,7 @@ export const DEFAULT_FIELD_SECTIONS = [
       { id: 'info', label: 'Other relevant info', type: 'text', long: true, fw: 'Other Relavant Info' },
     ],
   },
+  QMARK_SECTION,
 ];
 
 // Sections that show on this door (kit: the door's checklist kit, kitId its id)
