@@ -4,6 +4,7 @@ import { escapeHtml } from './viewer.js';
 export const esc = escapeHtml;
 
 const P = {
+  spark: '<path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/>',
   back: '<path d="M15 5l-7 7 7 7"/>',
   up: '<path d="M5 15l7-7 7 7"/>',
   eye: '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',

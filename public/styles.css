@@ -1054,3 +1054,32 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 }
 .sheet-body { grid-template-columns: minmax(0, 1fr); }
 .sheet-body > * { min-width: 0; }
+
+/* Ask Claude */
+.ai-card > .ico:first-child { color: #c15f3c; }
+.ai-page { padding-bottom: calc(96px + var(--safe-b)); display: block; }
+.ai-log { display: flex; flex-direction: column; gap: 10px; max-width: 760px; margin: 0 auto; }
+.ai-hello { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; }
+.ai-hello > .ico { width: 28px; height: 28px; color: #c15f3c; }
+.ai-hello p { margin: 8px 0; }
+.ai-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.ai-suggest .chip { text-align: left; white-space: normal; }
+.ai-msg { padding: 10px 14px; border-radius: 16px; max-width: 88%; overflow-wrap: anywhere; }
+.ai-msg p { margin: 0 0 6px; } .ai-msg p:last-child { margin: 0; }
+.ai-msg ul { margin: 4px 0 6px; padding-left: 20px; }
+.ai-msg.is-user { align-self: flex-end; background: var(--ink); color: var(--bg); border-bottom-right-radius: 4px; white-space: pre-wrap; }
+.ai-msg.is-claude { align-self: flex-start; background: var(--surface); border: 1px solid var(--line); border-bottom-left-radius: 4px; }
+.ai-msg.is-error { align-self: stretch; background: color-mix(in srgb, var(--st-fail) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--st-fail) 40%, transparent); font-size: 14px; }
+.ai-act { font-size: 13px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; padding-left: 4px; }
+.ai-change { background: var(--surface); border: 2px solid var(--accent); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; }
+.ai-change.is-applied { border-color: var(--st-pass); }
+.ai-change.is-skipped, .ai-change.is-undone { border-color: var(--line); opacity: .75; }
+.ai-chg-item span { font-weight: 600; font-size: 14px; }
+.ai-chg-item ul { margin: 2px 0 0; padding-left: 18px; font-size: 14px; }
+.ai-card-btns { display: flex; justify-content: flex-end; align-items: center; gap: 8px; }
+.ai-done { display: inline-flex; align-items: center; gap: 4px; font-weight: 600; color: var(--st-pass); margin-right: auto; }
+.ai-cost { text-align: center; font-size: 12px; color: var(--ink-2); margin: 4px 0 0; }
+.ai-input { position: fixed; left: 0; right: 0; bottom: 0; z-index: 20; display: flex; gap: 8px; align-items: flex-end; padding: 10px max(12px, var(--safe-r)) calc(10px + var(--safe-b)) max(12px, var(--safe-l)); background: var(--bg); border-top: 1px solid var(--line); }
+.ai-input textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--line); border-radius: 20px; padding: 10px 14px; background: var(--surface); font-size: 16px; line-height: 1.35; max-height: 140px; }
+.ai-input .btn { border-radius: 50%; width: 44px; height: 44px; min-height: 44px; padding: 0; flex: none; }
+.ai-thinking .spinner { width: 16px; height: 16px; border-width: 2px; }

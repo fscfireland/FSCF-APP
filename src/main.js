@@ -9,7 +9,8 @@ import {
   DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails, DEFAULT_KITS, KIND_IDS, kindForWork, DEFAULT_TEMPLATES,
 } from './defaults.js';
 import { PlanViewer } from './viewer.js';
-import { importDrawing, compressImage, thumbFromCanvas } from './files.js';
+import { importDrawing, compressImage, thumbFromCanvas, loadPdfJs } from './files.js';
+import { TOOLS as AI_TOOLS, systemPrompt, makeRunner, activityText } from './assistant.js';
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx } from './export.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
 import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
@@ -193,6 +194,7 @@ async function render() {
     else if (state.view === 'library') await renderLibrary();
     else if (state.view === 'quotes') await renderQuotes();
     else if (state.view === 'quote') await renderQuoteDoc();
+    else if (state.view === 'assistant') await renderAssistant();
   } else if (state.view === 'plan') {
     await refreshPins();
   }
@@ -288,6 +290,7 @@ async function renderProjects() {
         return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Save a backup to Google Drive or email.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
       })()}
       ${liveHtml}
+      <button class="lib-card ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Ask about your sites, doors and reports, or have it update them for you</small></span>${icon('more')}</button>
       <button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>${priced() ? 'Same numbers, customers and prices as your Excel workbook' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -316,6 +319,7 @@ async function renderProjects() {
     ${projects.length ? `<button class="fab" id="new-project">${icon('plus')} New project</button>` : ''}
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
+  $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
     const b = busy('Preparing backup…');
@@ -1117,6 +1121,181 @@ async function quoteFromReport(project) {
     projectId: project.id, pd: pdNo,
   });
   go({ view: 'quote', quoteId: doc.id });
+}
+
+// ---------- Ask Claude ----------
+// A chat that looks through the sites, doors and reports on this device and
+// changes details when asked; every change is shown first with Apply / Skip.
+const chat = { messages: [], items: [], busy: false, cost: 0 };
+const AI_SUGGEST = ['Which doors failed on my last site, and why?', 'What inspections are due in the next month?', 'Summarise the latest report for a site', 'Mark door 012 as failed with a loose handle'];
+
+const mdLite = (t) => {
+  const lines = esc(t).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').split('\n');
+  let html = '';
+  let inList = false;
+  for (const l of lines) {
+    const m = /^\s*(?:[-•*]|\d+[.)])\s+(.*)$/.exec(l);
+    if (m) { if (!inList) { html += '<ul>'; inList = true; } html += `<li>${m[1]}</li>`; continue; }
+    if (inList) { html += '</ul>'; inList = false; }
+    html += l.trim() ? `<p>${l}</p>` : '';
+  }
+  return html + (inList ? '</ul>' : '');
+};
+
+async function pdfText(blob, max) {
+  const lib = await loadPdfJs();
+  const pdf = await lib.getDocument({ data: await blob.arrayBuffer() }).promise;
+  let out = '';
+  for (let i = 1; i <= pdf.numPages && out.length < max; i++) {
+    const tc = await (await pdf.getPage(i)).getTextContent();
+    out += `\n--- page ${i} ---\n` + tc.items.map((x) => x.str + (x.hasEOL ? '\n' : ' ')).join('');
+  }
+  return out.slice(0, max);
+}
+
+const aiCtx = {
+  confirm: (card) => new Promise((resolve) => {
+    chat.items.push({ kind: 'card', card, state: 'pending', resolve });
+    drawChat();
+  }),
+  applyFrequency: (p) => applyFrequency(p),
+  productsFor: (def) => defaultProductsFor(def, lists.materials || [], db.uid),
+  pdfText,
+  questionText: (d, plan) => {
+    const qs = questionsFor(d, kitOf(kindOfDoor(d, plan)).questions || []);
+    const answered = qs.filter((q) => d.checks?.[q.id]?.answer).map((q) => ({ question: q.text, answer: d.checks[q.id].answer, ...(d.checks[q.id].note ? { note: d.checks[q.id].note } : {}) }));
+    return { answered, unanswered: qs.length - answered.length };
+  },
+};
+
+function drawChat() {
+  const log = $('#ai-log');
+  if (!log) return;
+  const card = (it, i) => {
+    const c = it.card;
+    const btns = it.state === 'pending'
+      ? `<div class="ai-card-btns"><button class="btn ai-skip" data-i="${i}">Skip</button><button class="btn primary ai-apply" data-i="${i}">${icon('check')} Apply</button></div>`
+      : it.state === 'applied' ? `<div class="ai-card-btns"><span class="ai-done">${icon('check')} Applied</span><button class="btn ghost sm ai-undo" data-i="${i}">${icon('undo')} Undo</button></div>`
+        : `<div class="ai-card-btns"><span class="ai-done muted">${it.state === 'undone' ? 'Undone' : 'Skipped'}</span></div>`;
+    return `<div class="ai-change is-${it.state}"><b>${esc(c.summary)}</b>
+      ${c.items.map((x) => `<div class="ai-chg-item"><span>${esc(x.title)}</span><ul>${x.lines.map((l) => `<li>${esc(l)}</li>`).join('')}</ul></div>`).join('')}
+      ${c.problems?.length ? `<p class="small muted">Left out: ${esc(c.problems.join('; '))}</p>` : ''}${btns}</div>`;
+  };
+  log.innerHTML = (chat.items.length ? '' : `<div class="ai-hello">${icon('spark')}<p><b>Ask me about your sites, doors and reports.</b> I can also change details for you; you'll see every change first and tap Apply or Skip.</p>
+      <div class="ai-suggest">${AI_SUGGEST.map((s) => `<button class="chip ai-sug">${esc(s)}</button>`).join('')}</div>
+      <p class="small muted">Uses your Claude key from Settings. What you ask, and the records Claude looks at, are sent to Anthropic to answer.</p></div>`)
+    + chat.items.map((it, i) => it.kind === 'user' ? `<div class="ai-msg is-user">${esc(it.text)}</div>`
+      : it.kind === 'claude' ? `<div class="ai-msg is-claude">${mdLite(it.text)}</div>`
+        : it.kind === 'act' ? `<div class="ai-act">${esc(it.text)}…</div>`
+          : it.kind === 'error' ? `<div class="ai-msg is-error">${esc(it.text)}</div>`
+            : card(it, i)).join('')
+    + (chat.busy ? '<div class="ai-act ai-thinking"><span class="spinner"></span> Claude is working…</div>' : '')
+    + (chat.cost && priced() ? `<p class="ai-cost">This chat so far: about ${usd(chat.cost)}</p>` : '');
+  $$('.ai-sug', log).forEach((b) => (b.onclick = () => { $('#ai-q').value = b.textContent; $('#ai-q').focus(); }));
+  $$('.ai-apply, .ai-skip', log).forEach((b) => (b.onclick = () => {
+    const it = chat.items[Number(b.dataset.i)];
+    if (it.state !== 'pending') return;
+    it.state = b.classList.contains('ai-apply') ? 'applied' : 'skipped';
+    it.resolve(it.state === 'applied' ? 'apply' : 'skip');
+    drawChat();
+  }));
+  $$('.ai-undo', log).forEach((b) => (b.onclick = async () => {
+    const it = chat.items[Number(b.dataset.i)];
+    try { await it.card.undo(); it.state = 'undone'; toast('Change undone'); } catch (err) { toast('Undo failed: ' + err.message, 'error'); }
+    drawChat();
+  }));
+  const send = $('#ai-send');
+  if (send) send.disabled = chat.busy;
+  log.lastElementChild?.scrollIntoView({ block: 'end' });
+}
+
+async function renderAssistant() {
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>Ask Claude</b><small>Your sites, doors and reports</small></div>
+      <button class="btn ghost sm" id="ai-new">New chat</button>
+    </header>
+    <main class="page ai-page"><div class="ai-log" id="ai-log"></div></main>
+    <form class="ai-input" id="ai-form">
+      <textarea id="ai-q" rows="1" placeholder="Ask about a site, door or report…" enterkeyhint="send"></textarea>
+      <button class="btn primary" id="ai-send" type="submit" aria-label="Send">${icon('up')}</button>
+    </form>`;
+  $('#back').onclick = back;
+  $('#ai-new').onclick = () => {
+    if (chat.busy) return toast('Wait for Claude to finish first');
+    for (const it of chat.items) if (it.state === 'pending') it.resolve('skip');
+    Object.assign(chat, { messages: [], items: [], cost: 0 });
+    drawChat();
+  };
+  const q = $('#ai-q');
+  q.oninput = () => { q.style.height = 'auto'; q.style.height = Math.min(140, q.scrollHeight) + 'px'; };
+  $('#ai-form').onsubmit = (e) => {
+    e.preventDefault();
+    const text = q.value.trim();
+    if (!text || chat.busy) return;
+    q.value = '';
+    q.style.height = 'auto';
+    askClaude(text);
+  };
+  drawChat();
+}
+
+async function askClaude(text) {
+  if (!lists.aiKey) {
+    const r = await dialog({
+      title: 'Ask Claude is not set up',
+      body: `<p>Ask Claude uses your own Anthropic API key, the same one as the drawing reader, added once in <b>Settings › Drawing reader</b>. Each question costs a few cents, billed by Anthropic.</p>`,
+      buttons: [{ label: 'Not now', value: false }, { label: 'Open Settings', value: 'set', kind: 'primary' }],
+    });
+    if (r.value === 'set') go({ view: 'settings' });
+    return;
+  }
+  const mark = chat.messages.length;
+  chat.items.push({ kind: 'user', text });
+  chat.messages.push({ role: 'user', content: text });
+  chat.busy = true;
+  drawChat();
+  const run = makeRunner(aiCtx);
+  const system = systemPrompt(fmtDate(todayDublin()), lists.inspector || '');
+  const unlock = await keepAwake();
+  try {
+    const R = await reader();
+    for (let turn = 0; turn < 25; turn++) {
+      const res = await R.chatTurn(lists.aiKey, { system, tools: AI_TOOLS, messages: chat.messages });
+      const u = res.usage || {};
+      chat.cost += ((u.input_tokens || 0) + (u.cache_creation_input_tokens || 0) * 1.25 + (u.cache_read_input_tokens || 0) * 0.1) * 4 / 1e6 + (u.output_tokens || 0) * 20 / 1e6;
+      chat.messages.push({ role: 'assistant', content: res.content });
+      for (const b of res.content) if (b.type === 'text' && b.text.trim()) chat.items.push({ kind: 'claude', text: b.text.trim() });
+      if (res.stop_reason === 'pause_turn') continue;
+      if (res.stop_reason === 'refusal') { chat.items.push({ kind: 'error', text: 'Claude declined to answer that.' }); break; }
+      if (res.stop_reason === 'max_tokens') { chat.items.push({ kind: 'error', text: 'The answer was cut short. Ask for less at once.' }); break; }
+      if (res.stop_reason !== 'tool_use') break;
+      const results = [];
+      for (const t of res.content.filter((b) => b.type === 'tool_use')) {
+        chat.items.push({ kind: 'act', text: activityText(t.name, t.input) });
+        drawChat();
+        try {
+          results.push({ type: 'tool_result', tool_use_id: t.id, content: JSON.stringify(await run(t.name, t.input)) });
+        } catch (err) {
+          results.push({ type: 'tool_result', tool_use_id: t.id, content: err.message || String(err), is_error: true });
+        }
+      }
+      chat.messages.push({ role: 'user', content: results });
+      drawChat();
+    }
+  } catch (err) {
+    console.error(err);
+    chat.messages.length = mark; // forget the failed question so the chat can carry on
+    const msg = err?.status === 401 ? 'Your Claude key was not accepted. Check it in Settings › Drawing reader.'
+      : /fetch|network|load failed/i.test(err?.message || '') ? 'No internet connection. Try again when you have signal.'
+        : 'Claude could not answer: ' + (err?.message || err);
+    chat.items.push({ kind: 'error', text: msg });
+  } finally {
+    unlock?.();
+    chat.busy = false;
+    drawChat();
+  }
 }
 
 async function importFieldwire(file) {

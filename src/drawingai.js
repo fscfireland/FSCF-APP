@@ -203,3 +203,27 @@ List every fire door you can see in this part. Give the centre of each door open
   doors.sort((a, b) => Math.round(a.y * 12) - Math.round(b.y * 12) || a.x - b.x);
   return { doors, site: key.site, drawingTitle: key.drawingTitle, costUsd: usage.in * PRICE_IN + usage.out * PRICE_OUT };
 }
+
+// One turn of the "Ask Claude" chat. The caller runs the tools and loops.
+// The system prompt (with the tools before it) and the conversation so far are
+// cached, so each follow-up only pays full price for what is new.
+export async function chatTurn(apiKey, { system, tools, messages }) {
+  const api = client(apiKey);
+  const msgs = messages.map((m, i) => {
+    if (i !== messages.length - 1) return m;
+    const content = typeof m.content === 'string' ? [{ type: 'text', text: m.content }] : [...m.content];
+    content[content.length - 1] = { ...content[content.length - 1], cache_control: { type: 'ephemeral' } };
+    return { ...m, content };
+  });
+  return api.beta.messages.create({
+    model: AI_MODEL,
+    max_tokens: 8000,
+    betas: ['server-side-fallback-2026-07-01'],
+    fallbacks: 'default',
+    system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
+    tools,
+    thinking: { type: 'adaptive' },
+    output_config: { effort: 'medium' },
+    messages: msgs,
+  });
+}
