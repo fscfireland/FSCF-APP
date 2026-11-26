@@ -723,6 +723,44 @@ export function kindForWork(workType) {
 // unless edited. More can be made in Settings ("New checklist from this one").
 const tq = (prefix, rows) => rows.map(([text, defect], i) => ({ id: `${prefix}-${i + 1}`, text, ...(defect ? { defect } : {}) }));
 export const DEFAULT_TEMPLATES = {
+  // Built from BS 8214:2016 (clause numbers in brackets)
+  fd2016: {
+    base: 'fd', name: 'Fire doors – BS 8214:2016 inspection', item: 'Door', report: 'BS 8214:2016 Fire Door Inspection Report',
+    questions: tq('bs16', [
+      ['Door marked with its declared fire resistance period (label, plug or certificate) (5)', 'No certification label or plug'],
+      ['Fire-resisting glass permanently marked: manufacturer, product, impact class (5)', 'Glazing not fire-rated or beads defective'],
+      ['Leaf free from superficial or structural damage, bowing or deformation (13.1)', 'Door leaf damaged'],
+      ['Frame free from damage or deformation and securely fixed (9.2, 13.1)', 'Frame damaged or loose'],
+      ['No apertures cut on site outside the test evidence (7.5)', 'Unauthorised holes or modifications'],
+      ['Double doors: the two leaves are a matching pair (13.2.2)', 'Double door leaves not a matching pair'],
+      ['Equal gap across the head, down both jambs and at meeting edges (9.5.2)', 'Gaps not equal around the leaf'],
+      ['Operating gaps within 2–4 mm (9.5.2)', 'Leaf-to-frame gaps outside 2–4 mm'],
+      ['Threshold gap as per the manufacturer\'s instructions; door opens freely without catching (9.5.3)', 'Threshold gap excessive (over 10 mm / over 3 mm for smoke doors)'],
+      ['Intumescent fire seals fitted (all fire doors, including 20 min) (9.5.2)', 'Intumescent strips missing or damaged'],
+      ['Seals complete and undamaged over their full length (13.2.3)', 'Intumescent strips missing or damaged'],
+      ['Smoke doors (FD30S / E30Sa): smoke seals fitted and working (12.3)', 'Smoke seals missing or damaged'],
+      ['Smoke doors: threshold sealed (flexible or drop seal), or gap no more than 3 mm (12.3)', 'Threshold gap excessive (over 10 mm / over 3 mm for smoke doors)'],
+      ['Seals not interrupted at hardware unless supported by test evidence (11.2, 12.1)', 'Seals interrupted at hardware'],
+      ['Smoke seals not painted; intumescent seals max 5 coats or 0.5 mm (14)', 'Seals painted over'],
+      ['Self-closing device fitted (except doors kept locked shut and signed) (11.4)', 'Self-closer missing'],
+      ['Closer closes the leaf reliably from any angle and overcomes the latch and seals (11.4)', 'Self-closer defective / not adjusted'],
+      ['Door not wedged or held open; fully closed when released (11.4)', 'Door wedged or held open'],
+      ['Hinges / pivots secure and fire-rated, letting the closer close the door from any angle (11.5)', 'Hinges: fewer than 3, missing screws or worn'],
+      ['Hardware fitted without gaps at mortices, with any tested intumescent protection present (11.1, 11.2)', 'Lock not wrapped in intumescent'],
+      ['Essential hardware as per the door manufacturer\'s information; exit devices to BS EN 179 / 1125 (11.1, 13.3)', 'Ironmongery not fire-rated / not CE marked'],
+      ['Letter plate tested in a fire door and fitted with an intumescent liner (11.3)', 'Air transfer grille / letter plate not rated'],
+      ['Air transfer grille tested and suited to the door: fire only (FD30) or fire and cold smoke (FD30S) (11.6)', 'Air transfer grille / letter plate not rated'],
+      ['Glazing system as specified by the door manufacturer; beads and fixings secure (10, 13.4)', 'Glazing not fire-rated or beads defective'],
+      ['Frame-to-wall gap sealed as per Tables 2 to 5 (approved mastic or materials) (9.4)', 'Gap between frame and wall not fire stopped'],
+      ['Doors kept locked shut have the appropriate signage (11.4)', 'Fire door signage missing'],
+    ]),
+    extraDefects: [
+      ['Double door leaves not a matching pair', 'Replace both leaves with a new matching pair (BS 8214:2016, 13.2.2)'],
+      ['Gaps not equal around the leaf', 'Adjust or repair so the gaps are equal at the head, jambs and meeting edges (BS 8214:2016, 9.5.2)'],
+      ['Seals interrupted at hardware', 'Reinstate continuous seals or fit tested intumescent protection at the hardware (BS 8214:2016, 11.2)'],
+      ['Seals painted over', 'Replace painted seals full length with the same formulation, size and configuration (BS 8214:2016, 13.2.3)'],
+    ],
+  },
   // Built from BS 8214:2026 (clause numbers in brackets). Gaps and hardware are
   // checked against the door's own specification and supporting evidence, as
   // the 2026 edition asks, rather than fixed figures.
