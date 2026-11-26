@@ -161,7 +161,8 @@ export async function deletePlan(planId) {
 // Allocates the next pin number for a project (1, 2, 3 …)
 export async function nextPinNo(projectId) {
   const p = await get('projects', projectId);
-  const n = (p.nextPin || 1);
+  const top = (await projectDoors(projectId)).reduce((m, d) => Math.max(m, Number(d.pinNo) || 0), 0);
+  const n = Math.max(p.nextPin || 1, top + 1);
   await put('projects', { ...p, nextPin: n + 1 });
   return n;
 }

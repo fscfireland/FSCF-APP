@@ -72,7 +72,7 @@ export async function readFieldwire(file) {
     for (const q of checks) if (!checklistOrder.includes(q)) checklistOrder.push(q);
     const m = /^([A-Z]{0,3}-?\d{1,4}[A-Z]?)\s+(.+)$/.exec(name);
     doors.push({
-      no: st.no, ref: m ? m[1] : '', location: m ? m[2] : name, plan: plan.split('/').pop().trim() || plan,
+      no: st.no, ref: m ? m[1] : String(st.no).padStart(3, '0'), location: m ? m[2] : name, plan: plan.split('/').pop().trim() || plan,
       doorType: ratingToType(rating), rating, zoneNo, zoneName, rfid, tags,
       recommendations: [...new Set(recs.map((r) => r.trim()).filter(Boolean))], messages: msgs, checklist: checks,
     });

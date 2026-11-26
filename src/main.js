@@ -4743,7 +4743,7 @@ function nextFreeRef(all, planId, pinNo) {
   const pool = numbered(all.filter((d) => d.planId === planId));
   const src = pool.length ? pool : numbered(all);
   if (!src.length) {
-    let n = 1;
+    let n = pinNo || all.reduce((m, d) => Math.max(m, Number(d.pinNo) || 0), 0) + 1;
     while (used.has(String(n).padStart(3, '0'))) n++;
     return String(n).padStart(3, '0');
   }
