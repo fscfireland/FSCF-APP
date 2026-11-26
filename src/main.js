@@ -1512,7 +1512,14 @@ async function renderBusiness() {
   const bars = yr ? s.months.map((m) => ({ v: m.invoiced, label: `${MONTHS[m.m]} ${yr} · ${m.n} invoice${m.n === 1 ? '' : 's'} · paid ${money(m.paid)}`, short: MONTHS[m.m].slice(0, 1) }))
     : s.byYear.map((y) => ({ v: y.invoiced, label: `${y.y} · ${y.n} invoices`, short: y.y.slice(2) }));
   const c = s.cost;
-  const cs = s.customers;
+  // customer order: needs action first (WIP, then money owed, each A–Z), paid up last; or A–Z; or largest
+  const csOrder = state.bizCustOrder || 'action';
+  const nameOf = (x) => (x.custName || x.key || '').toUpperCase();
+  const rank = (x) => (x.draft ? 0 : x.owed ? 1 : 2);
+  const cs = [...s.customers].sort(csOrder === 'az' ? (a, b) => nameOf(a).localeCompare(nameOf(b))
+    : csOrder === 'size' ? (a, b) => b.invoiced - a.invoiced
+    : (a, b) => rank(a) - rank(b) || nameOf(a).localeCompare(nameOf(b)));
+  const groupLabel = ['WIP: invoices not sent yet', 'Money owed', 'Paid up'];
   const topWork = Math.max(1, ...s.work.map((w) => w.invoiced));
   body.innerHTML = `
     ${arc ? `<div class="backup-warn biz-arc">${icon('folder')}<span><b>Archive: ${esc(arc.sourceName || 'workbook')}</b><small>As imported on ${fmtDate((arc.importedAt || '').slice(0, 10))}. Read-only; quotes and invoices made in the app are not included. Today's date is used for overdue.</small></span><button class="btn sm primary" id="biz-arc-back">Back to current</button></div>` : ''}
@@ -1524,6 +1531,7 @@ async function renderBusiness() {
       <div><span>Received ${esc(label)}</span><b>${money(s.received)}</b><small>inc VAT · ${s.paid.length} paid${s.avgDaysToPay != null ? ` · ${s.avgDaysToPay} days to pay on average` : ''}</small></div>
       <div><span>Owed to you now</span><b>${money(s.owed)}</b><small>inc VAT · ${s.overdue.length + s.notDue.length} unpaid · all years</small></div>
       <div class="${s.overdue.length ? 'biz-alert' : ''}"><span>Overdue now</span><b>${money(s.overdueTotal)}</b><small>${s.overdue.length} invoice${s.overdue.length === 1 ? '' : 's'} past the due date</small></div>
+      <button type="button" class="biz-wide ${s.drafts.length ? 'biz-wip' : ''}" id="biz-wip-tile"><span>Not sent yet (WIP)</span><b>${money(s.draftTotal)}</b><small>ex VAT · ${s.drafts.length} invoice${s.drafts.length === 1 ? '' : 's'} with status WIP or PROC · all years · ${[...new Set(s.drafts.map((e) => e.cust))].length} customer${[...new Set(s.drafts.map((e) => e.cust))].length === 1 ? '' : 's'}</small></button>
     </div>
     <h2 class="h2">${yr ? `Work invoiced by month, ${esc(yr)}` : 'Work invoiced by year'} <span class="muted small">ex VAT</span></h2>
     ${bizChart(bars)}
@@ -1534,15 +1542,16 @@ async function renderBusiness() {
 
     <details class="biz-fold" ${s.notDue.length && s.notDue.length < 8 ? 'open' : ''}><summary><b>Unpaid, not due yet</b> <span class="muted">${s.notDue.length} · ${money(s.notDue.reduce((a, e) => a + e.total, 0))}</span></summary>
       <div class="doc-list">${s.notDue.map((e) => invRow(e)).join('') || '<p class="muted small">None.</p>'}</div></details>
-    <details class="biz-fold"><summary><b>Not sent yet (WIP) ${esc(label)}</b> <span class="muted">${s.drafts.length} · ${money(s.draftTotal)} ex VAT</span></summary>
-      <p class="small muted">Invoice tabs with status WIP or PROC in your SUMMARY register. Not counted as invoiced or owed until set to UP (unpaid) or P (paid).</p>
+    <details class="biz-fold" id="biz-wip-fold"><summary><b>Not sent yet (WIP)</b> <span class="muted">${s.drafts.length} · ${money(s.draftTotal)} ex VAT</span></summary>
+      <p class="small muted">All years. Invoice tabs with status WIP or PROC in your SUMMARY register. Not counted as invoiced or owed until set to UP (unpaid) or P (paid).</p>
       <div class="doc-list">${s.drafts.map((e) => `<button class="doc-row biz-open" data-id="${esc(e.id)}" data-src="${e.src}"><span class="q-kind is-inv">INV</span><span class="q-main"><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''} · ${esc(e.custName || e.cust)}</b><small>${esc(e.site || '')}${e.site ? ' · ' : ''}${fmtDate(e.date)} · ${esc(e.workType || '')}</small></span><span class="q-amt"><b>${money(e.subtotal)}</b></span></button>`).join('') || '<p class="muted small">None.</p>'}</div></details>
     <details class="biz-fold"><summary><b>Paid ${esc(label)}</b> <span class="muted">${s.paid.length} · ${money(s.received)}</span></summary>
       <div class="doc-list">${s.paid.slice(0, 200).map((e) => invRow(e, { paid: true })).join('') || '<p class="muted small">None.</p>'}</div></details>
 
     <h2 class="h2">Customers <span class="muted">${cs.length}</span></h2>
-    <div class="doc-list">${cs.map((x, i) => `<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${esc(x.key)} · ${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'} · ${pct(x.invoiced, s.invoiced)} of the total</small>${x.contacts?.length ? `<small>Contacts: ${esc(x.contacts.slice(0, 4).join(', '))}${x.contacts.length > 4 ? ` +${x.contacts.length - 4}` : ''}</small>` : ''}</span>
-        <span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}</span></button>
+    <div class="biz-years biz-order">${[['action', 'WIP and owed first'], ['az', 'A–Z'], ['size', 'Largest first']].map(([k, t]) => `<button class="chip ${csOrder === k ? 'is-on' : ''}" data-o="${k}">${t}</button>`).join('')}</div>
+    <div class="doc-list">${cs.map((x, i) => `${csOrder === 'action' && (i === 0 || rank(cs[i - 1]) !== rank(x)) ? `<p class="biz-sub biz-group">${groupLabel[rank(x)]} <span class="muted">${cs.filter((y) => rank(y) === rank(x)).length}</span></p>` : ''}<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${esc(x.key)} · ${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'} · ${pct(x.invoiced, s.invoiced)} of the total</small>${x.contacts?.length ? `<small>Contacts: ${esc(x.contacts.slice(0, 4).join(', '))}${x.contacts.length > 4 ? ` +${x.contacts.length - 4}` : ''}</small>` : ''}</span>
+        <span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}${x.draft ? `<small class="biz-wip-amt">${money(x.draft)} WIP</small>` : ''}</span></button>
         <div class="biz-sites" data-i="${i}" hidden>
           <p class="biz-sub">Invoices <span class="muted">${x.list.length}</span></p>
           ${x.list.map((e) => { const draft = isDraftInv(e); const late = !draft && !isPaid(e) && e.due && e.due < today(); return `<button type="button" class="biz-open biz-inv ${draft ? 'is-draft' : ''}" data-id="${esc(e.id)}" data-src="${e.src}"><span><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''}${e.workType ? ` <i class="biz-wt" title="${esc(WORK_TYPES[e.workType] || '')}">${esc(e.workType)}</i>` : ''}</b><small>${fmtDate(e.date)}${e.site ? ' · ' + esc(e.site) : ''}${e.contact && x.contacts?.length ? ' · ' + esc(e.contact) : ''}</small></span><span class="q-amt"><b>${money(e.subtotal)}</b><small class="${isPaid(e) || draft ? 'muted' : late ? 'ps-warn' : ''}">${isPaid(e) ? 'Paid' : draft ? 'Not sent yet (' + esc(e.status) + ')' : late ? 'Overdue' : 'Unpaid'}</small></span></button>`; }).join('')}
@@ -1595,7 +1604,9 @@ async function renderBusiness() {
       <li>Marking an invoice paid here does not change the Excel workbook. Update the SUMMARY register there too.</li>
     </ul></section>`;
 
-  $$('.biz-years .chip').forEach((b) => (b.onclick = () => { state.bizYear = b.dataset.y; refresh(); }));
+  $$('.biz-order .chip').forEach((b) => (b.onclick = () => { state.bizCustOrder = b.dataset.o; refresh(); }));
+  $('#biz-wip-tile')?.addEventListener('click', () => { const f = $('#biz-wip-fold'); if (f) { f.open = true; f.scrollIntoView({ behavior: 'smooth', block: 'start' }); } });
+  $$('.biz-years:not(.biz-order) .chip').forEach((b) => (b.onclick = () => { state.bizYear = b.dataset.y; refresh(); }));
   $$('.biz-bar').forEach((b) => (b.onclick = b.onmouseenter = () => {
     $$('.biz-bar').forEach((x) => x.classList.toggle('on', x === b));
     const v = bars[+b.dataset.i];

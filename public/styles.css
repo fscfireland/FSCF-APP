@@ -1318,3 +1318,13 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .biz-inv.is-draft { opacity: .75; }
 .biz-inv-tot.muted { color: var(--ink-2); }
 .biz-wt-key { margin: 6px 0 0; }
+.ph-stats > .biz-wide { grid-column: 1 / -1; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.ph-stats > .biz-wip { border-color: color-mix(in srgb, var(--st-noaccess) 60%, var(--line)); background: color-mix(in srgb, var(--st-noaccess) 10%, var(--surface)); }
+.ph-stats > .biz-wip b { color: color-mix(in srgb, var(--st-noaccess) 70%, var(--ink)); }
+.biz-wip-amt { color: color-mix(in srgb, var(--st-noaccess) 75%, var(--ink)) !important; font-weight: 600; }
+.biz-group { margin: 10px 2px 0; }
+.biz-order { margin-top: -4px; }
+.ph-stats > button.biz-wide { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; }
+.ph-stats > button.biz-wip { border-color: color-mix(in srgb, var(--st-noaccess) 60%, var(--line)); }
+.ph-stats b { white-space: nowrap; }
+@media (max-width: 480px) { .ph-stats > div b, .ph-stats > button b { font-size: 18px; } }

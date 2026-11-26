@@ -126,7 +126,7 @@ export function years(ledger) {
 export function summarise(ledger, year = '', todayIso = new Date().toISOString().slice(0, 10)) {
   const inYear = (e) => !year || (e.date || '').startsWith(year);
   const invs = ledger.filter((e) => isLiveInv(e) && inYear(e));
-  const drafts = ledger.filter((e) => isDraftInv(e) && inYear(e)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+  const drafts = ledger.filter((e) => isDraftInv(e)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const quotes = ledger.filter((e) => e.kind === 'Q' && inYear(e));
   const sum = (l, k) => r2(l.reduce((a, e) => a + (Number(e[k]) || 0), 0));
   // owed and overdue are for every year: a debt is still a debt
