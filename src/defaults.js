@@ -723,8 +723,47 @@ export function kindForWork(workType) {
 // unless edited. More can be made in Settings ("New checklist from this one").
 const tq = (prefix, rows) => rows.map(([text, defect], i) => ({ id: `${prefix}-${i + 1}`, text, ...(defect ? { defect } : {}) }));
 export const DEFAULT_TEMPLATES = {
+  // Built from BS 8214:2026 (clause numbers in brackets). Gaps and hardware are
+  // checked against the door's own specification and supporting evidence, as
+  // the 2026 edition asks, rather than fixed figures.
+  fd2026: {
+    base: 'fd', name: 'Fire doors – BS 8214:2026 inspection', item: 'Door', report: 'BS 8214:2026 Fire Door Inspection Report',
+    questions: tq('bs26', [
+      ['Evidence: door identified as a fire door (label, plug, certificate or records) and its rating known (11, B.3)', 'No certification label or plug'],
+      ['Evidence: fire door specification / supporting evidence available for this door (6, 15.1)', 'Supporting evidence not available'],
+      ['Leaf: free from damage, excessive bow, cup or twist (15.1, 15.2)', 'Door leaf damaged'],
+      ['Frame: secure, free from damage or deformation (15.1, 15.2)', 'Frame damaged or loose'],
+      ['No unauthorised holes, apertures, add-ons or modifications in the leaf or frame (7.2, 10.8)', 'Unauthorised holes or modifications'],
+      ['Gaps around the leaf, and between leaves, as per the fire door specification (15.2.2)', 'Gaps not as per the fire door specification'],
+      ['Double doors: leaves aligned and close in the right order (selector, flush bolts) (15.2.2)', 'Flush bolt or selector not working'],
+      ['Intumescent seals present, full length and undamaged (8.2, 15.2.3)', 'Intumescent strips missing or damaged'],
+      ['Smoke seals present, undamaged and not painted (8.4, 16)', 'Smoke seals missing or damaged'],
+      ['Smoke door: threshold sealed, e.g. a drop seal, so all four sides are sealed (Sa4) (8.4)', 'Smoke door threshold not sealed (Sa4)'],
+      ['Threshold gap as per the fire door specification (7.3)', 'Threshold gap excessive (over 10 mm / over 3 mm for smoke doors)'],
+      ['Seals not painted over (intumescent: max 5 coats or 0.5 mm) (16)', 'Seals painted over'],
+      ['Hinges: correct number, secure, all screws fitted, no wear (10.3)', 'Hinges: fewer than 3, missing screws or worn'],
+      ['Closer (EN 1154) fitted, closes the door fully from any angle and engages the latch (10.5)', 'Self-closer defective / not adjusted'],
+      ['Lock / latch works and holds the door closed (10.4)', 'Lock or latch defective'],
+      ['Essential hardware is fire-rated, CE / UKCA marked and as per the specification (15.3, Annex D)', 'Ironmongery not fire-rated / not CE marked'],
+      ['Hold-open / free-swing device releases on the fire alarm (if fitted) (10.5)', 'Hold-open device not linked to fire alarm'],
+      ['Letter plate / air transfer grille fire-rated and covered by the evidence (10.6, 10.7)', 'Air transfer grille / letter plate not rated'],
+      ['Glazing: fire-resistant glass, permanently marked, beads secure and undamaged (9, 15.4)', 'Glazing not fire-rated or beads defective'],
+      ['Gap between frame and wall sealed with evidence-backed materials (13.4)', 'Gap between frame and wall not fire stopped'],
+      ['Door not wedged or held open', 'Door wedged or held open'],
+      ['Opens and closes easily, without excessive force', 'Opening force too high'],
+      ['Correct fire door signs fitted; doors kept locked shut are signed and kept locked (10.5)', 'Fire door signage missing'],
+    ]),
+    extraDefects: [
+      ['Supporting evidence not available', 'Obtain the fire door specification / supporting evidence from the manufacturer, or evaluate the door for replacement (BS 8214:2026, 15.1)'],
+      ['Gaps not as per the fire door specification', 'Adjust or repair so the gaps meet the fire door specification and supporting evidence'],
+      ['Smoke door threshold not sealed (Sa4)', 'Supply and fit a threshold sealing system (e.g. automatic drop seal) to the fire door specification (BS 8214:2026, 8.4)'],
+      ['Seals painted over', 'Replace painted seals full length with the same brand, size and type (BS 8214:2026, 15.2.3)'],
+      ['Opening force too high', 'Adjust closer and hardware to reduce the opening force'],
+      ['Flush bolt or selector not working', 'Repair or replace flush bolt / door selector so pairs close in order'],
+    ],
+  },
   fd29: {
-    base: 'fd', name: 'Fire doors – 29 point check (BS 8214)', item: 'Door', report: '29 Point Fire Door Inspection Report',
+    base: 'fd', name: 'Fire doors – 29 point check (BS 8214:2016)', item: 'Door', report: '29 Point Fire Door Inspection Report',
     questions: tq('fd29', [
       ['Door leaf: sits against the door stop and is free from distortion', 'Door leaf damaged'],
       ['Door leaf: veneer / lipping glue still holding firmly', 'Door leaf damaged'],
