@@ -361,9 +361,10 @@ export const DEFAULT_DOOR_TYPES = [
 
 // Doors without test evidence (BS 8214:2026 uses these terms), and unknown
 export const DOOR_TYPE_NOTES = [
-  [/notional/i, 'Notional: no test certificate or label, but evidence (e.g. original drawings or specification) that it met the fire door standard in force when the building was built. Only relevant within a fire risk assessment.'],
-  [/nominal/i, 'Nominal: built and fitted like a fire door, but no test evidence or certification, and it does not meet the notional description. Judged on its construction only.'],
-  [/unknown/i, 'Unknown: no evidence of a fire rating could be found. Treat as unconfirmed until evidence is provided or the door is replaced.'],
+  [/notional/i, 'Notional (BS 8214:2026, clause 15): an existing fire door that, at the time of installation, met the requirements for a fire door but might not meet today\'s standards. Only relevant within a fire safety risk assessment (term from the Home Office guide Fire safety in purpose-built blocks of flats).'],
+  [/nominal/i, 'Nominal (BS 8214:2026, clause 15): a door without fire resistance documentary test evidence that does not meet the definition of notional. It can only be considered to provide a level of fire resistance after an appropriate risk assessment (means of escape, occupancy profile and the building\'s full safety measures).'],
+  [/unknown/i, 'Unknown: no evidence of a fire rating could be found (not a BS 8214 category). Treat as unconfirmed until evidence is provided, or assess as notional or nominal.'],
+  [/sa4/i, 'Sa4 (BS 8214:2026, 8.4): smoke control classified to BS EN 13501-2, tested to BS EN 1634-3 with a threshold sealing system, so the bottom of the door is sealed too (e.g. a drop seal). The classification is only valid with its formal BS EN 13501-2 classification report.'],
 ];
 // Group the door types for the picker
 export function doorTypeGroup(t) {
