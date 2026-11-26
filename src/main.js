@@ -291,6 +291,7 @@ async function renderProjects() {
       })()}
       ${liveHtml}
       <button class="lib-card ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Ask about your sites, doors and reports, or have it update them for you</small></span>${icon('more')}</button>
+      ${priced() ? `<button class="lib-card" id="my-prices">${icon('list')}<span><b>Prices</b><small>Normal price list, and prices for a site or collection</small></span>${icon('more')}</button>` : ''}
       <button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>${priced() ? 'Same numbers, customers and prices as your Excel workbook' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -320,6 +321,7 @@ async function renderProjects() {
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
+  $('#my-prices')?.addEventListener('click', () => pricesHome());
   $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
     const b = busy('Preparing backup…');
@@ -1081,36 +1083,80 @@ function vatPrecedent(book, custId, workType) {
   const hit = [...(book?.register || [])].reverse().find((x) => x.cust === custId && x.workType === workType && x.vatRate != null);
   return hit ? hit.vatRate : null;
 }
-// ---------- Prices for one site ----------
+// ---------- Prices for one site, and for one collection ----------
 // A product can cost more or less on one job (e.g. a handle at €25 for Kells
-// but €28 in Cork). project.prices holds that site's own material / labour per
-// product; everything else uses the main price list.
+// but €28 in Cork), or change between visits. Prices are layered: the
+// collection's own price, then the site's (project.prices), then the normal
+// price list. A new collection copied from another starts with its prices.
 let siteProject = null;
-const mlist = () => siteMaterials(siteProject);
-function siteMaterials(project) {
-  const own = project?.prices || {};
+let siteColl = '';
+const mlist = () => siteMaterials(siteProject, siteColl);
+const doorColl = (d, plan) => (plan ? plan.collection || '' : d?.collection || '');
+function siteMaterials(project, coll = null) {
+  const site = project?.prices || {};
+  const own = coll != null ? project?.collPrices?.[coll] || {} : {};
   return (lists.materials || []).map((m) => {
-    const o = own[m.id];
-    return o ? { ...m, cost: o.cost ?? m.cost, labour: o.labour ?? m.labour, sitePrice: true } : m;
+    const s = site[m.id];
+    const c = own[m.id];
+    if (!s && !c) return m;
+    return { ...m, cost: c?.cost ?? s?.cost ?? m.cost, labour: c?.labour ?? s?.labour ?? m.labour, sitePrice: true };
   });
 }
-async function editSitePrices(project) {
+const priceCount = (project, coll = null) => Object.keys((coll == null ? project?.prices : project?.collPrices?.[coll]) || {}).length;
+
+// Products already on doors take their price from the layers again
+async function repriceDoors(project) {
+  const plans = Object.fromEntries((await db.projectPlans(project.id)).map((pl) => [pl.id, pl]));
+  const cache = {};
+  let n = 0;
+  for (const d of await db.projectDoors(project.id)) {
+    const coll = doorColl(d, plans[d.planId]);
+    const byName = (cache[coll] ||= new Map(siteMaterials(project, coll).map((m) => [m.name.trim().toLowerCase(), m])));
+    let changed = false;
+    const materials = (d.materials || []).map((x) => {
+      const m = !x.custom && byName.get((x.name || '').trim().toLowerCase());
+      if (!m || ((Number(x.cost) || 0) === (Number(m.cost) || 0) && (Number(x.labour) || 0) === (Number(m.labour) || 0))) return x;
+      changed = true;
+      return { ...x, cost: Number(m.cost) || 0, labour: Number(m.labour) || 0 };
+    });
+    if (changed) { await saveDoor({ ...d, materials }, ['Re-priced from the site / collection prices']); n++; }
+  }
+  return n;
+}
+
+// scope: null = the whole site, otherwise a collection name ('' = Main drawings)
+async function editSitePrices(project, scope = null) {
   const p0 = await db.get('projects', project.id);
-  const own = p0.prices || {};
+  const colls = listCollections(await db.projectPlans(p0.id));
+  if (scope != null && !colls.includes(scope)) scope = null;
+  const own = (scope == null ? p0.prices : p0.collPrices?.[scope]) || {};
+  const under = scope == null ? siteMaterials({ ...p0, prices: {} }) : siteMaterials(p0); // what applies without this level
   const all = (lists.materials || []).filter((m) => m.name?.trim());
+  const base = Object.fromEntries(under.map((m) => [m.id, m]));
   const cats = [...new Set([...MAT_CATEGORIES, ...all.map(matCat)])].filter((c) => all.some((m) => matCat(m) === c));
+  const others = colls.filter((c) => c !== scope && priceCount(p0, c));
+  const scopeOpts = `<option value="__site" ${scope == null ? 'selected' : ''}>Whole site${priceCount(p0) ? ` (${priceCount(p0)})` : ''}</option>
+    ${colls.length > 1 || (colls.length === 1 && colls[0] !== '') ? colls.map((c) => `<option value="${esc(c)}" ${scope === c ? 'selected' : ''}>Collection: ${esc(collLabel(c))}${priceCount(p0, c) ? ` (${priceCount(p0, c)})` : ''}</option>`).join('') : ''}`;
   const r = await dialog({
-    title: `Prices for ${p0.site}`,
-    body: `<p class="small">Set a different material or labour price for this site only. Leave a box empty to use your normal price (shown underneath). Doors already priced on this site are updated.</p>
+    title: `Prices · ${p0.site}`,
+    body: `<label class="field"><span>Prices for</span><select name="scope" id="sp-scope">${scopeOpts}</select></label>
+      <p class="small">${scope == null
+        ? 'Set a different material or labour price for this site. Leave a box empty to use your normal price (shown in the box).'
+        : `Set prices for <b>${esc(collLabel(scope))}</b> only. Leave a box empty to use the site price, or your normal price (shown in the box).`} Doors already priced are updated.</p>
+      ${others.length ? `<div class="sp-copy"><select id="sp-from"><option value="">Copy prices from…</option>${others.map((c) => `<option value="${esc(c)}">${esc(collLabel(c))} (${priceCount(p0, c)})</option>`).join('')}${scope != null && priceCount(p0) ? '<option value="__site">Whole site</option>' : ''}</select></div>` : ''}
       <label class="search sp-search">${icon('search')}<input type="search" id="sp-q" placeholder="Search products…"></label>
-      <label class="check-line small"><input type="checkbox" id="sp-only"> Only show products with a site price</label>
+      <label class="check-line small"><input type="checkbox" id="sp-only"> Only show products with a price set here</label>
       ${cats.map((c) => `<h3 class="pp-h sp-cat" data-cat="${esc(c)}">${esc(c)}</h3>
-        ${all.filter((m) => matCat(m) === c).map((m) => `<div class="sp-row ${own[m.id] ? 'is-set' : ''}" data-cat="${esc(c)}" data-name="${esc(m.name.toLowerCase())}">
-          <span class="sp-name"><b>${esc(m.name)}</b><small>Normal: ${euro(m.cost)} + ${euro(m.labour || 0)} labour${m.unit && m.unit !== 'each' ? ' per ' + esc(m.unit) : ''}</small></span>
-          <label><small>Material €</small><input name="c_${m.id}" type="number" inputmode="decimal" min="0" step="0.01" value="${own[m.id]?.cost ?? ''}" placeholder="${esc(m.cost || 0)}"></label>
-          <label><small>Labour €</small><input name="l_${m.id}" type="number" inputmode="decimal" min="0" step="0.01" value="${own[m.id]?.labour ?? ''}" placeholder="${esc(m.labour || 0)}"></label>
-        </div>`).join('')}`).join('')}`,
-    buttons: [{ label: 'Cancel', value: false }, { label: 'Save site prices', value: true, kind: 'primary' }],
+        ${all.filter((m) => matCat(m) === c).map((m) => {
+          const u = base[m.id] || m;
+          const from = u.sitePrice ? 'site' : 'normal';
+          return `<div class="sp-row ${own[m.id] ? 'is-set' : ''}" data-cat="${esc(c)}" data-name="${esc(m.name.toLowerCase())}" data-id="${esc(m.id)}">
+          <span class="sp-name"><b>${esc(m.name)}</b><small>${from === 'site' ? 'Site' : 'Normal'}: ${euro(u.cost)} + ${euro(u.labour || 0)} labour${m.unit && m.unit !== 'each' ? ' per ' + esc(m.unit) : ''}</small></span>
+          <label><small>Material €</small><input name="c_${m.id}" type="number" inputmode="decimal" min="0" step="0.01" value="${own[m.id]?.cost ?? ''}" placeholder="${esc(u.cost || 0)}"></label>
+          <label><small>Labour €</small><input name="l_${m.id}" type="number" inputmode="decimal" min="0" step="0.01" value="${own[m.id]?.labour ?? ''}" placeholder="${esc(u.labour || 0)}"></label>
+        </div>`;
+        }).join('')}`).join('')}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Save prices', value: true, kind: 'primary' }],
     onOpen: (form) => {
       const filter = () => {
         const q = $('#sp-q', form).value.trim().toLowerCase();
@@ -1120,14 +1166,34 @@ async function editSitePrices(project) {
           row.classList.toggle('is-set', set);
           row.hidden = (q && !row.dataset.name.includes(q)) || (only && !set);
         });
-        $$('.sp-cat', form).forEach((h) => { h.hidden = !$$(`.sp-row[data-cat="${CSS.escape(h.dataset.cat)}"]`, form).some((r) => !r.hidden); });
+        $$('.sp-cat', form).forEach((h) => { h.hidden = !$$(`.sp-row[data-cat="${CSS.escape(h.dataset.cat)}"]`, form).some((x) => !x.hidden); });
       };
       $('#sp-q', form).addEventListener('input', filter);
       $('#sp-only', form).addEventListener('change', filter);
-      form.addEventListener('input', (e) => { if (e.target.closest('.sp-row')) e.target.closest('.sp-row').classList.toggle('is-set', [...e.target.closest('.sp-row').querySelectorAll('input')].some((i) => i.value !== '')); });
+      form.addEventListener('input', (e) => { const row = e.target.closest('.sp-row'); if (row) row.classList.toggle('is-set', [...row.querySelectorAll('input')].some((i) => i.value !== '')); });
+      // switch to another level: the dialog closes and opens again for it
+      $('#sp-scope', form).addEventListener('change', (e) => {
+        form.dataset.switchTo = e.target.value;
+        form.querySelector('.modal-actions button[type=button]')?.click();
+      });
+      $('#sp-from', form)?.addEventListener('change', (e) => {
+        const src = e.target.value === '__site' ? p0.prices || {} : p0.collPrices?.[e.target.value] || {};
+        for (const [id, v] of Object.entries(src)) {
+          const c = form.querySelector(`input[name="c_${CSS.escape(id)}"]`);
+          const l = form.querySelector(`input[name="l_${CSS.escape(id)}"]`);
+          if (c && v.cost != null) c.value = v.cost;
+          if (l && v.labour != null) l.value = v.labour;
+        }
+        filter();
+        toast(`${Object.keys(src).length} price${Object.keys(src).length === 1 ? '' : 's'} copied in. Save to keep them.`);
+      });
     },
   });
-  if (r.value !== true) return;
+  if (r.value !== true) {
+    const to = r.form?.dataset.switchTo;
+    if (to) return editSitePrices(p0, to === '__site' ? null : to);
+    return;
+  }
   const prices = {};
   for (const m of all) {
     const c = r.data['c_' + m.id];
@@ -1135,25 +1201,45 @@ async function editSitePrices(project) {
     if ((c ?? '') === '' && (l ?? '') === '') continue;
     prices[m.id] = { ...(c !== '' ? { cost: Number(c) || 0 } : {}), ...(l !== '' ? { labour: Number(l) || 0 } : {}) };
   }
-  const rec = await db.put('projects', { ...p0, prices });
-  // re-price products already on this site's doors (typed-in ones keep their own price)
-  const mats = siteMaterials(rec);
-  const touched = new Set([...Object.keys(own), ...Object.keys(prices)]);
-  const byName = new Map(mats.filter((m) => touched.has(m.id)).map((m) => [m.name.trim().toLowerCase(), m]));
-  let n = 0;
-  for (const d of await db.projectDoors(rec.id)) {
-    let changed = false;
-    const materials = (d.materials || []).map((x) => {
-      const m = !x.custom && byName.get((x.name || '').trim().toLowerCase());
-      if (!m || ((Number(x.cost) || 0) === (Number(m.cost) || 0) && (Number(x.labour) || 0) === (Number(m.labour) || 0))) return x;
-      changed = true;
-      return { ...x, cost: Number(m.cost) || 0, labour: Number(m.labour) || 0 };
-    });
-    if (changed) { await saveDoor({ ...d, materials }, ['Re-priced from the site prices']); n++; }
-  }
+  const next = scope == null ? { ...p0, prices } : { ...p0, collPrices: { ...(p0.collPrices || {}), [scope]: prices } };
+  if (scope != null && !Object.keys(prices).length) delete next.collPrices[scope];
+  const rec = await db.put('projects', next);
+  const n = await repriceDoors(rec);
   const k = Object.keys(prices).length;
-  toast(`${k} site price${k === 1 ? '' : 's'} saved${n ? ` · ${n} door${n === 1 ? '' : 's'} re-priced` : ''}`);
+  toast(`${k} price${k === 1 ? '' : 's'} saved for ${scope == null ? 'the whole site' : collLabel(scope)}${n ? ` · ${n} door${n === 1 ? '' : 's'} re-priced` : ''}`);
   refresh();
+}
+
+// Home screen: pick any site and collection to price, or the normal list
+async function pricesHome() {
+  const projects = (await db.all('projects')).sort((a, b) => (a.site || '').localeCompare(b.site || ''));
+  const collsOf = {};
+  for (const p of projects) collsOf[p.id] = listCollections(await db.projectPlans(p.id));
+  const r = await dialog({
+    title: 'Prices',
+    body: `<p class="small">Your normal price list applies everywhere. A site can have its own prices, and each collection on a site can have its own again (e.g. a later visit).</p>
+      <button type="button" class="lib-card" id="ph-normal">${icon('list')}<span><b>Normal price list</b><small>${(lists.materials || []).length} products · used on every site</small></span>${icon('more')}</button>
+      <label class="field"><span>Site</span><select name="p" id="ph-p">${projects.map((p) => `<option value="${p.id}">${esc(p.site)}${priceCount(p) || Object.keys(p.collPrices || {}).length ? ' ✦' : ''}</option>`).join('')}</select></label>
+      <label class="field"><span>Prices for</span><select name="c" id="ph-c"></select></label>
+      <p class="small muted">✦ = has its own prices.</p>`,
+    buttons: [{ label: 'Close', value: false }, { label: 'Open prices', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      const fill = () => {
+        const p = projects.find((x) => x.id === $('#ph-p', form).value);
+        const cs = collsOf[p?.id] || [];
+        $('#ph-c', form).innerHTML = `<option value="__site">Whole site${priceCount(p) ? ` (${priceCount(p)})` : ''}</option>` + (cs.length > 1 || (cs.length === 1 && cs[0] !== '') ? cs.map((c) => `<option value="${esc(c)}">Collection: ${esc(collLabel(c))}${priceCount(p, c) ? ` (${priceCount(p, c)})` : ''}</option>`).join('') : '');
+      };
+      $('#ph-p', form).addEventListener('change', fill);
+      fill();
+      $('#ph-normal', form).onclick = () => { form.dataset.normal = '1'; form.querySelector('.modal-actions button[type=button]')?.click(); };
+    },
+  });
+  if (r.value !== true) {
+    if (r.form?.dataset.normal) { state.allMats = true; openFolds.add('mats'); go({ view: 'settings' }); }
+    return;
+  }
+  const p = projects.find((x) => x.id === r.data.p);
+  if (p) await editSitePrices(p, r.data.c === '__site' ? null : r.data.c);
 }
 
 // Before a quote is made from a report: the cost (materials + labour), the
@@ -1304,7 +1390,7 @@ const aiCtx = {
     drawChat();
   }),
   applyFrequency: (p) => applyFrequency(p),
-  productsFor: async (def, projectId) => defaultProductsFor(def, siteMaterials(await db.get('projects', projectId)), db.uid),
+  productsFor: async (def, door) => defaultProductsFor(def, siteMaterials(await db.get('projects', door.projectId), doorColl(door, door.planId ? await db.get('plans', door.planId) : null)), db.uid),
   pdfText,
   questionText: (d, plan) => {
     const qs = questionsFor(d, kitOf(kindOfDoor(d, plan)).questions || []);
@@ -2602,7 +2688,7 @@ function collOptions(colls, selected, { folders: withFolderPick = true } = {}) {
 
 async function pickCollection(project, coll) {
   state.coll = coll;
-  if (coll !== '*') await db.put('projects', { ...project, activeCollection: coll });
+  if (coll !== '*') await db.put('projects', { ...((await db.get('projects', project.id)) || project), activeCollection: coll });
   state.rf = emptyFilter(); // report filters belong to the collection shown
   refresh();
 }
@@ -2779,6 +2865,8 @@ async function copyCollectionDialog(project, plans, from) {
   const b = busy('Copying drawings and pins…');
   try {
     const res = await copyCollection(project, plans, from, name, r.data.mode, lists.inspector || '');
+    const pp = await db.get('projects', project.id);
+    if (pp.collPrices?.[from]) await db.put('projects', { ...pp, collPrices: { ...pp.collPrices, [name]: { ...pp.collPrices[from] } } });
     if (r.data.kind) {
       // the copies become a different type; any copied pins keep their own type
       for (const pl of await db.projectPlans(project.id)) {
@@ -2816,6 +2904,8 @@ async function collectionMenu(project, plans, doors, c) {
     if (name === c) return;
     if (colls.includes(name)) return toast(`There's already a collection called "${collLabel(name)}".`, 'error');
     await renameCollection(plans, c, name);
+    const pp = await db.get('projects', project.id);
+    if (pp.collPrices?.[c]) { const cp = { ...pp.collPrices, [name]: pp.collPrices[c] }; delete cp[c]; await db.put('projects', { ...pp, collPrices: cp }); }
     if ((project.activeCollection ?? '') === c || state.coll === c) await pickCollection(project, name);
     else refresh();
     toast('Collection renamed');
@@ -3100,7 +3190,7 @@ function renderExportTab(body, project, plans, allDoors) {
       <h2 class="h2">${icon('report')} Customer quote from this report</h2>
       <p>One line per failed door at its full price, numbered on from your workbook. The door-by-door breakdown goes in a pricing doc tab laid out like your SERV PDs, with the quote's lines linked to it, so changing a rate in Excel updates the quote.</p>
       <div class="row-btns"><button class="btn primary" id="rep-quote">${icon(priced() ? 'report' : 'shield')} Make the quote${priced() ? '' : ' (owner PIN)'}</button>
-      ${priced() ? `<button class="btn" id="site-prices">${icon('list')} Prices for this site${Object.keys(project.prices || {}).length ? ` (${Object.keys(project.prices).length})` : ''}</button>` : ''}</div>
+      ${priced() ? `<button class="btn" id="site-prices">${icon('list')} Prices for this site${priceCount(project) + Object.values(project.collPrices || {}).reduce((a, x) => a + Object.keys(x).length, 0) ? ' ✦' : ''}</button>` : ''}</div>
     </section>`}
     <section class="panel">
       <h2 class="h2">${icon('shield')} Backup</h2>
@@ -3166,7 +3256,7 @@ function renderExportTab(body, project, plans, allDoors) {
     refresh();
   });
   $('#rep-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) quoteFromReport(project); });
-  $('#site-prices')?.addEventListener('click', () => editSitePrices(project));
+  $('#site-prices')?.addEventListener('click', () => editSitePrices(project, state.coll && state.coll !== '*' && !String(state.coll).startsWith('F:') ? state.coll : null));
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
     try {
@@ -4119,6 +4209,7 @@ async function drawSheet(door) {
   // fire alarm zones already used on this project: number → name
   const project = await db.get('projects', door.projectId);
   siteProject = project;
+  siteColl = doorColl(door, plan);
   const freq = Number(project?.frequency) || 0;
   const zoneMap = new Map((project?.zones || []).filter((z) => z.no).map((z) => [String(z.no), z.name || '']));
   for (const x of await db.byIndex('doors', 'projectId', door.projectId)) {
@@ -5197,7 +5288,8 @@ async function fillProjectMaterials(doors) {
     const d = await db.get('doors', d0.id);
     if (!d) continue;
     const K = kitOf(kindOfDoor(d, await db.get('plans', d.planId)));
-    const r = costAllFails(d, K.questions, K.defects, siteMaterials(await db.get('projects', d.projectId)), db.uid);
+    const dPlan = await db.get('plans', d.planId);
+    const r = costAllFails(d, K.questions, K.defects, siteMaterials(await db.get('projects', d.projectId), doorColl(d, dPlan)), db.uid);
     if (!r.addedDefects && !r.addedProducts) continue;
     await saveDoor({ ...d, defects: r.defects, materials: r.materials }, [`Fails costed: ${r.addedDefects} defect(s), ${r.addedProducts} product(s) added`]);
     added += r.addedDefects + r.addedProducts;

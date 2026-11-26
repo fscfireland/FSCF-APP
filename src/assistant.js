@@ -241,7 +241,7 @@ export function makeRunner(ctx) {
           if (!nd?.label || (next.defects || []).some((x) => x.label === nd.label)) continue;
           const def = { label: nd.label.trim(), remedial: (nd.remedial || '').trim() };
           next.defects = [...(next.defects || []), def];
-          next.materials = [...(next.materials || []), ...(await ctx.productsFor(def, d.projectId))];
+          next.materials = [...(next.materials || []), ...(await ctx.productsFor(def, d))];
           lines.push(`Add defect: ${def.label}${def.remedial ? ' – ' + def.remedial : ''}`);
         }
         if (lines.length) plan.push({ before: d, next, title: `Pin ${d.pinNo}${d.ref ? ' · ' + d.ref : ''}${d.location ? ' · ' + d.location : ''}`, lines });
