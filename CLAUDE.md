@@ -86,9 +86,10 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - All work is committed on branch `claude/fscf-fire-door-app-cirxvt`. A new session that is given
   a different branch name should start from this branch (`git fetch origin claude/fscf-fire-door-app-cirxvt`
   and branch from / merge it) so nothing is lost, then publish to the owner's app link above.
-- The owner's invoices and quotes workbook ("INVOICES AND QUOTES REV …" xlsx) is in Google Drive,
-  in the `10 FSCF IRELAND DOCUMENT HUB` folder. The app's Quotes & invoices section (`src/quotes.js`)
-  is modelled on it; check it for the latest revision before changing quotes.
+- The owner's invoices and quotes workbook ("INVOICES AND QUOTES REV …" xlsx) is modelled by the app's
+  Quotes & invoices section (`src/quotes.js`). The owner has uploaded it to the app's **Pricing Hub**
+  (owner-only page, added by a parallel session) – copies are also in Google Drive. Check the latest
+  revision before changing quotes.
 - Done recently: Replacement fields + production list; BM TRADA Q-Mark DCS 058 checklist (`qmark`),
   ART picker with revisions (`src/arts.js`), door grade level, architrave survey (MFSS 058, tick per door);
   ironmongery maintenance (on by default); capitals house style in app, PDFs and Excel; Drive backups.
