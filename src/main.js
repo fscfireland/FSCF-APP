@@ -2573,10 +2573,11 @@ async function drawRepairSheet(door) {
           }).join('')}</ul>` : '<p class="muted small">No repair items on this door.</p>'}
         </section>
         <section class="block">
-          <div class="block-head"><h3>Repair photos <span class="muted" id="rs-n"></span></h3>
+          <div class="block-head"><h3>Repair photos &amp; videos <span class="muted" id="rs-n"></span></h3>
             <div class="row-btns">
               <label class="btn sm primary">${icon('camera')} Photo<input type="file" accept="image/*" capture="environment" id="rs-cam" hidden></label>
-              <label class="btn sm">${icon('image')} Gallery<input type="file" accept="image/*" multiple id="rs-lib" hidden></label>
+              <label class="btn sm">${icon('video')} Video<input type="file" accept="video/*" capture="environment" id="rs-vid" hidden></label>
+              <label class="btn sm">${icon('image')} Gallery<input type="file" accept="image/*,video/*" multiple id="rs-lib" hidden></label>
             </div>
           </div>
           <div class="photo-strip" id="rs-photos"></div>
@@ -2619,28 +2620,45 @@ async function drawRepairSheet(door) {
     $('#rs-notes').oninput = (e) => { clearTimeout(nt); const v = e.target.value; nt = setTimeout(() => save({ repairNotes: v }), 500); };
     $('#rs-cam').onchange = (e) => { addRepairPhotos([...e.target.files]); e.target.value = ''; };
     $('#rs-lib').onchange = (e) => { addRepairPhotos([...e.target.files]); e.target.value = ''; };
+    $('#rs-vid').onchange = (e) => { addRepairPhotos([...e.target.files]); e.target.value = ''; };
     drawPhotos();
   };
   const drawPhotos = async () => {
     const photos = (await db.doorPhotos(d.id)).filter((x) => x.stage === 'repair');
     if (!$('#rs-photos')) return;
-    $('#rs-n').textContent = photos.length ? `(${photos.length})` : '';
+    const nv = photos.filter(isVideo).length;
+    $('#rs-n').textContent = photos.length ? `(${photos.length - nv} photo${photos.length - nv === 1 ? '' : 's'}${nv ? `, ${nv} video${nv === 1 ? '' : 's'}` : ''})` : '';
     $('#rs-photos').innerHTML = photos.length
-      ? photos.map((x) => `<button class="photo" data-id="${x.id}"><img alt="Repair photo" src="${objUrl(x.thumb)}"></button>`).join('')
-      : '<p class="muted small">No repair photos yet. Photograph each door after repair.</p>';
+      ? photos.map((x) => isVideo(x)
+        ? `<button class="photo is-video" data-id="${x.id}" aria-label="Play video"><img alt="" src="${objUrl(x.thumb)}"><span class="play">${icon('play')}</span><span class="dur">${esc(fmtDuration(x.duration))}</span></button>`
+        : `<button class="photo" data-id="${x.id}"><img alt="Repair photo" src="${objUrl(x.thumb)}"></button>`).join('')
+      : '<p class="muted small">No repair photos or videos yet. Photograph each door after repair.</p>';
     $$('#rs-photos .photo', el).forEach((b) => (b.onclick = () => openPhoto(photos.find((x) => x.id === b.dataset.id), drawPhotos)));
   };
   const addRepairPhotos = async (files) => {
     if (!files.length) return;
     const bz = busy('Saving…');
     try {
+      let nVid = 0;
+      let bigVideo = false;
       for (const f of files) {
+        if (f.type.startsWith('video/') || /\.(mov|mp4|m4v|webm|3gp)$/i.test(f.name)) {
+          bz.update('Saving video…');
+          const info = await videoInfo(f);
+          await db.put('photos', { id: db.uid(), projectId: d.projectId, doorId: d.id, stage: 'repair', inspection: '', kind: 'video', blob: f, mime: f.type || 'video/mp4', size: f.size, name: f.name, link: '', ...info });
+          nVid++;
+          if (f.size > 150 * 1048576) bigVideo = true;
+          continue;
+        }
+        bz.update('Saving photo…');
         const { blob, thumb, width, height } = await compressImage(f, 1600, 0.8);
         const gps = lists.gps !== false ? await getPosition({ timeout: 4000 }) : null;
         await db.put('photos', { id: db.uid(), projectId: d.projectId, doorId: d.id, stage: 'repair', inspection: '', blob, thumb, width, height, ...(gps ? { gps } : {}) });
       }
       bz.done();
-      await logEvent(d.id, `Added ${files.length} repair photo${files.length > 1 ? 's' : ''}`);
+      const nPh = files.length - nVid;
+      await logEvent(d.id, [nPh ? `Added ${nPh} repair photo${nPh > 1 ? 's' : ''}` : '', nVid ? `Added ${nVid} repair video${nVid > 1 ? 's' : ''}` : ''].filter(Boolean).join(', '));
+      if (bigVideo) toast('Large video saved. Short clips (under a minute) keep the phone from filling up.');
       delete repPhotoCache[project.id];
       drawPhotos();
     } catch (e) {
