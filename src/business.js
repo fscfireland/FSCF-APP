@@ -159,12 +159,13 @@ export function summarise(ledger, year = '', todayIso = new Date().toISOString()
       g.set(k, x);
       if (isDraftInv(e)) { x.draft += e.subtotal; continue; } // listed, not counted as invoiced
       x.n++; x.invoiced += e.subtotal;
+      if (e.contact) { const c = (x.byContact ||= new Map()); const k = e.contact.toUpperCase().replace(/\s+/g, ' '); const v = c.get(k) || { name: e.contact, n: 0, invoiced: 0 }; v.n++; v.invoiced = r2(v.invoiced + e.subtotal); c.set(k, v); }
       if (isPaid(e)) x.paid += e.total; else x.owed += e.total;
       const site = (e.site || 'Site not given').toUpperCase();
       x.sites.set(site, r2((x.sites.get(site) || 0) + e.subtotal));
       g.set(k, x);
     }
-    return [...g.values()].map((x) => ({ ...x, invoiced: r2(x.invoiced), paid: r2(x.paid), owed: r2(x.owed), draft: r2(x.draft), sites: [...x.sites.entries()].sort((a, b) => b[1] - a[1]), list: x.list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.ref || '').localeCompare(a.ref || '')) })).sort((a, b) => b.invoiced - a.invoiced);
+    return [...g.values()].map((x) => ({ ...x, invoiced: r2(x.invoiced), paid: r2(x.paid), owed: r2(x.owed), draft: r2(x.draft), byContact: [...(x.byContact?.values() || [])].sort((a, b) => b.invoiced - a.invoiced), sites: [...x.sites.entries()].sort((a, b) => b[1] - a[1]), list: x.list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.ref || '').localeCompare(a.ref || '')) })).sort((a, b) => b.invoiced - a.invoiced);
   };
   const customers = group((e) => e.cust || '—', true);
   const work = group((e) => e.workType || '').map((w) => ({ ...w, label: WORK_TYPES[w.key] || (w.key ? w.key : 'Not set') }));

@@ -1558,6 +1558,7 @@ async function renderBusiness() {
           <div class="biz-inv-tot"><span>Total invoiced ex VAT</span><b>${money(x.invoiced)}</b></div>
           ${x.draft ? `<div class="biz-inv-tot muted"><span>Not sent yet (WIP), not counted</span><b>${money(x.draft)}</b></div>` : ''}
           <p class="small muted biz-wt-key">${[...new Set(x.list.map((e) => e.workType).filter(Boolean))].map((k) => `${esc(k)} = ${esc(WORK_TYPES[k] || k)}`).join(' · ')}</p>
+          ${x.byContact.length > 1 ? `<p class="biz-sub">By contact</p>${x.byContact.map((c) => `<div><span>${esc(c.name)} <small class="muted">${c.n} invoice${c.n === 1 ? '' : 's'}</small></span><b>${money(c.invoiced)}</b></div>`).join('')}` : ''}
           <p class="biz-sub">Sites</p>
           ${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}<button type="button" class="btn sm biz-rename" data-id="${esc(x.key)}" data-name="${esc(x.custName || '')}">${icon('pencil')} Customer name</button></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
     <p class="small muted">Invoiced is the total of that customer's invoices in this period, ex VAT. Owed is their unpaid invoices, inc VAT. Tap a customer to see their invoices and sites, and to set the customer name.</p>
