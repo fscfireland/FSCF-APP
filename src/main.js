@@ -1594,7 +1594,16 @@ async function renderBusiness() {
     </div>
 
     <h2 class="h2">Top sites</h2>
-    <div class="doc-list">${s.siteRows.map((x) => `<div class="doc-row"><span class="q-main"><b>${esc(x.key)}</b><small>${esc(x.custName || '')} · ${x.n} invoice${x.n === 1 ? '' : 's'}</small></span><span class="q-amt"><b>${money(x.invoiced)}</b></span></div>`).join('') || '<p class="muted small">None.</p>'}</div>
+    <div class="doc-list">${s.siteRows.map((x, i) => { const custs = [...new Set(x.list.map((e) => e.custName || e.cust))]; return `<button type="button" class="doc-row biz-cust biz-site" data-i="${i}"><span class="q-main"><b>${esc(x.key)}</b><small>${esc(custs.join(', '))} · ${x.n} invoice${x.n === 1 ? '' : 's'}</small></span><span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}${x.draft ? `<small class="biz-wip-amt">${money(x.draft)} WIP</small>` : ''}</span></button>
+        <div class="biz-sites biz-site-drop" data-si="${i}" hidden>
+          <p class="biz-sub">Invoices <span class="muted">${x.list.length}</span></p>
+          ${x.list.map((e) => { const draft = isDraftInv(e); const late = !draft && !isPaid(e) && e.due && e.due < today(); return `<button type="button" class="biz-open biz-inv ${draft ? 'is-draft' : ''}" data-id="${esc(e.id)}" data-src="${e.src}"><span><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''}${e.workType ? ` <i class="biz-wt" title="${esc(WORK_TYPES[e.workType] || '')}">${esc(e.workType)}</i>` : ''}</b><small>${fmtDate(e.date)} · ${esc(e.custName || e.cust)}${e.contact && e.contact.toUpperCase() !== (e.custName || '').toUpperCase() ? ' · ' + esc(e.contact) : ''}</small></span><span class="q-amt"><b>${money(e.subtotal)}</b><small class="${isPaid(e) || draft ? 'muted' : late ? 'ps-warn' : ''}">${isPaid(e) ? 'Paid' : draft ? 'Not sent yet (' + esc(e.status) + ')' : late ? 'Overdue' : 'Unpaid'}</small></span></button>`; }).join('')}
+          <div class="biz-inv-tot"><span>Total invoiced ex VAT</span><b>${money(x.invoiced)}</b></div>
+          ${x.draft ? `<div class="biz-inv-tot muted"><span>Not sent yet (WIP), not counted</span><b>${money(x.draft)}</b></div>` : ''}
+          <p class="small muted biz-wt-key">${[...new Set(x.list.map((e) => e.workType).filter(Boolean))].map((k) => `${esc(k)} = ${esc(WORK_TYPES[k] || k)}`).join(' · ')}</p>
+          ${x.byContact.length > 1 ? `<p class="biz-sub">By contact</p>${x.byContact.map((c) => `<div><span>${esc(c.name)} <small class="muted">${c.n} invoice${c.n === 1 ? '' : 's'}</small></span><b>${money(c.invoiced)}</b></div>`).join('')}` : ''}
+        </div>`; }).join('') || '<p class="muted small">None.</p>'}</div>
+    <p class="small muted">The 15 sites with the most work invoiced in this period (ex VAT). Tap a site to see its invoices.${s.noSite?.n ? ` ${s.noSite.n} invoice${s.noSite.n === 1 ? '' : 's'} (${money(s.noSite.invoiced)}) have no site in the workbook (LOCATION and delivery address blank, or only the contact's name), so they are not in this list; they still show under their customer.` : ''}</p>
 
     ${arc ? '' : `<h2 class="h2" id="biz-rem-h">Reminders: calendar and email <span class="muted">${agenda.length}</span></h2>
     <section class="panel biz-rem">
@@ -1693,7 +1702,8 @@ async function renderBusiness() {
     const v = bars[+b.dataset.i];
     $('#biz-read').textContent = `${v.label} · ${money(v.v)} ex VAT`;
   }));
-  $$('.biz-cust').forEach((r) => (r.onclick = () => { const x = $(`.biz-sites[data-i="${r.dataset.i}"]`); x.hidden = !x.hidden; }));
+  $$('.biz-cust:not(.biz-site)').forEach((r) => (r.onclick = () => { const x = $(`.biz-sites[data-i="${r.dataset.i}"]:not(.biz-site-drop)`); x.hidden = !x.hidden; }));
+  $$('.biz-site').forEach((r) => (r.onclick = () => { const x = $(`.biz-site-drop[data-si="${r.dataset.i}"]`); x.hidden = !x.hidden; }));
   $$('.biz-rename').forEach((b) => (b.onclick = async () => {
     const r = await dialog({
       title: `Customer name · ${b.dataset.id}`,

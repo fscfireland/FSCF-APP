@@ -170,7 +170,9 @@ export function summarise(ledger, year = '', todayIso = new Date().toISOString()
   };
   const customers = group((e) => e.cust || '—', true);
   const work = group((e) => e.workType || '').map((w) => ({ ...w, label: WORK_TYPES[w.key] || (w.key ? w.key : 'Not set') }));
-  const siteRows = group((e) => (e.site || 'Not set').toUpperCase()).slice(0, 15);
+  const allSites = group((e) => (e.site || 'Site not given').toUpperCase(), true);
+  const siteRows = allSites.filter((x) => x.n && x.key !== 'SITE NOT GIVEN').slice(0, 15);
+  const noSite = allSites.find((x) => x.key === 'SITE NOT GIVEN') || null;
 
   const costed = invs.filter((e) => e.cost);
   const mat = sum(costed.map((e) => e.cost), 'materials');
@@ -184,7 +186,7 @@ export function summarise(ledger, year = '', todayIso = new Date().toISOString()
     owed: sum(unpaid, 'total'), overdue, overdueTotal: sum(overdue, 'total'), notDue, paid, ageing,
     quoted: sum(quotes, 'subtotal'), won, lost, open, openTotal: sum(open, 'subtotal'),
     winRate: won.length + lost.length ? Math.round((won.length / (won.length + lost.length)) * 100) : null,
-    months, byYear, customers, work, siteRows, cost,
+    months, byYear, customers, work, siteRows, noSite, cost,
     avgDaysToPay: (() => { const l = paid.filter((e) => e.paidOn && e.date); return l.length ? Math.round(l.reduce((a, e) => a + dayDiff(e.date, e.paidOn), 0) / l.length) : null; })(),
   };
 }
