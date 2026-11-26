@@ -55,3 +55,4 @@
    - Connect Supabase to Claude.
 4. **Later:** Finnan as a second user, sharing with clients, report templates, links to the quotes and invoices workbook.
 5. **Other inspection types** (planned, to be discussed): the app is built so the inspection itself is configurable. The question list, statuses (status schemes), defects, actions and materials are already lists rather than fixed code, so other survey types such as fire stopping or compartmentation can reuse the same plans, pins, history and reports. The likely next step is an "inspection type" per project that brings its own set of lists.
+- `src/business.js` – Business page figures: ledger from workbook register + app quotes/invoices, year summary, overdue ageing, customers, work types, costs from SERV PD tabs, Excel summary.

@@ -47,6 +47,7 @@ export function tabName(doc) {
 }
 
 const excelDate = (v) => {
+  if (v == null || v === '') return '';
   if (typeof v === 'number') return new Date(Math.round((v - 25569) * 864e5)).toISOString().slice(0, 10);
   const d = new Date(v);
   return isNaN(d) ? '' : d.toISOString().slice(0, 10);
@@ -109,6 +110,7 @@ function readDocSheet(XLSX, ws) {
     quote: str(head['quote'] ?? head['quote no']),
     custId: str(head['customer id'] ?? head['customer id']),
     po: str(head['po no'] ?? ''),
+    due: excelDate(head['due date'] ?? null),
     custLines, siteLines, items, notes, sum, p1, clauses, termsTitle: iT2 >= 0 ? A(iT2) : '',
   };
 }
@@ -122,7 +124,8 @@ export async function readWorkbook(file, onProgress = () => {}) {
   if (!docs.length) throw new Error('No quote or invoice tabs like "(343) CHES-001 A-229 Q" were found in this workbook.');
   const extra = ['SERV PD MASTER', 'SUMMARY', 'FD WORKS QUOTE SAMPLE', 'FD INSP QUOTE SAMPLE', 'INV EXAMPLE'].filter((n) => names.includes(n));
   onProgress(`Reading ${docs.length} quotes and invoices…`);
-  const wb = XLSX.read(data, { type: 'array', sheets: [...docs.map((d) => d.name), ...extra], cellStyles: false, cellHTML: false });
+  const pdTabs = names.filter((n) => !DOC_RE.test(n) && /SERV\s*PD[- ]?\d+/i.test(n));
+  const wb = XLSX.read(data, { type: 'array', sheets: [...docs.map((d) => d.name), ...extra, ...pdTabs], cellStyles: false, cellHTML: false });
 
   // sequence
   const pdNos = names.map((n) => /PD[- ]0*(\d+)/i.exec(n)).filter(Boolean).map((m) => +m[1]);
@@ -153,7 +156,7 @@ export async function readWorkbook(file, onProgress = () => {}) {
     try { x = readDocSheet(XLSX, ws); } catch { continue; }
     const rg = reg[d.name] || reg[d.name.replace(/\s+/g, ' ')] || {};
     const workType = rg.workType || '';
-    register.push({ sheet: d.name, tab: d.tab, kind: d.kind, part: d.part, cust: d.cust, quote: d.quote, inv: d.inv, date: x.date, subtotal: x.sum.subtotal ?? null, total: x.sum.total ?? null, status: rg.status || '', workType, location: rg.location || x.siteLines[0] || '', po: x.po, items: x.items, notes: x.notes, vatRate: x.sum.vatRate ?? null, siteLines: x.siteLines });
+    register.push({ sheet: d.name, tab: d.tab, kind: d.kind, part: d.part, cust: d.cust, quote: d.quote, inv: d.inv, date: x.date, due: x.due || '', paidOn: rg.paidOn || '', subtotal: x.sum.subtotal ?? null, total: x.sum.total ?? null, status: rg.status || '', workType, location: rg.location || x.siteLines[0] || '', po: x.po, items: x.items, notes: x.notes, vatRate: x.sum.vatRate ?? null, siteLines: x.siteLines });
     const c = (customers[d.cust] ||= { id: d.cust, lines: [], sites: {}, vatRate: null, last: '' });
     if (x.custLines.length && (x.date || '') >= (c.last || '')) { c.lines = x.custLines; c.last = x.date || c.last; }
     if (x.sum.vatRate != null && (x.date || '') >= (c.vatDate || '')) { c.vatRate = x.sum.vatRate; c.vatDate = x.date; }
@@ -182,6 +185,12 @@ export async function readWorkbook(file, onProgress = () => {}) {
     }
   }
 
+  // cost build-ups from the pricing documents ("CHES-001 SERV PD-031")
+  const pds = [];
+  for (const n of pdTabs) {
+    try { const c = readPdCosts(XLSX, wb.Sheets[n]); if (c) pds.push({ sheet: n, cust: (/^([A-Z0-9]+-\d{3})/i.exec(n)?.[1] || '').toUpperCase(), pd: 'PD-' + pad3(+/PD[- ]?0*(\d+)/i.exec(n)[1]), ...c }); } catch { /* unreadable tab */ }
+  }
+
   // terms and company details from the samples
   const sample = (n) => (wb.Sheets[n] ? readDocSheet(XLSX, wb.Sheets[n]) : null);
   const works = sample('FD WORKS QUOTE SAMPLE');
@@ -204,8 +213,29 @@ export async function readWorkbook(file, onProgress = () => {}) {
     sourceName: file.name, importedAt: new Date().toISOString(), seq,
     customers: Object.values(customers).sort((a, b) => a.id.localeCompare(b.id)),
     register, pastLines: [...pastLines.values()].sort((a, b) => (b.date || '').localeCompare(a.date || '')).slice(0, 4000),
-    rates, terms, company,
+    rates, terms, company, pds,
   };
+}
+
+// A pricing document's totals: materials (PRICE), LABOUR, EX MARGIN and WITH
+// MARGIN, summed over each door's TOTALS row. Values are the ones Excel saved.
+export function readPdCosts(XLSX, ws) {
+  if (!ws) return null;
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
+  let col = null;
+  const t = { materials: 0, labour: 0, exMargin: 0, sell: 0, doors: 0 };
+  for (const r of rows) {
+    const cells = (r || []).map((v) => str(v).toUpperCase());
+    const iL = cells.indexOf('LABOUR');
+    if (iL > 0 && cells.includes('PRICE')) { col = { p: cells.indexOf('PRICE'), l: iL, x: cells.indexOf('EX MARGIN'), w: cells.indexOf('WITH MARGIN') }; continue; }
+    if (col && cells.some((c) => /^TOTALS?( EX VAT)?$/.test(c))) {
+      const v = (i) => (i >= 0 ? num(r[i]) || 0 : 0);
+      t.materials += v(col.p); t.labour += v(col.l); t.exMargin += v(col.x); t.sell += v(col.w); t.doors++;
+    }
+  }
+  if (!t.doors || !(t.sell > 0)) return null;
+  for (const k of ['materials', 'labour', 'exMargin', 'sell']) t[k] = r2(t[k]);
+  return t;
 }
 
 // ---------- Numbers and money ----------
@@ -456,7 +486,7 @@ export async function quoteXlsx(doc, book, pd = null) {
   XLSX.utils.book_append_sheet(wb, ws, name);
   // SUMMARY register row (columns A–M)
   const reg = [['Tab #', 'Sheet Name', 'Document Type', 'Customer ID', 'Quote No', 'LOCATION', 'WORK TYPE', 'Invoice No', 'Paid', 'Date', 'Subtotal (€)', 'Total (€)', 'Paid On Date'],
-    [doc.tab, tabName(doc), isInv ? 'Invoice' : 'Quote', doc.cust.id, doc.quote, ((doc.site?.lines || [])[0] || '').toUpperCase(), doc.workType, doc.inv || '', doc.status, doc.date, t.subtotal, t.total, '']];
+    [doc.tab, tabName(doc), isInv ? 'Invoice' : 'Quote', doc.cust.id, doc.quote, ((doc.site?.lines || [])[0] || '').toUpperCase(), doc.workType, doc.inv || '', doc.status, doc.date, t.subtotal, t.total, doc.paidOn || '']];
   const ws2 = XLSX.utils.aoa_to_sheet(reg);
   ws2['!cols'] = [{ wch: 6 }, { wch: 34 }, { wch: 10 }, { wch: 11 }, { wch: 9 }, { wch: 30 }, { wch: 9 }, { wch: 9 }, { wch: 6 }, { wch: 11 }, { wch: 12 }, { wch: 12 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, ws2, 'SUMMARY ROW');

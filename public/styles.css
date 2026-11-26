@@ -1254,3 +1254,49 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .sm-status { min-height: 40px; max-width: 46%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 0 8px; font-size: 14px; }
 .ph-sitem .q-main small.ps-warn { display: block; }
 .ph-sitem { grid-template-columns: 1fr auto; }
+
+/* Business page */
+.biz-years { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 12px; }
+.ph-stats > .biz-alert { border-color: color-mix(in srgb, var(--st-fail) 55%, var(--line)); background: color-mix(in srgb, var(--st-fail) 8%, var(--surface)); }
+.ph-stats > .biz-alert b { color: var(--st-fail); }
+.biz-chart { padding: 10px 12px 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); margin-bottom: 14px; }
+.biz-bars { display: flex; align-items: flex-end; gap: 2px; height: 140px; border-bottom: 1px solid var(--line); }
+.biz-bar { flex: 1; height: 100%; display: flex; align-items: flex-end; border: 0; background: none; padding: 0; cursor: pointer; min-width: 0; }
+.biz-bar span { display: block; width: 100%; height: var(--h); background: var(--st-repaired); border-radius: 4px 4px 0 0; opacity: .85; }
+.biz-bar.on span, .biz-bar:hover span { opacity: 1; outline: 2px solid var(--ink); outline-offset: 1px; }
+.biz-axis { display: flex; gap: 2px; }
+.biz-axis span { text-align: center; font-size: 11px; color: var(--ink-2); padding-top: 3px; }
+.biz-read { margin: 4px 0 0; }
+.biz-ageing { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; margin-bottom: 8px; }
+.biz-ageing > div { display: grid; gap: 1px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); font-size: 12px; color: var(--ink-2); }
+.biz-ageing b { font-size: 14px; color: var(--ink); }
+.biz-row .biz-pay { flex: none; }
+.biz-row .q-main small.ps-warn { display: block; }
+.biz-fold { margin: 10px 0; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 0 10px; }
+.biz-fold > summary { padding: 12px 2px; cursor: pointer; display: flex; justify-content: space-between; gap: 8px; }
+.biz-fold[open] > summary { border-bottom: 1px solid var(--line); margin-bottom: 8px; }
+.biz-fold .doc-list { padding-bottom: 8px; }
+.biz-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.biz-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.biz-table th, .biz-table td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+.biz-table th { font-size: 12px; color: var(--ink-2); font-weight: 600; }
+.biz-table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.biz-table td small { display: block; color: var(--ink-2); font-size: 12px; }
+.biz-cust { cursor: pointer; }
+.biz-sites td { background: var(--surface-2); }
+.biz-sites td > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 2px 0; }
+.biz-work { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.biz-work > div { display: grid; grid-template-columns: minmax(0, 9em) 1fr auto; align-items: center; gap: 10px; font-size: 14px; }
+.biz-work i { display: block; height: 10px; width: var(--w); min-width: 2px; background: var(--st-repaired); border-radius: 0 4px 4px 0; }
+.biz-src ul { margin: 4px 0 0; padding-left: 18px; }
+@media (max-width: 420px) { .biz-ageing { grid-template-columns: repeat(2, minmax(0, 1fr)); } .biz-table th:nth-child(3), .biz-table td:nth-child(3) { display: none; } }
+.doc-row.biz-row { grid-template-columns: 1fr; gap: 8px; }
+.biz-open { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; width: 100%; border: 0; background: none; padding: 0; margin: 0; text-align: left; font: inherit; color: inherit; box-shadow: none; min-height: 0; }
+.biz-open .q-main small { display: block; }
+.biz-row .biz-pay { justify-self: end; }
+.biz-table th { white-space: normal; }
+@media (max-width: 480px) { .biz-table th, .biz-table td { padding: 7px 8px; font-size: 13px; } .biz-table th:nth-child(3), .biz-table td:nth-child(3) { display: none; } }
+.doc-row.biz-cust { grid-template-columns: minmax(0, 1fr) auto; cursor: pointer; }
+.biz-cust .q-main small { display: block; }
+.biz-sites { margin: -4px 6px 4px; padding: 8px 12px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; background: var(--surface-2); }
+.biz-sites > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 2px 0; }

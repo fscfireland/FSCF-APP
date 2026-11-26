@@ -36,6 +36,7 @@ import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript, saveFile, safeName } from './files.js';
+import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
 const reader = async () => { await loadScript('reader.js'); return window.FSCFReader; };
 const aiDoors = async (...a) => (await reader()).aiDoors(...a);
@@ -237,6 +238,7 @@ async function render() {
     else if (state.view === 'library') await renderLibrary();
     else if (state.view === 'quotes') await renderQuotes();
     else if (state.view === 'pricing') await renderPricing();
+    else if (state.view === 'business') await renderBusiness();
     else if (state.view === 'quote') await renderQuoteDoc();
     else if (state.view === 'assistant') await renderAssistant();
   } else if (state.view === 'plan') {
@@ -331,6 +333,7 @@ async function renderProjects() {
       ${liveHtml}
       <button class="lib-card ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Ask about your sites, doors and reports, or have it update them for you</small></span>${icon('more')}</button>
       <button class="lib-card" id="my-pricing">${icon('list')}<span><b>Pricing Hub</b><small>${priced() ? 'Price list, site prices, margin, quotes and invoices in one place' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
+      <button class="lib-card" id="my-business">${icon('sheet')}<span><b>Business</b><small>${priced() ? 'Overdue and paid invoices, year totals, customers, costs and margin' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>${priced() ? 'Same numbers, customers and prices as your Excel workbook' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -361,6 +364,7 @@ async function renderProjects() {
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'pricing' }); });
+  $('#my-business')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'business' }); });
   $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
     if (await backupEverythingToDrive(await db.all('projects'))) return;
@@ -980,6 +984,7 @@ async function renderQuoteDoc() {
     // field edits
     $$('[data-k]', el).forEach((inp) => (inp.oninput = inp.onchange = () => {
       cur = { ...cur, [inp.dataset.k]: inp.dataset.num ? Number(inp.value) || 0 : inp.dataset.k === 'days' ? +inp.value || 30 : inp.value };
+      if (inp.dataset.k === 'status') cur.paidOn = inp.value === 'P' ? (cur.paidOn || today()) : '';
       save();
       if (inp.tagName === 'SELECT' || inp.dataset.num) redrawTotals();
     }));
@@ -1293,7 +1298,7 @@ function wireMoneyRows(root) {
   $$('.sm-status', root).forEach((s) => (s.onchange = async () => {
     const d = await db.get('quotes', s.dataset.id);
     if (!d) return;
-    await db.put('quotes', { ...d, status: s.value });
+    await db.put('quotes', { ...d, status: s.value, paidOn: s.value === 'P' ? (d.paidOn || today()) : '' });
     toast(`${d.kind === 'INV' ? d.inv : d.quote}: ${Q_STATUSES[s.value]}`);
     refresh();
   }));
@@ -1359,6 +1364,7 @@ async function renderPricing() {
       <div><span>Open quotes</span><b>${openQ.length}</b><small>${money(sum(openQ))}</small></div>
       <div><span>Unpaid invoices</span><b>${unpaid.length}</b><small>${money(sum(unpaid))}</small></div>
     </div>
+    <button class="lib-card" id="ph-biz">${icon('sheet')}<span><b>Business overview</b><small>Overdue and paid invoices, year totals, customers, costs and margin</small></span>${icon('more')}</button>
     <h2 class="h2">By site</h2>
     ${bySite.length ? `<div class="doc-list">${bySite.map(({ p, m }) => `<button class="doc-row ph-sitem" data-id="${p.id}"><span class="q-main"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([m.qs.length ? `${m.qs.length} quote${m.qs.length === 1 ? '' : 's'} ${money(m.quoted)}` : '', m.invs.length ? `${m.invs.length} invoice${m.invs.length === 1 ? '' : 's'} ${money(m.invoiced)}` : '', m.paid ? `paid ${money(m.paid)}` : ''].filter(Boolean).join(' · ') || 'Nothing quoted yet')}</small>${m.unquoted ? `<small class="ps-warn">${m.unquoted} failed door${m.unquoted === 1 ? '' : 's'} not quoted yet</small>` : ''}</span><span class="q-amt">${m.owed ? `<b>${money(m.owed)}</b><small class="muted">owed</small>` : ''}</span></button>`).join('')}</div>` : '<p class="muted small">No site has quotes, invoices or failed doors yet.</p>'}
     <h2 class="h2">Prices</h2>
@@ -1385,9 +1391,171 @@ async function renderPricing() {
   $$('.ph-own').forEach((b) => (b.onclick = async () => { const p = projects.find((x) => x.id === b.dataset.id); if (p) await editSitePrices(p, null); }));
   $('#ph-rule').onchange = (e) => saveLists({ pricingRule: e.target.value });
   $('#ph-quotes').onclick = () => go({ view: 'quotes' });
+  $('#ph-biz').onclick = () => go({ view: 'business' });
   $('#ph-new').onclick = () => newQuoteDoc('Q');
   $('#ph-newinv').onclick = () => newInvoiceFrom(null);
   $('#ph-fromrep').onclick = () => quoteFromReport(null);
+}
+
+// ---------- Business ----------
+// Owner-only overview of the business, worked out from the owner's own records
+// (workbook + app quotes and invoices, see business.js for every rule and its source).
+async function bizMarks() { return (await db.get('settings', 'bizMarks'))?.marks || {}; }
+async function businessData() {
+  const book = await quoteBook();
+  const appDocs = await db.all('quotes');
+  // app quotes made from a report before costs were stored: price them again
+  const extra = {};
+  for (const d of appDocs) {
+    if (d.kind === 'INV' || d.matCost != null || !d.projectId || !book) continue;
+    try {
+      const pd = priceDoors(await db.projectDoors(d.projectId), book, d.mult || pricingRule());
+      const ids = new Set((d.items || []).map((i) => i.doorId).filter(Boolean));
+      const doors = pd.doors.filter((x) => ids.has(x.doorId));
+      if (doors.length) extra[d.id] = { materials: doors.reduce((a, x) => a + x.materials, 0), labour: doors.reduce((a, x) => a + x.labour, 0) + (d.preLimsCost || 0), from: d.pd || 'app quote' };
+    } catch { /* site removed */ }
+  }
+  return { book, appDocs, ledger: buildLedger(book, appDocs, await bizMarks(), extra) };
+}
+async function setPaid(e, paid) {
+  if (e.src === 'app') {
+    const d = await db.get('quotes', e.id);
+    if (d) await db.put('quotes', { ...d, status: paid ? 'P' : 'UP', paidOn: paid ? today() : '' });
+  } else {
+    const marks = await bizMarks();
+    marks[e.id] = paid ? { status: 'P', paidOn: today() } : { status: 'UP', paidOn: '' };
+    await db.put('settings', { id: 'bizMarks', marks });
+  }
+  toast(`${e.ref}${e.part ? ' ' + e.part : ''}: ${paid ? 'paid' : 'unpaid'}`);
+  refresh();
+}
+const pct = (a, b) => (b ? `${Math.round((a / b) * 100)}%` : '–');
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+function bizChart(bars) {
+  const max = Math.max(1, ...bars.map((b) => b.v));
+  const W = 100 / bars.length;
+  return `<div class="biz-chart" role="img" aria-label="Work invoiced ex VAT">
+    <div class="biz-bars">${bars.map((b, i) => `<button type="button" class="biz-bar" data-i="${i}" style="--h:${Math.max(b.v ? 2 : 0, (b.v / max) * 100)}%" aria-label="${esc(b.label)}: ${money(b.v)}"><span></span></button>`).join('')}</div>
+    <div class="biz-axis">${bars.map((b) => `<span style="width:${W}%">${esc(b.short)}</span>`).join('')}</div>
+    <p class="small muted biz-read" id="biz-read">Tap a bar to see its value. Highest: ${money(max === 1 && !bars.some((b) => b.v) ? 0 : max)}</p>
+  </div>`;
+}
+function invRow(e, { late = false, paid = false } = {}) {
+  return `<div class="doc-row biz-row">
+    <button class="biz-open" data-id="${esc(e.id)}" data-src="${e.src}"><span class="q-kind is-inv">INV</span>
+      <span class="q-main"><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''} · ${esc(e.custName || e.cust)}</b>
+      <small>${esc(e.site || '')}${e.site ? ' · ' : ''}${fmtDate(e.date)}${paid ? (e.paidOn ? ` · paid ${fmtDate(e.paidOn)}` : ' · paid') : ` · due ${fmtDate(e.due)}`}</small>
+      ${late ? `<small class="ps-warn">${e.late} day${e.late === 1 ? '' : 's'} overdue</small>` : ''}</span>
+      <span class="q-amt"><b>${money(e.total)}</b></span></button>
+    <button class="btn sm ${paid ? '' : 'primary'} biz-pay" data-id="${esc(e.id)}" data-paid="${paid ? '0' : '1'}">${paid ? 'Mark unpaid' : 'Mark paid'}</button>
+  </div>`;
+}
+async function renderBusiness() {
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>Business</b><small>Owner only · never shown to the customer</small></div>
+    </header>
+    <main class="page" id="biz-body"></main>`;
+  $('#back').onclick = back;
+  const body = $('#biz-body');
+  if (!priced()) {
+    body.innerHTML = `<p class="muted pad">Locked. Unlock with your owner PIN to see the business figures.</p>
+      <div class="row-btns"><button class="btn primary" id="biz-unlock">${icon('shield')} Unlock</button></div>`;
+    $('#biz-unlock').onclick = () => unlockOwner();
+    return;
+  }
+  const { book, ledger } = await businessData();
+  if (!body.isConnected) return; // the page was redrawn meanwhile
+  const ys = bizYears(ledger);
+  // the year picked on this page, else this year (or the latest year with work)
+  const yr = state.bizYear != null && (state.bizYear === '' || ys.includes(state.bizYear)) ? state.bizYear : ys.includes(today().slice(0, 4)) ? today().slice(0, 4) : (ys[0] || '');
+  const s = summarise(ledger, yr, today());
+  const label = yr || 'all years';
+  const needsReimport = book && !book.pds;
+  const bars = yr ? s.months.map((m) => ({ v: m.invoiced, label: `${MONTHS[m.m]} ${yr} · ${m.n} invoice${m.n === 1 ? '' : 's'} · paid ${money(m.paid)}`, short: MONTHS[m.m].slice(0, 1) }))
+    : s.byYear.map((y) => ({ v: y.invoiced, label: `${y.y} · ${y.n} invoices`, short: y.y.slice(2) }));
+  const c = s.cost;
+  const cs = s.customers;
+  const topWork = Math.max(1, ...s.work.map((w) => w.invoiced));
+  body.innerHTML = `
+    ${!book ? `<div class="backup-warn">${icon('upload')}<span><b>Import your workbook</b><small>Import INVOICES AND QUOTES so every past invoice and quote is counted. Until then only documents made in the app are shown.</small></span><label class="btn sm primary">Import<input type="file" id="biz-import" accept=".xlsx,.xlsm" hidden></label></div>` : ''}
+    ${needsReimport ? `<div class="backup-warn">${icon('upload')}<span><b>Re-import your workbook</b><small>Re-import the latest INVOICES AND QUOTES once to bring in due dates, paid dates and the costs from your SERV PD pricing documents.</small></span><label class="btn sm primary">Re-import<input type="file" id="biz-import" accept=".xlsx,.xlsm" hidden></label></div>` : ''}
+    <div class="biz-years" role="tablist">${[...ys, ''].map((y) => `<button class="chip ${y === yr ? 'is-on' : ''}" data-y="${y}">${y || 'All years'}</button>`).join('')}</div>
+    <div class="ph-stats">
+      <div><span>Work invoiced ${esc(label)}</span><b>${money(s.invoiced)}</b><small>ex VAT · ${s.invs.length} invoice${s.invs.length === 1 ? '' : 's'}</small></div>
+      <div><span>Received ${esc(label)}</span><b>${money(s.received)}</b><small>inc VAT · ${s.paid.length} paid${s.avgDaysToPay != null ? ` · ${s.avgDaysToPay} days to pay on average` : ''}</small></div>
+      <div><span>Owed to you now</span><b>${money(s.owed)}</b><small>inc VAT · ${s.overdue.length + s.notDue.length} unpaid · all years</small></div>
+      <div class="${s.overdue.length ? 'biz-alert' : ''}"><span>Overdue now</span><b>${money(s.overdueTotal)}</b><small>${s.overdue.length} invoice${s.overdue.length === 1 ? '' : 's'} past the due date</small></div>
+    </div>
+    <h2 class="h2">${yr ? `Work invoiced by month, ${esc(yr)}` : 'Work invoiced by year'} <span class="muted small">ex VAT</span></h2>
+    ${bizChart(bars)}
+
+    <h2 class="h2">Overdue <span class="muted">${s.overdue.length}</span></h2>
+    ${s.overdue.length ? `<div class="biz-ageing">${s.ageing.map((a) => `<div><span>${a.label}</span><b>${money(a.total)}</b><small>${a.n}</small></div>`).join('')}</div>
+      <div class="doc-list">${s.overdue.map((e) => invRow(e, { late: true })).join('')}</div>` : '<p class="muted small">Nothing overdue.</p>'}
+
+    <details class="biz-fold" ${s.notDue.length && s.notDue.length < 8 ? 'open' : ''}><summary><b>Unpaid, not due yet</b> <span class="muted">${s.notDue.length} · ${money(s.notDue.reduce((a, e) => a + e.total, 0))}</span></summary>
+      <div class="doc-list">${s.notDue.map((e) => invRow(e)).join('') || '<p class="muted small">None.</p>'}</div></details>
+    <details class="biz-fold"><summary><b>Paid ${esc(label)}</b> <span class="muted">${s.paid.length} · ${money(s.received)}</span></summary>
+      <div class="doc-list">${s.paid.slice(0, 200).map((e) => invRow(e, { paid: true })).join('') || '<p class="muted small">None.</p>'}</div></details>
+
+    <h2 class="h2">Customers <span class="muted">${cs.length}</span></h2>
+    <div class="doc-list">${cs.map((x, i) => `<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${esc(x.key)} · ${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'} · ${pct(x.invoiced, s.invoiced)} of the total</small></span>
+        <span class="q-amt"><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}</span></button>
+        <div class="biz-sites" data-i="${i}" hidden>${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}</div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
+    <p class="small muted">Invoiced is ex VAT; owed is inc VAT. Tap a customer to see their sites.</p>
+
+    <h2 class="h2">Type of work</h2>
+    <div class="biz-work">${s.work.map((w) => `<div><span>${esc(w.label)} <small class="muted">${w.n}</small></span><i style="--w:${(w.invoiced / topWork) * 100}%"></i><b>${money(w.invoiced)}</b></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
+
+    <h2 class="h2">Costs and margin</h2>
+    ${c.n ? `<div class="ps-costs">
+        <div><span>Sales on these jobs (ex VAT)</span><b>${money(c.sell)}</b></div>
+        <div><span>Materials</span><b>${money(c.materials)}</b></div>
+        <div><span>Labour</span><b>${money(c.labour)}</b></div>
+        <div class="ps-tot"><span>Margin</span><b>${money(c.margin)} (${pct(c.margin, c.sell)})</b></div>
+      </div>
+      <p class="small muted">From ${c.n} of ${c.of} invoices: the ones whose quote has a pricing document (SERV PD). Jobs priced without one are not counted here.</p>`
+      : `<p class="muted small">No invoices in this period have a pricing document (SERV PD) to take materials and labour from.${needsReimport ? ' Re-import the workbook to read them.' : ''}</p>`}
+
+    <h2 class="h2">Quotes ${esc(label)}</h2>
+    <div class="ph-stats">
+      <div><span>Quoted</span><b>${money(s.quoted)}</b><small>ex VAT · ${s.quotes.length} quote${s.quotes.length === 1 ? '' : 's'}</small></div>
+      <div><span>Won</span><b>${s.won.length}</b><small>${s.winRate != null ? `${s.winRate}% of decided quotes` : 'invoiced'}</small></div>
+      <div><span>Not proceeding</span><b>${s.lost.length}</b><small>status NP</small></div>
+      <div><span>Still open</span><b>${s.open.length}</b><small>${money(s.openTotal)}</small></div>
+    </div>
+
+    <h2 class="h2">Top sites</h2>
+    <div class="doc-list">${s.siteRows.map((x) => `<div class="doc-row"><span class="q-main"><b>${esc(x.key)}</b><small>${esc(x.custName || '')} · ${x.n} invoice${x.n === 1 ? '' : 's'}</small></span><span class="q-amt"><b>${money(x.invoiced)}</b></span></div>`).join('') || '<p class="muted small">None.</p>'}</div>
+
+    <div class="row-btns"><button class="btn primary" id="biz-xlsx">${icon('sheet')} Excel summary (${esc(label)})</button></div>
+    <section class="panel biz-src"><p class="small"><b>Where these figures come from</b></p><ul class="small muted">
+      <li>Invoices and quotes: ${esc(BIZ_SOURCES.book)}, plus those made in the app${book ? ` (workbook imported ${fmtDate(book.importedAt.slice(0, 10))})` : ''}.</li>
+      <li>Revenue is each invoice's Subtotal ex VAT; money owed is its TOTAL inc VAT.</li>
+      <li>Due date: ${esc(BIZ_SOURCES.due)}.</li>
+      <li>Paid: ${esc(BIZ_SOURCES.paid)}, or marked paid on this page.</li>
+      <li>Costs: ${esc(BIZ_SOURCES.cost)}.</li>
+      <li>Marking an invoice paid here does not change the Excel workbook. Update the SUMMARY register there too.</li>
+    </ul></section>`;
+
+  $$('.biz-years .chip').forEach((b) => (b.onclick = () => { state.bizYear = b.dataset.y; refresh(); }));
+  $$('.biz-bar').forEach((b) => (b.onclick = b.onmouseenter = () => {
+    $$('.biz-bar').forEach((x) => x.classList.toggle('on', x === b));
+    const v = bars[+b.dataset.i];
+    $('#biz-read').textContent = `${v.label} · ${money(v.v)} ex VAT`;
+  }));
+  $$('.biz-cust').forEach((r) => (r.onclick = () => { const x = $(`.biz-sites[data-i="${r.dataset.i}"]`); x.hidden = !x.hidden; }));
+  $$('.biz-pay').forEach((b) => (b.onclick = () => { const e = ledger.find((x) => x.id === b.dataset.id); if (e) setPaid(e, b.dataset.paid === '1'); }));
+  $$('.biz-open').forEach((b) => (b.onclick = () => {
+    if (b.dataset.src === 'app') return go({ view: 'quote', quoteId: b.dataset.id });
+    const e = ledger.find((x) => x.id === b.dataset.id);
+    if (e) dialog({ title: `${e.ref}${e.part ? ' ' + e.part : ''}`, body: `<ul class="sheet-list small"><li>Workbook tab <b>${esc(e.id)}</b></li><li>${esc(e.custName || '')} (${esc(e.cust)})</li><li>${esc(e.site || '')}</li><li>Date ${fmtDate(e.date)} · due ${fmtDate(e.due)}${e.paidOn ? ` · paid ${fmtDate(e.paidOn)}` : ''}</li><li>Subtotal ${money(e.subtotal)} · total ${money(e.total)}</li><li>Status ${esc(Q_STATUSES[e.status] || e.status || 'not set')}</li>${e.cost ? `<li>Materials ${money(e.cost.materials)} · labour ${money(e.cost.labour)} (${esc(e.cost.from)})</li>` : ''}</ul>` });
+  }));
+  $('#biz-xlsx').onclick = async () => { const bz = busy('Making the Excel summary…'); try { await businessXlsx(s, label); } catch (err) { toast(err.message, 'error'); } bz.done(); };
+  const imp = $('#biz-import');
+  if (imp) imp.onchange = async () => { if (imp.files[0]) { await importQuoteBook(imp.files[0]); refresh(); } };
 }
 
 // Home screen: pick any site and collection to price, or the normal list
@@ -1530,6 +1698,8 @@ async function quoteFromReport(project) {
     notes, mult: setup.mult, marginChoice: setup.choice,
     p1Terms: QTERMS.worksQuote.replace('13.5%', `${+(vat * 100).toFixed(1)}%`),
     projectId: project.id, pd: pdNo,
+    matCost: Math.round(priced2.doors.reduce((a, d) => a + d.materials, 0) * 100) / 100,
+    labCost: Math.round(priced2.doors.reduce((a, d) => a + d.labour, 0) * 100) / 100,
   });
   go({ view: 'quote', quoteId: doc.id });
 }

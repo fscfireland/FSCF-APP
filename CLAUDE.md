@@ -93,6 +93,11 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - Done recently: Replacement fields + production list; BM TRADA Q-Mark DCS 058 checklist (`qmark`),
   ART picker with revisions (`src/arts.js`), door grade level, architrave survey (MFSS 058, tick per door);
   ironmongery maintenance (on by default); capitals house style in app, PDFs and Excel; Drive backups.
+- Business page (owner-only, home screen and Pricing Hub, `src/business.js`): overdue / unpaid / paid invoices,
+  year totals by month, customers and their sites, type of work, materials / labour / margin from the SERV PD
+  pricing tabs, quote win rate, Excel summary. Built from the imported workbook + app documents; "Mark paid" on
+  workbook invoices is stored in settings `bizMarks` (the Excel file is not changed). Next step the owner wants:
+  customer portal / website login per customer (needs the Supabase online version).
 - Left for later (owner's choice): the rest of the BM TRADA paperwork – Scheme Procedures Acceptance (SPA 058,
   prescribed wording, client signature), Record of Maintenance Activities (RMA 058) and the RMA pack PDF,
   RMA register (LMR/CMR 058), photo tags before/during/after, maintenance label fitted, operative initials,
