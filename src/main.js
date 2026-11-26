@@ -4375,6 +4375,27 @@ async function drawSheet(door) {
       }).join('')
       : '<p class="muted small">No defects recorded.</p>';
     const setMat = (id, patch) => queue({ materials: current.materials.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
+    // A typed-in product joins the price list (Settings › Products) so it can be
+    // picked on any site from now on; later edits on this line update that entry.
+    const rememberProduct = async (id) => {
+      const m = (current.materials || []).find((x) => x.id === id);
+      const name = (m?.name || '').trim();
+      if (!m || !name) return;
+      const all = lists.materials || [];
+      const own = m.libId && all.find((x) => x.id === m.libId);
+      const same = all.find((x) => (x.name || '').trim().toLowerCase() === name.toLowerCase());
+      if (own) {
+        if (own.name === name && (Number(own.cost) || 0) === (Number(m.cost) || 0)) return;
+        if (same && same.id !== own.id) return; // renamed to an item that already exists: leave the list alone
+        await saveLists({ materials: all.map((x) => (x.id === own.id ? { ...x, name, cost: Number(m.cost) || x.cost || 0 } : x)) });
+        return;
+      }
+      if (same) { setMat(id, { libId: same.id }); return; }
+      const item = { id: db.uid(), cat: m.cat && m.cat !== 'Other' ? m.cat : matCat({ name }), name, unit: m.unit || 'each', cost: Number(m.cost) || 0 };
+      await saveLists({ materials: [...all, item] });
+      setMat(id, { libId: item.id });
+      toast(`"${name}" saved to your products, ready to pick on any site`);
+    };
     $$('.defect', el).forEach((row) => {
       const i = Number(row.dataset.i);
       const d = current.defects[i];
@@ -4401,14 +4422,15 @@ async function drawSheet(door) {
       // tick several products at once, each with its quantity
       $('.dp-pick', row)?.addEventListener('click', async () => {
         const { cat, opts } = prodOptions(d);
-        const mine = (current.materials || []).filter((m) => m.forKey === key && !m.custom);
+        const optNames = new Set(opts.map((o) => o.name.trim().toLowerCase()));
+        const mine = (current.materials || []).filter((m) => m.forKey === key && (!m.custom || optNames.has((m.name || '').trim().toLowerCase())));
         const groups = [...new Set(opts.map((o) => matCat(o)))].sort((x, y) => (y === cat) - (x === cat));
         const r = await dialog({
           title: `Products for: ${d.label}`,
           body: `<p class="small muted">Tick everything this fault needs and set the quantities. Untick to take a product off.</p>
             ${groups.map((g) => `${groups.length > 1 ? `<h3 class="pp-h">${esc(g)}</h3>` : ''}<div class="pp-list">
               ${opts.map((o, j) => [o, j]).filter(([o]) => matCat(o) === g).map(([o, j]) => {
-                const have = mine.find((m) => m.name === o.name);
+                const have = mine.find((m) => m.name.trim().toLowerCase() === o.name.trim().toLowerCase());
                 return `<label class="pp-row"><input type="checkbox" name="c${j}" ${have ? 'checked' : ''}>
                   <span><b>${esc(o.name)}</b>${priced() && o.cost ? `<small>${euro(o.cost)} ${esc(o.unit && o.unit !== 'each' ? 'per ' + o.unit : 'each')}</small>` : ''}</span>
                   <input class="pp-qty" type="number" inputmode="decimal" min="0" step="any" name="q${j}" value="${esc(have ? have.qty ?? 1 : 1)}" aria-label="Quantity"></label>`;
@@ -4421,9 +4443,9 @@ async function drawSheet(door) {
         });
         if (r.value !== true) return;
         const keepOthers = (current.materials || []).filter((m) => m.forKey !== key);
-        const typed = (current.materials || []).filter((m) => m.forKey === key && m.custom);
+        const typed = (current.materials || []).filter((m) => m.forKey === key && m.custom && !optNames.has((m.name || '').trim().toLowerCase()));
         const chosen = opts.map((o, j) => [o, j]).filter(([, j]) => r.data['c' + j] && Number(r.data['q' + j]) > 0).map(([o, j]) => {
-          const have = mine.find((m) => m.name === o.name);
+          const have = mine.find((m) => m.name.trim().toLowerCase() === o.name.trim().toLowerCase());
           return { ...(have || { id: db.uid(), spec: '' }), name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, cat: matCat(o), forKey: key, qty: Number(r.data['q' + j]) };
         });
         queue({ materials: [...keepOthers, ...chosen, ...typed] });
@@ -4443,9 +4465,11 @@ async function drawSheet(door) {
           nm.oninput = () => { setMat(id, { name: nm.value }); drawMaterials(); };
           // an empty free-text line is dropped when you leave it
           nm.onblur = () => setTimeout(() => {
-            if (!nm.value.trim() && !pr.contains(document.activeElement)) { queue({ materials: current.materials.filter((m) => m.id !== id) }); drawDefects(); drawMaterials(); }
+            if (!nm.value.trim() && !pr.contains(document.activeElement)) { queue({ materials: current.materials.filter((m) => m.id !== id) }); drawDefects(); drawMaterials(); return; }
+            rememberProduct(id);
           }, 150);
           $('.dp-cost', pr)?.addEventListener('input', (e) => { setMat(id, { cost: Number(e.target.value) || 0 }); drawMaterials(); });
+          $('.dp-cost', pr)?.addEventListener('change', () => rememberProduct(id));
         } else {
           $('.dp-name', pr).onchange = (e) => {
             const o = (lists.materials || []).find((x) => x.id === e.target.value);
