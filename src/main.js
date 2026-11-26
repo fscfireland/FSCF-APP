@@ -401,6 +401,7 @@ async function renderProjects() {
         </div>
       </div>` : ''}
       <div id="project-groups">${groupedHtml}</div>
+      <p class="app-ver muted small">${esc(VERSION_TAG)} · close and reopen the app to get the latest version</p>
       ${projects.length ? '' : `
         <section class="empty">
           <div class="empty-ico">${icon('door')}</div>
@@ -5417,7 +5418,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.53.1';
+const VERSION_TAG = 'app v0.53.2';
+// one line for the "Updated" notice; change it with every release
+const WHATS_NEW = 'logo colours, simpler site search';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -7852,6 +7855,20 @@ async function start() {
   render();
   window.addEventListener('fscf-toast', (e) => toast(e.detail));
   startVoice(); // voice notes, where Claude offers dictation
+  // Inside the Claude app a published update can't announce itself while the app is open,
+  // so tell the owner once, the first time the app opens on a new version.
+  try {
+    if (lists.seenVersion && lists.seenVersion !== VERSION_TAG) {
+      const bar = document.createElement('div');
+      bar.id = 'update-bar';
+      bar.className = 'update-bar';
+      bar.innerHTML = `<span>${icon('check')} Updated to ${esc(VERSION_TAG)}: ${esc(WHATS_NEW)}</span><button class="btn sm primary" type="button">OK</button>`;
+      bar.querySelector('button').onclick = () => bar.remove();
+      document.body.append(bar);
+      setTimeout(() => bar.remove(), 15000);
+    }
+    if (lists.seenVersion !== VERSION_TAG) saveLists({ seenVersion: VERSION_TAG });
+  } catch { /* a notice only */ }
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.claude) {
     // When a new version has been published, offer a one-tap refresh
     const hadController = !!navigator.serviceWorker.controller;

@@ -153,6 +153,9 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   buttons, --accent copper for highlights; dark mode uses copper buttons). Red is kept only for Fail. Phone top bar
   (theme-color / manifest) and app icon are charcoal. PDF title bar charcoal with a copper rule (report.js C.accent/C.copper).
   Home: the work-type filter chips under the site search were removed (owner); the search matches site, client, area and type.
+- Update notice (v0.53.2): inside the Claude app a republish can't tell an open page, so on the first open of a new
+  version the app shows "Updated to app vX: <WHATS_NEW>" once (settings `seenVersion`). **Change WHATS_NEW in main.js
+  with every release** (one short line). Home footer shows the version and "close and reopen the app to get the latest".
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
