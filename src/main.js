@@ -5004,20 +5004,32 @@ function wireSheetJump(el) {
   const setTop = () => sheet.style.setProperty('--sheet-head-h', `${head ? head.offsetHeight : 0}px`);
   setTop();
   const visible = (t) => t && !t.hidden && t.offsetParent !== null;
+  // only change what differs, and ignore changes inside the bar itself, so
+  // updating the bar never sets off another update
   const sync = () => {
     for (const c of $$('.chip', bar)) {
-      c.hidden = !visible($('#' + c.dataset.to, el));
+      const hide = !visible($('#' + c.dataset.to, el));
+      if (c.hidden !== hide) c.hidden = hide;
       const n = c.querySelector('b[data-n]');
-      if (n) n.textContent = ($('#' + n.dataset.n, el)?.textContent || '').replace(/[()]/g, '').trim();
+      if (n) {
+        const v = ($('#' + n.dataset.n, el)?.textContent || '').replace(/[()]/g, '').trim();
+        if (n.textContent !== v) n.textContent = v;
+      }
     }
   };
   sync();
-  const mo = new MutationObserver(() => sync());
+  let queued = false;
+  const mo = new MutationObserver((list) => {
+    if (queued || list.every((m) => bar.contains(m.target))) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; sync(); });
+  });
   mo.observe($('.sheet-body', el) || el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
   for (const c of $$('.chip', bar)) {
     c.onclick = () => {
       const t = $('#' + c.dataset.to, el);
       if (!t) return;
+      if (c.dataset.to === 'sj-info') return sheet.scrollTo({ top: 0, behavior: 'smooth' }); // back to the map image and status
       setTop();
       const y = t.getBoundingClientRect().top - sheet.getBoundingClientRect().top + sheet.scrollTop - (head?.offsetHeight || 0) - bar.offsetHeight - 8;
       sheet.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });

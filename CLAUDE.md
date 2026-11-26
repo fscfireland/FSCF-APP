@@ -115,6 +115,9 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   `labourLine` row on the door when the item fails; flows into door totals, reports, pricing sheet and quotes.
   Items without an owner cost fall back to the old wording guess and are counted in Settings.
 - Business page jump bar (Money, Overdue, Customers, Sites, Work, Costs, Quotes, Reminders, Imports).
+- Pin jump bar (`wireSheetJump`, under the map image, sticky under the sheet title): Info, Replacement, Inspection,
+  Photos, Defects, Recommendations, Signs, Materials, Notes & dates, History; hidden sections hide their button;
+  counts copied from the section headings (MutationObserver ignores the bar's own changes, to avoid a loop).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
