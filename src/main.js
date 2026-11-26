@@ -155,6 +155,17 @@ async function loadLists() {
     const add = DEFAULT_DEFECTS.filter((d) => !have.has(d.label));
     await saveLists({ defects: [...s.defects, ...add], defVersion: 2 });
   }
+  if (!lists.defSweep1) {
+    // every fail item already recorded on a door, or named by a checklist question, joins its defect list
+    try {
+      const byKind = new Map();
+      const plans = Object.fromEntries((await db.all('plans')).map((x) => [x.id, x]));
+      for (const d of await db.all('doors')) for (const x of d.defects || []) { const k = kindOfDoor(d, plans[d.planId]); (byKind.get(k) || byKind.set(k, []).get(k)).push(x); }
+      for (const k of kindIds()) for (const q of kitOf(k).questions || []) { const label = q.defect || QUESTION_DEFECT[q.id]; if (label) (byKind.get(k) || byKind.set(k, []).get(k)).push({ label, remedial: '' }); }
+      for (const [k, items] of byKind) await addToDefectList(items, kitOf(k) ? k : 'fd');
+    } catch (err) { console.error(err); }
+    await saveLists({ defSweep1: true });
+  }
   refreshDefectCosts();
   return lists;
 }
@@ -205,6 +216,21 @@ async function saveKit(patch, kind = kindNow) {
 }
 const kindOfPlan = (plan) => plan?.inspType || 'fd';
 const kindOfDoor = (d, plan) => d?.kind || plan?.inspType || 'fd';
+// Every fail item recorded anywhere joins its checklist's defect list
+// (Settings › Defect list), so it can be given a cost (owner, 26 Nov 2026).
+async function addToDefectList(items, kind = kindNow) {
+  const list = kitOf(kind).defects || [];
+  const have = new Set(list.map((x) => (x.label || '').trim().toLowerCase()));
+  const fresh = [];
+  for (const it of items) {
+    const label = (it?.label || '').trim();
+    if (!label || have.has(label.toLowerCase())) continue;
+    have.add(label.toLowerCase());
+    fresh.push({ label, remedial: it.remedial || '' });
+  }
+  if (fresh.length) await saveKit({ defects: [...list, ...fresh] }, kind);
+  return fresh.length;
+}
 // every type's questions (for exports covering several types)
 const allQuestions = () => kindIds().flatMap((k) => kitOf(k).questions || []);
 
@@ -5390,7 +5416,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.51.1';
+const VERSION_TAG = 'app v0.51.2';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -5565,7 +5591,9 @@ async function drawSheet(door) {
       const failed = checks[q.id]?.answer === 'fail';
       const has = defects.find((x) => x.label === label);
       if (failed && !has) {
-        const tmpl = (kd() || []).find((x) => x.label === label) || { label, remedial: '' };
+        const known = (kd() || []).find((x) => x.label === label);
+        if (!known) addToDefectList([{ label, remedial: '' }]);
+        const tmpl = known || { label, remedial: '' };
         const nd = { label, remedial: tmpl.remedial || '', qty: 1, fromQ: q.id };
         defects.push(nd);
         mats.push(...defaultProductsFor(nd, mlist(), db.uid));
@@ -6699,6 +6727,7 @@ async function pickDefects(existing) {
     title: 'Add defects',
     body: `
       <label class="field"><span>Other defect (type your own)</span><input name="custom" id="def-custom" placeholder="Describe the defect"></label>
+      <label class="check-line"><input type="checkbox" name="keep" id="def-keep" checked> Add it to the defect list, so it can be costed and picked next time</label>
       <div class="pick-list">
         ${(kd() || []).map((d, i) => `
           <label class="pick ${have.has(d.label) ? 'is-had' : ''}">
@@ -6711,7 +6740,10 @@ async function pickDefects(existing) {
   if (r.value !== true) return null;
   const picked = Object.entries(r.data).filter(([k]) => k.startsWith('d')).map(([, v]) => kd()[Number(v)]);
   const custom = (r.data.custom || '').trim();
-  if (custom) picked.unshift({ label: custom, remedial: '' });
+  if (custom) {
+    picked.unshift({ label: custom, remedial: '' });
+    if (r.data.keep) { const n = await addToDefectList([{ label: custom, remedial: '' }]); if (n) toast(`"${custom}" added to the defect list: set its cost in Settings › Defect list`); }
+  }
   return picked;
 }
 

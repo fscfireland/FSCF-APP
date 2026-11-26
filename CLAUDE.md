@@ -115,7 +115,9 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   `labourLine` row on the door when the item fails; flows into door totals, reports, pricing sheet and quotes.
   Items without an owner cost fall back to the old wording guess and are counted in Settings. The Set cost screen also
   edits price-list product prices (material/labour) and adds new products to the price list; shortcut 'Fail item costs'
-  on the Business tab and in the Pricing Hub (opens Settings › Defect list).
+  on the Business tab and in the Pricing Hub (opens Settings › Defect list). Every fail item created joins its
+  checklist's defect list (`addToDefectList`): typed on a door (box ticked by default), from a failed question, and a
+  one-off sweep of doors and question links (flag `defSweep1`).
 - Business page jump bar (Money, Overdue, Customers, Sites, Work, Costs, Quotes, Reminders, Imports).
 - Pin jump bar (`wireSheetJump`, under the map image, sticky under the sheet title): Info, Replacement, Inspection,
   Photos, Defects, Recommendations, Signs, Materials, Notes & dates, History; hidden sections hide their button;
