@@ -255,6 +255,7 @@ export function defectCat(d) {
   if (/detector|call point|sounder|beacon|alarm panel|standby batter|zone chart|door release|device missing|device obstructed/.test(n)) return 'Fire alarm';
   if (/luminaire|emergency light|exit sign|test key|charge indicator|coverage/.test(n)) return 'Emergency lighting';
   if (/extinguisher|tamper seal|discharge test|hose or horn/.test(n)) return 'Extinguishers';
+  if (/panic|exit device|exit hardware|keyed lock|needs a key/.test(n)) return 'Ironmongery';
   if (/sign/.test(n)) return 'Signs';
   if (/closer/.test(n)) return 'Closers';
   if (/hinge/.test(n)) return 'Hinges';
@@ -511,6 +512,8 @@ export const QUESTION_DEFECT = {
 
 // The usual product (and quantity) for a defect; the inspector can change it.
 const DEFAULT_PRODUCT = [
+  [/panic bar|not a panic|wrong exit device/i, 'm-panic', 1, ''],
+  [/needs a key|exit hardware/i, '', 0, ''], // the right part depends on the door: chosen on site
   [/access panel/i, 'm-dp-panel', 1, ''],
   [/fusible link/i, 'm-dp-link', 1, ''],
   [/actuator/i, 'm-dp-act', 1, ''],
@@ -556,6 +559,7 @@ export function defaultProductsFor(defect, materials, uid) {
   if (!/supply|fit|replace|lip|fill/i.test(defect.remedial || '')) return []; // adjust-only work: labour, no parts
   const cat = defectCat(defect);
   const rule = DEFAULT_PRODUCT.find(([re]) => re.test(defect.label || '')) || DEFAULT_PRODUCT.find(([re]) => re.test(text));
+  if (rule && !rule[1]) return [];
   let m = rule && materials.find((x) => x.id === rule[1] && x.name?.trim());
   if (!m && cat) m = materials.find((x) => x.name?.trim() && matCat(x) === cat);
   if (!m) return [];
@@ -885,6 +889,90 @@ export const DEFAULT_TEMPLATES = {
       ['Exit signage missing or incorrect', 'Supply and fit correct exit signage (I.S. 3217 / ISO 7010)'],
       ['Emergency light at exit failed', 'Repair or replace the emergency light above the exit'],
       ['Glazing manifestation missing', 'Apply manifestation to the glass at eye level'],
+    ],
+  },
+  // Final exits with panic hardware: users may not know the building (EN 1125).
+  // Points from the DHF Best Practice Guide to BS EN 1125 / BS EN 179.
+  fdpanic: {
+    base: 'fd', name: 'Final exit – panic (EN 1125)', item: 'Exit door', report: 'Final Exit Inspection Report – Panic Exit Devices (EN 1125)',
+    questions: tq('fxp', [
+      ['Escape route to the door is clear of equipment, stock, waste and furniture', 'Escape route to exit obstructed'],
+      ['Outside discharge area is clear (no parked vehicles, bins, pallets or skips)', 'External discharge point obstructed'],
+      ['Floor is level and free of trip hazards on both sides; no hidden step outside', 'Trip or slip hazard at exit'],
+      ['Door opens outwards, in the direction of escape, freely through its full swing', 'Door does not open in the direction of escape'],
+      ['Device is a horizontal push bar or touch bar (EN 1125), suited to users who do not know the building', 'Not a panic bar (EN 1125) where one is needed'],
+      ['One push anywhere along the bar releases all bolts and latches', 'Panic / emergency exit hardware faulty'],
+      ['Bar covers at least 60% of the leaf width (DHF)', 'Panic bar shorter than 60% of the leaf width'],
+      ['Device marked with the manufacturer, CE mark and certification body number (DHF)', 'Panic / emergency exit hardware not certified'],
+      ['Pairs: vertical panic bolt on the inactive leaf, panic latch on the active leaf; bar does not overhang its end supports (DHF)', 'Panic / emergency exit hardware faulty'],
+      ['No extra keyed locks, bolts, chains or padlocks', 'Extra keyed lock, bolt or chain on exit door'],
+      ['Bolts and keeps engage and release cleanly; floor socket clear of debris', 'Panic / emergency exit hardware faulty'],
+      ['Device secure, all fixings tight, no damage or wear', 'Panic / emergency exit hardware faulty'],
+      ['Hold-back / dogging not used on a fire door unless tested on that door unlatched (DHF)', 'Hold-back / dogging on fire door not tested'],
+      ['Door closes and latches by itself (where a closer is fitted)', 'Door fails to close and latch'],
+      ['Electric locking (if fitted) releases on the fire alarm and on loss of power', 'Maglock does not release on fire alarm'],
+      ['Green break-glass unit beside the door (where electric locking is fitted)', 'Green break-glass unit missing or faulty'],
+      ['"Push bar to open" sign fitted on the bar side', 'Exit signage missing or incorrect'],
+      ['Fire exit sign clearly visible and emergency light at the exit works', 'Emergency light at exit failed'],
+      ['"Fire exit keep clear" sign on the outside face', 'Exit signage missing or incorrect'],
+    ]),
+    extraDefects: [
+      ['Escape route to exit obstructed', 'Remove obstructions from the escape route and keep it clear'],
+      ['External discharge point obstructed', 'Clear the external discharge area; advise client to keep it clear'],
+      ['Trip or slip hazard at exit', 'Make good the floor surface or mark the step at the exit'],
+      ['Door does not open in the direction of escape', 'Re-hang the door to open in the direction of escape, or review with the fire safety consultant'],
+      ['Exit door needs a key or code to open', 'Fit EN 1125 / EN 179 hardware so the door opens with a single action, without a key'],
+      ['Extra keyed lock, bolt or chain on exit door', 'Remove the keyed lock, bolt, chain or padlock; the exit must open with one action without a key'],
+      ['Panic / emergency exit hardware faulty', 'Repair or replace the panic / emergency exit hardware (EN 1125 / EN 179)'],
+      ['Panic / emergency exit hardware not certified', 'Replace with CE-marked EN 1125 / EN 179 hardware, marked with the manufacturer and certification body'],
+      ['Hold-back / dogging on fire door not tested', 'Disable or remove the hold-back; use only hardware tested on the door in the unlatched condition'],
+      ['Maglock does not release on fire alarm', 'Repair the maglock interface so it releases on the fire alarm'],
+      ['Maglock does not fail safe on power loss', 'Repair the maglock so it unlocks on loss of power'],
+      ['Green break-glass unit missing or faulty', 'Supply and fit a green break-glass unit beside the door'],
+      ['Exit signage missing or incorrect', 'Supply and fit correct exit signage (I.S. 3217 / ISO 7010)'],
+      ['Emergency light at exit failed', 'Repair or replace the emergency light at the exit'],
+      ['Panic bar shorter than 60% of the leaf width', 'Replace with an EN 1125 device whose bar covers at least 60% of the leaf width'],
+      ['Not a panic bar (EN 1125) where one is needed', 'Supply and fit an EN 1125 panic device (push bar or touch bar)'],
+    ],
+  },
+  // Final exits with emergency hardware: users know the exit (EN 179)
+  fdemerg: {
+    base: 'fd', name: 'Final exit – emergency (EN 179)', item: 'Exit door', report: 'Final Exit Inspection Report – Emergency Exit Devices (EN 179)',
+    questions: tq('fxe', [
+      ['Escape route to the door is clear of equipment, stock, waste and furniture', 'Escape route to exit obstructed'],
+      ['Outside discharge area is clear (no parked vehicles, bins, pallets or skips)', 'External discharge point obstructed'],
+      ['Floor is level and free of trip hazards on both sides; no hidden step outside', 'Trip or slip hazard at exit'],
+      ['Door opens in the direction of escape (inward only with an EN 179 device made for inward opening)', 'Door does not open in the direction of escape'],
+      ['Device is a lever handle or push pad (EN 179), used only where the people using the exit know it (e.g. staff areas)', 'Wrong exit device for the people using it'],
+      ['Opens with one action, without a key or code', 'Exit door needs a key or code to open'],
+      ['Device marked with the manufacturer, CE mark and certification body number (DHF)', 'Panic / emergency exit hardware not certified'],
+      ['Lever or pad secure, returns properly, no damage or wear', 'Panic / emergency exit hardware faulty'],
+      ['No extra keyed locks, bolts, chains or padlocks', 'Extra keyed lock, bolt or chain on exit door'],
+      ['Latch and keep engage and release cleanly', 'Panic / emergency exit hardware faulty'],
+      ['Hold-back / dogging not used on a fire door unless tested on that door unlatched (DHF)', 'Hold-back / dogging on fire door not tested'],
+      ['Door closes and latches by itself (where a closer is fitted)', 'Door fails to close and latch'],
+      ['Electric locking (if fitted) releases on the fire alarm and on loss of power', 'Maglock does not release on fire alarm'],
+      ['Green break-glass unit beside the door (where electric locking is fitted)', 'Green break-glass unit missing or faulty'],
+      ['Operating sign fitted (e.g. "Push pad to open")', 'Exit signage missing or incorrect'],
+      ['Fire exit sign clearly visible and emergency light at the exit works', 'Emergency light at exit failed'],
+      ['"Fire exit keep clear" sign on the outside face', 'Exit signage missing or incorrect'],
+    ]),
+    extraDefects: [
+      ['Escape route to exit obstructed', 'Remove obstructions from the escape route and keep it clear'],
+      ['External discharge point obstructed', 'Clear the external discharge area; advise client to keep it clear'],
+      ['Trip or slip hazard at exit', 'Make good the floor surface or mark the step at the exit'],
+      ['Door does not open in the direction of escape', 'Re-hang the door to open in the direction of escape, or review with the fire safety consultant'],
+      ['Exit door needs a key or code to open', 'Fit EN 1125 / EN 179 hardware so the door opens with a single action, without a key'],
+      ['Extra keyed lock, bolt or chain on exit door', 'Remove the keyed lock, bolt, chain or padlock; the exit must open with one action without a key'],
+      ['Panic / emergency exit hardware faulty', 'Repair or replace the panic / emergency exit hardware (EN 1125 / EN 179)'],
+      ['Panic / emergency exit hardware not certified', 'Replace with CE-marked EN 1125 / EN 179 hardware, marked with the manufacturer and certification body'],
+      ['Hold-back / dogging on fire door not tested', 'Disable or remove the hold-back; use only hardware tested on the door in the unlatched condition'],
+      ['Maglock does not release on fire alarm', 'Repair the maglock interface so it releases on the fire alarm'],
+      ['Maglock does not fail safe on power loss', 'Repair the maglock so it unlocks on loss of power'],
+      ['Green break-glass unit missing or faulty', 'Supply and fit a green break-glass unit beside the door'],
+      ['Exit signage missing or incorrect', 'Supply and fit correct exit signage (I.S. 3217 / ISO 7010)'],
+      ['Emergency light at exit failed', 'Repair or replace the emergency light at the exit'],
+      ['Wrong exit device for the people using it', 'Fit an EN 1125 panic device: the people using this exit may not know it (DHF: if in doubt, use EN 1125)'],
     ],
   },
 };
