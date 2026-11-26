@@ -378,12 +378,14 @@ export async function exportPricingXlsx(project, opts = {}) {
   ws0['!cols'] = [{ wch: 20 }, { wch: 110 }];
   XLSX.utils.book_append_sheet(wb, ws0, 'Read me');
 
-  // Price schedule: each door named once, its fail items listed under it.
-  // A line's unit rate comes from the "Rates by type of work" sheet when the
-  // work text matches, so the contractor prices each type of work once.
+  // Price schedule: each door named once (in capitals, with its swing and
+  // type), its fail items listed under it. A line's unit rate comes from the
+  // "Rates by type of work" sheet when the work text matches, so the
+  // contractor prices each type of work once. Rates and totals stay blank
+  // until priced, and anything typed that isn't a number doesn't break a total.
   const EUR = '"€"#,##0.00';
   const RATES = "'Rates by type of work'";
-  const aoa = [['Item', 'Work required', 'Defect / reason', 'Qty', 'Unit rate (€)', 'Line total (€)', 'Comments']];
+  const aoa = [['Item', 'Work required', 'Defect / reason', 'Qty', 'Unit rate (€ ex VAT)', 'Line total (€ ex VAT)', 'Comments']];
   const itemRows = [];
   const doorTotals = [];
   const types = new Map();
@@ -391,49 +393,52 @@ export async function exportPricingXlsx(project, opts = {}) {
   for (const d of doors) {
     const items = remedialItems(d);
     if (!items.length) continue;
-    const where = [d.location, planName[d.planId], d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : ''].filter(Boolean).join(' · ');
-    aoa.push([`PIN ${d.pinNo ?? ''}${d.ref ? ' – ' + d.ref : ''}`, where.toUpperCase(), '', '', '', '', '']);
+    const title = [`PIN ${d.pinNo ?? ''}${d.ref ? ' – ' + d.ref : ''}`, d.location, d.leaf, d.doorType, planName[d.planId], d.zoneNo ? 'Zone ' + d.zoneNo : ''].filter(Boolean).join(' · ').toUpperCase();
+    aoa.push([title, '', '', '', '', '', '']);
     const first = aoa.length + 1;
     for (const it of items) {
       n++;
-      aoa.push([n, it.text, it.sub, it.qty || 1, null, null, '']);
+      aoa.push([n, it.text, it.sub, it.qty || 1, '', '', '']);
       itemRows.push(aoa.length);
       types.set(it.text, (types.get(it.text) || 0) + Number(it.qty || 1));
     }
     const lastItem = aoa.length;
-    aoa.push(['Door total', '', '', '', '', null, '']);
-    doorTotals.push({ row: aoa.length, first, lastItem });
-    aoa.push([]);
+    aoa.push(['', '', '', '', 'Door total (ex VAT)', '', '']);
+    doorTotals.push({ row: aoa.length, first, lastItem, head: first - 1 });
+    aoa.push([], []); // two empty rows after each door
   }
   const totalRow = aoa.length + 1;
-  aoa.push(['TOTAL (ex VAT)', '', '', '', '', null, '']);
+  aoa.push(['', '', '', '', 'TOTAL (ex VAT)', '', '']);
   const ws1 = XLSX.utils.aoa_to_sheet(aoa);
   const typeList = [...types.entries()].sort((x, y) => y[1] - x[1]);
-  const rLast = typeList.length + 1;
+  const rLast = Math.max(2, typeList.length + 1);
   for (const r of itemRows) {
-    ws1[`E${r}`] = { t: 'n', v: 0, z: EUR, f: `IFERROR(INDEX(${RATES}!$C$2:$C$${rLast},MATCH(B${r},${RATES}!$A$2:$A$${rLast},0)),0)` };
-    ws1[`F${r}`] = { t: 'n', v: 0, z: EUR, f: `D${r}*E${r}` };
+    const look = `INDEX(${RATES}!$C$2:$C$${rLast},MATCH(B${r},${RATES}!$A$2:$A$${rLast},0))`;
+    ws1[`E${r}`] = { t: 's', v: '', z: EUR, f: `IFERROR(IF(${look}="","",${look}),"")` };
+    ws1[`F${r}`] = { t: 's', v: '', z: EUR, f: `IFERROR(IF(E${r}="","",D${r}*E${r}),"")` };
   }
   for (const t of doorTotals) ws1[`F${t.row}`] = { t: 'n', v: 0, z: EUR, f: `SUM(F${t.first}:F${t.lastItem})` };
-  ws1[`F${totalRow}`] = { t: 'n', v: 0, z: EUR, f: doorTotals.length ? `SUMIF(A2:A${totalRow - 1},"Door total",F2:F${totalRow - 1})` : '0' };
-  ws1['!cols'] = [12, 60, 40, 6, 13, 14, 34].map((wch) => ({ wch }));
-  ws1['!merges'] = doorTotals.map((t) => ({ s: { r: t.first - 2, c: 1 }, e: { r: t.first - 2, c: 6 } }));
+  ws1[`F${totalRow}`] = { t: 'n', v: 0, z: EUR, f: doorTotals.length ? doorTotals.map((t) => `F${t.row}`).join('+').length < 7000 ? doorTotals.map((t) => `F${t.row}`).join('+') : `SUMIF(E2:E${totalRow - 1},"Door total (ex VAT)",F2:F${totalRow - 1})` : '0' };
+  ws1['!cols'] = [12, 60, 40, 6, 20, 20, 34].map((wch) => ({ wch }));
+  ws1['!merges'] = doorTotals.map((t) => ({ s: { r: t.head - 1, c: 0 }, e: { r: t.head - 1, c: 6 } }));
+  ws1['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: totalRow - 1, c: 6 } }) };
   XLSX.utils.book_append_sheet(wb, ws1, 'Price schedule');
 
   // Rates by type of work: price each once; the schedule picks it up
-  const ws2 = XLSX.utils.aoa_to_sheet([['Type of work', 'Total qty', 'Unit rate (€)', 'Total (€)'], ...typeList.map(([k]) => [k, null, null, null])]);
+  const ws2 = XLSX.utils.aoa_to_sheet([['Type of work', 'Total qty', 'Unit rate (€ ex VAT)', 'Total (€ ex VAT)'], ...typeList.map(([k]) => [k, null, '', ''])]);
   const lastSched = totalRow - 1;
   typeList.forEach(([, q], i) => {
     const r = i + 2;
     ws2[`B${r}`] = { t: 'n', v: q, f: `SUMIF('Price schedule'!$B$2:$B$${lastSched},A${r},'Price schedule'!$D$2:$D$${lastSched})` };
-    ws2[`C${r}`] = { t: 'n', v: 0, z: EUR };
-    ws2[`D${r}`] = { t: 'n', v: 0, z: EUR, f: `B${r}*C${r}` };
+    ws2[`C${r}`] = { t: 's', v: '', z: EUR };
+    ws2[`D${r}`] = { t: 's', v: '', z: EUR, f: `IFERROR(IF(C${r}="","",B${r}*C${r}),"")` };
   });
   const rt = typeList.length + 3;
-  XLSX.utils.sheet_add_aoa(ws2, [['TOTAL (ex VAT)']], { origin: `A${rt}` });
+  XLSX.utils.sheet_add_aoa(ws2, [['', '', 'TOTAL (ex VAT)']], { origin: `A${rt}` });
   ws2[`D${rt}`] = { t: 'n', v: 0, z: EUR, f: typeList.length ? `SUM(D2:D${typeList.length + 1})` : '0' };
   ws2['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: rt - 1, c: 3 } });
-  ws2['!cols'] = [{ wch: 70 }, { wch: 9 }, { wch: 13 }, { wch: 13 }];
+  ws2['!cols'] = [{ wch: 70 }, { wch: 9 }, { wch: 20 }, { wch: 18 }];
+  ws2['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: Math.max(1, typeList.length), c: 3 } }) };
   XLSX.utils.book_append_sheet(wb, ws2, 'Rates by type of work');
 
   const out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
