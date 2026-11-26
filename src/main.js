@@ -540,30 +540,30 @@ async function findDoorsOnPlan(plan) {
 }
 
 // From the home page: a whole new project from a drawing
-async function importFromDrawing(file) {
+async function importFromDrawing(file, { manual = false } = {}) {
   const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
   const r = await dialog({
-    title: 'New project from a drawing',
-    body: `<p class="small">The app adds a drawing for each page and a pin at every fire door it can find, with its rating and room. For CAD PDFs the text is read on this phone for free; for scanned drawings and photos the <b>drawing reader</b> (Claude) is used${lists.aiKey ? '' : ' once it is set up in Settings'}.</p>
+    title: manual ? 'New project: I\'ll pin it myself' : 'New project from a drawing',
+    body: `${manual ? '<p class="small">The drawing is added with no pins, and nothing is charged. Open it and tap <b>Add door</b> to drop your own pins.</p>' : `<p class="small">The app adds a drawing for each page and a pin at every fire door it can find, with its rating and room. For CAD PDFs the text is read on this phone for free; for scanned drawings and photos the <b>drawing reader</b> (Claude) is used${lists.aiKey ? '' : ' once it is set up in Settings'}.</p>`}
       <label class="field"><span>Site</span><input name="site" required value="${esc(file.name.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' '))}"></label>
       <div class="grid2"><label class="field"><span>Client</span><input name="client" placeholder="e.g. HSE"></label>
         <label class="field"><span>Inspection date</span><input type="date" name="date" value="${today()}"></label></div>
       <label class="field"><span>Address / Eircode</span><input name="address"></label>
       <label class="field"><span>Inspection frequency</span><select name="frequency">${freqOpts('')}</select><small class="muted">Each door's next inspection due date is worked out from its inspection date.</small></label>
       <label class="field"><span>Inspection type</span><select name="kind">${kindIds().map((k) => `<option value="${k}" ${k === 'fd' ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
-      ${lists.aiKey ? `<label class="check-line"><input type="checkbox" name="ai" checked> Auto-pin pages with no readable text using the drawing reader (about US$0.30–0.80 a page)</label><p class="cost-note">${icon('spark')} <span><b>Cost will be charged to your account.</b> The drawing reader is billed by Anthropic to the account of the API key in Settings.</span></p>` : ''}`,
+      ${lists.aiKey && !manual ? `<label class="check-line"><input type="checkbox" name="ai" checked> Auto-pin pages with no readable text using the drawing reader (about US$0.30–0.80 a page)</label><p class="cost-note">${icon('spark')} <span><b>Cost will be charged to your account.</b> The drawing reader is billed by Anthropic to the account of the API key in Settings.</span></p>` : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Create project', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return;
   const kind = r.data.kind || 'fd';
-  const useAi = !!(lists.aiKey && r.data.ai);
-  const bz = busy('Reading the drawing…');
+  const useAi = !manual && !!(lists.aiKey && r.data.ai);
+  const bz = busy(manual ? 'Adding the drawing…' : 'Reading the drawing…');
   let cost = 0;
   let total = 0;
   const notes = [];
   try {
     const pages = await importDrawing(file, bz.update);
-    const text = isPdf ? await textDoors(file).catch(() => []) : [];
+    const text = isPdf && !manual ? await textDoors(file).catch(() => []) : [];
     const project = await db.put('projects', {
       id: db.uid(), site: r.data.site.trim() || file.name, client: r.data.client.trim(), address: r.data.address.trim(), date: r.data.date || today(),
       frequency: Number(r.data.frequency) || 0,
@@ -579,7 +579,13 @@ async function importFromDrawing(file) {
       if (t?.doors.length) {
         total += await addFoundDoors(project.id, plan, t.doors, kind, 'text');
         notes.push(`${plan.name}: ${t.doors.length} from the drawing's text`);
-      } else scanned.push(plan);
+      } else if (!manual) scanned.push(plan);
+    }
+    if (manual) {
+      await addBlob(project.id, file, file.name, 'Drawings', { notes: 'Drawing this project was created from' }).catch(() => {});
+      bz.done();
+      toast(pages.length > 1 ? `Project created with ${pages.length} drawings. Tap Add door to pin` : 'Project created. Tap Add door to drop your pins');
+      return go({ view: 'plan', projectId: project.id, planId: first.id });
     }
     // scanned pages: choose which to read (cover sheets and notes pages cost money too)
     let toRead = useAi ? scanned : [];
@@ -6388,8 +6394,9 @@ async function newProjectMenu() {
     title: 'New project',
     body: `<div class="np-list">
       <button type="button" class="np-opt" data-np="blank">${icon('plus')}<span><b>Blank project</b><small>Type the site details, then upload drawings</small></span></button>
-      <label class="np-opt">${icon('plan')}<span><b>From a drawing</b><small>PDF or picture from your files, Drive or downloads. Pins are placed at the door symbols automatically: free for CAD PDFs with readable text; scanned drawings and photos use the drawing reader, about US$0.30–0.80 a page, charged to your account</small></span><input type="file" data-np="drawing" accept="application/pdf,.pdf,image/*" hidden></label>
-      <label class="np-opt">${icon('camera')}<span><b>From a photo of a drawing</b><small>Take a photo of a paper drawing now. Auto-pinning a photo uses the drawing reader: about US$0.30–0.80, charged to your account</small></span><input type="file" data-np="photo" accept="image/*" capture="environment" hidden></label>
+      <label class="np-opt">${icon('pin')}<span><b>Drawing only – I'll pin it myself</b><small>Upload a PDF, picture or photo with no automatic pins. Free</small></span><input type="file" data-np="manual" accept="application/pdf,.pdf,image/*" hidden></label>
+      <label class="np-opt">${icon('plan')}<span><b>From a drawing, auto-pinned</b><small>PDF or picture from your files, Drive or downloads. Pins are placed at the door symbols automatically: free for CAD PDFs with readable text; scanned drawings and photos use the drawing reader, about US$0.30–0.80 a page, charged to your account</small></span><input type="file" data-np="drawing" accept="application/pdf,.pdf,image/*" hidden></label>
+      <label class="np-opt">${icon('camera')}<span><b>From a photo of a drawing, auto-pinned</b><small>Take a photo of a paper drawing now. Auto-pinning a photo uses the drawing reader: about US$0.30–0.80, charged to your account</small></span><input type="file" data-np="photo" accept="image/*" capture="environment" hidden></label>
       <label class="np-opt">${icon('upload')}<span><b>From a Fieldwire report</b><small>Fieldwire PDF report: drawings, pins and checklist answers come across</small></span><input type="file" data-np="fieldwire" accept="application/pdf,.pdf" hidden></label>
     </div>`,
     buttons: [{ label: 'Cancel', value: false }],
@@ -6407,6 +6414,7 @@ async function newProjectMenu() {
   if (!picked) return;
   if (picked.kind === 'blank') return editProject();
   if (picked.kind === 'fieldwire') return importFieldwire(picked.file);
+  if (picked.kind === 'manual') return importFromDrawing(picked.file, { manual: true });
   return importFromDrawing(picked.file);
 }
 
