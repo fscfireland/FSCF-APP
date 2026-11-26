@@ -96,7 +96,11 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - Business page (owner-only, home screen and Pricing Hub, `src/business.js`): overdue / unpaid / paid invoices,
   year totals by month, customers and their sites, type of work, materials / labour / margin from the SERV PD
   pricing tabs, quote win rate, Excel summary. Built from the imported workbook + app documents; "Mark paid" on
-  workbook invoices is stored in settings `bizMarks` (the Excel file is not changed). Next step the owner wants:
+  workbook invoices is stored in settings `bizMarks` (the Excel file is not changed). Each workbook import
+  archives the one it replaces (settings records `kind: 'bookArchive'`, register/customers/PD totals only), warns
+  if the new file looks older, and shows what changed; Business › Workbook imports lists, views and compares them.
+  Business figures take Date / Subtotal / Total from the SUMMARY register first. Customer names can be set by the owner
+  (settings `bizNames`). Next step the owner wants:
   customer portal / website login per customer (needs the Supabase online version).
 - Left for later (owner's choice): the rest of the BM TRADA paperwork – Scheme Procedures Acceptance (SPA 058,
   prescribed wording, client signature), Record of Maintenance Activities (RMA 058) and the RMA pack PDF,

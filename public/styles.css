@@ -1301,3 +1301,9 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .biz-sites { margin: -4px 6px 4px; padding: 8px 12px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; background: var(--surface-2); }
 .biz-sites > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 2px 0; }
 .biz-sites .biz-rename { margin-top: 8px; }
+.doc-row.biz-imp { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.biz-imp .q-main small { display: block; }
+.biz-imp.is-on { border-color: var(--st-repaired); }
+.biz-imp-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.biz-imp > label.btn { justify-self: start; }
+.biz-ch { margin: 4px 0 8px; padding-left: 18px; }

@@ -205,3 +205,43 @@ export async function businessXlsx(s, label) {
   const out = XLSX.write(capsWorkbook(wb), { bookType: 'xlsx', type: 'array' });
   return saveFile(`FSCF business summary ${label}.xlsx`, new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
 }
+
+// ---------- Workbook import archive ----------
+// Each time a new workbook is imported, the one it replaces is kept as a
+// snapshot: the register (every tab's date, amounts, status), the customers and
+// the pricing-document totals. Enough to view the Business page as it stood and
+// to see what changed; the full workbook itself stays in Excel / Drive.
+export function archiveOf(book) {
+  return {
+    sourceName: book.sourceName || '', importedAt: book.importedAt || '', seq: book.seq || {},
+    customers: (book.customers || []).map((c) => ({ id: c.id, lines: c.lines })),
+    register: (book.register || []).map(({ items, notes, ...r }) => r),
+    pds: book.pds || [],
+  };
+}
+
+// What changed between two imports, tab by tab (SUMMARY register values)
+export function compareBooks(oldB, newB) {
+  const o = new Map((oldB?.register || []).map((r) => [r.sheet, r]));
+  const n = new Map((newB?.register || []).map((r) => [r.sheet, r]));
+  const added = [...n.values()].filter((r) => !o.has(r.sheet));
+  const removed = [...o.values()].filter((r) => !n.has(r.sheet));
+  const paid = [];
+  const status = [];
+  const amount = [];
+  for (const r of n.values()) {
+    const was = o.get(r.sheet);
+    if (!was) continue;
+    if ((was.status || '') !== (r.status || '')) (r.status === 'P' && r.kind === 'INV' ? paid : status).push({ r, from: was.status || '', to: r.status || '' });
+    if (Math.abs((Number(was.total) || 0) - (Number(r.total) || 0)) > 0.05) amount.push({ r, from: Number(was.total) || 0, to: Number(r.total) || 0 });
+  }
+  const sum = (l) => r2(l.reduce((a, r) => a + (Number(r.subtotal) || 0), 0));
+  const newInv = added.filter((r) => r.kind === 'INV');
+  const newQ = added.filter((r) => r.kind !== 'INV');
+  return {
+    newInv, newQ, removed, paid, status, amount, newInvTotal: sum(newInv), newQTotal: sum(newQ),
+    paidTotal: r2(paid.reduce((a, x) => a + (Number(x.r.total) || 0), 0)),
+    looksOlder: !!oldB && ((newB.seq?.tab || 0) < (oldB.seq?.tab || 0) || n.size < o.size),
+    none: !added.length && !removed.length && !paid.length && !status.length && !amount.length,
+  };
+}

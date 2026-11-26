@@ -36,7 +36,7 @@ import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript, saveFile, safeName } from './files.js';
-import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid } from './business.js';
+import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, archiveOf, compareBooks } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
 const reader = async () => { await loadScript('reader.js'); return window.FSCFReader; };
 const aiDoors = async (...a) => (await reader()).aiDoors(...a);
@@ -696,12 +696,18 @@ async function importQuoteBook(file) {
   const bz = busy('Reading your workbook…');
   try {
     const book = await readWorkbook(file, bz.update);
-    await db.put('settings', { id: 'quoteBook', ...book });
+    const old = await quoteBook();
+    const ch = old ? compareBooks(old, book) : null;
     bz.done();
+    if (ch?.looksOlder && !(await confirmBox('This workbook looks older',
+      `${file.name} has ${book.register.length} tabs up to tab ${book.seq?.tab || 0}. The one already in the app (${old.sourceName || ''}, imported ${fmtDate((old.importedAt || '').slice(0, 10))}) has ${old.register.length} tabs up to tab ${old.seq?.tab || 0}. Import it anyway? The current one is kept in the archive either way.`, 'Import anyway', false))) return;
+    // keep the workbook being replaced in the archive (Business › Workbook imports)
+    if (old?.register?.length) await db.put('settings', { id: 'bookArc-' + (old.importedAt || Date.now()), kind: 'bookArchive', ...archiveOf(old) });
+    await db.put('settings', { id: 'quoteBook', ...book });
     const nx = nextNumbers(book, await db.all('quotes'));
     await dialog({
       title: 'Workbook imported',
-      body: `<ul class="sheet-list small">
+      body: `${ch ? changesHtml(ch, old) : ''}<ul class="sheet-list small">
         <li><b>${book.register.length}</b> quotes and invoices read</li>
         <li><b>${book.customers.length}</b> customers with their addresses, sites, PO numbers and VAT</li>
         <li><b>${book.rates.length}</b> priced items from SERV PD MASTER</li>
@@ -1397,6 +1403,30 @@ async function renderPricing() {
   $('#ph-fromrep').onclick = () => quoteFromReport(null);
 }
 
+// What changed since the last import, for the import dialog and the archive
+function changesHtml(ch, old) {
+  const ref = (r) => `${esc(r.kind === 'INV' ? r.inv : r.quote)}${r.part ? ' ' + esc(r.part) : ''}`;
+  const list = (l, f) => l.length ? `<ul class="small biz-ch">${l.slice(0, 12).map(f).join('')}${l.length > 12 ? `<li class="muted">and ${l.length - 12} more</li>` : ''}</ul>` : '';
+  if (ch.none) return `<p class="small"><b>No changes</b> since the last import (${esc(old.sourceName || '')}, ${fmtDate((old.importedAt || '').slice(0, 10))}).</p>`;
+  return `<p class="small"><b>Changes since the last import</b> (${esc(old.sourceName || '')}, ${fmtDate((old.importedAt || '').slice(0, 10))}). The previous one is kept in Business › Workbook imports.</p>
+    <div class="ps-costs">
+      <div><span>New invoices</span><b>${ch.newInv.length} · ${money(ch.newInvTotal)}</b></div>
+      <div><span>New quotes</span><b>${ch.newQ.length} · ${money(ch.newQTotal)}</b></div>
+      <div><span>Invoices now paid</span><b>${ch.paid.length} · ${money(ch.paidTotal)}</b></div>
+      ${ch.status.length ? `<div><span>Other status changes</span><b>${ch.status.length}</b></div>` : ''}
+      ${ch.amount.length ? `<div><span>Amounts changed</span><b>${ch.amount.length}</b></div>` : ''}
+      ${ch.removed.length ? `<div><span>Tabs no longer in the workbook</span><b>${ch.removed.length}</b></div>` : ''}
+    </div>
+    ${list(ch.newInv, (r) => `<li>${ref(r)} · ${esc(r.cust)} · ${money(r.subtotal)} ex VAT</li>`)}
+    ${list(ch.paid, (x) => `<li>Paid: ${ref(x.r)} · ${esc(x.r.cust)} · ${money(x.r.total)}</li>`)}
+    ${list(ch.amount, (x) => `<li>${ref(x.r)}: total ${money(x.from)} → ${money(x.to)}</li>`)}
+    ${list(ch.status, (x) => `<li>${ref(x.r)}: ${esc(Q_STATUSES[x.from] || x.from || 'not set')} → ${esc(Q_STATUSES[x.to] || x.to || 'not set')}</li>`)}
+    ${list(ch.removed, (r) => `<li>Not in the new workbook: ${esc(r.sheet)}</li>`)}`;
+}
+async function bookArchives() {
+  return (await db.all('settings')).filter((x) => x.kind === 'bookArchive').sort((a, b) => (b.importedAt || '').localeCompare(a.importedAt || ''));
+}
+
 // ---------- Business ----------
 // Owner-only overview of the business, worked out from the owner's own records
 // (workbook + app quotes and invoices, see business.js for every rule and its source).
@@ -1448,7 +1478,7 @@ function invRow(e, { late = false, paid = false } = {}) {
       <small>${esc(e.site || '')}${e.site ? ' · ' : ''}${fmtDate(e.date)}${paid ? (e.paidOn ? ` · paid ${fmtDate(e.paidOn)}` : ' · paid') : ` · due ${fmtDate(e.due)}`}</small>
       ${late ? `<small class="ps-warn">${e.late} day${e.late === 1 ? '' : 's'} overdue</small>` : ''}</span>
       <span class="q-amt"><b>${money(e.total)}</b></span></button>
-    <button class="btn sm ${paid ? '' : 'primary'} biz-pay" data-id="${esc(e.id)}" data-paid="${paid ? '0' : '1'}">${paid ? 'Mark unpaid' : 'Mark paid'}</button>
+    <button class="btn sm ${paid ? '' : 'primary'} biz-pay" ${invRow.readOnly ? 'hidden' : ''} data-id="${esc(e.id)}" data-paid="${paid ? '0' : '1'}">${paid ? 'Mark unpaid' : 'Mark paid'}</button>
   </div>`;
 }
 async function renderBusiness() {
@@ -1466,20 +1496,26 @@ async function renderBusiness() {
     $('#biz-unlock').onclick = () => unlockOwner();
     return;
   }
-  const { book, ledger } = await businessData();
+  const arcs = await bookArchives();
+  const arc = state.bizArchive ? arcs.find((a) => a.id === state.bizArchive) : null;
+  if (state.bizArchive && !arc) state.bizArchive = null;
+  // an archived import is shown on its own: the workbook as it stood, read-only
+  const { book, ledger } = arc ? { book: arc, ledger: buildLedger(arc, [], {}, {}, (await db.get('settings', 'bizNames'))?.names || {}) } : await businessData();
   if (!body.isConnected) return; // the page was redrawn meanwhile
   const ys = bizYears(ledger);
   // the year picked on this page, else this year (or the latest year with work)
+  invRow.readOnly = !!arc;
   const yr = state.bizYear != null && (state.bizYear === '' || ys.includes(state.bizYear)) ? state.bizYear : ys.includes(today().slice(0, 4)) ? today().slice(0, 4) : (ys[0] || '');
   const s = summarise(ledger, yr, today());
   const label = yr || 'all years';
-  const needsReimport = book && !book.pds;
+  const needsReimport = !arc && book && !book.pds;
   const bars = yr ? s.months.map((m) => ({ v: m.invoiced, label: `${MONTHS[m.m]} ${yr} · ${m.n} invoice${m.n === 1 ? '' : 's'} · paid ${money(m.paid)}`, short: MONTHS[m.m].slice(0, 1) }))
     : s.byYear.map((y) => ({ v: y.invoiced, label: `${y.y} · ${y.n} invoices`, short: y.y.slice(2) }));
   const c = s.cost;
   const cs = s.customers;
   const topWork = Math.max(1, ...s.work.map((w) => w.invoiced));
   body.innerHTML = `
+    ${arc ? `<div class="backup-warn biz-arc">${icon('folder')}<span><b>Archive: ${esc(arc.sourceName || 'workbook')}</b><small>As imported on ${fmtDate((arc.importedAt || '').slice(0, 10))}. Read-only; quotes and invoices made in the app are not included. Today's date is used for overdue.</small></span><button class="btn sm primary" id="biz-arc-back">Back to current</button></div>` : ''}
     ${!book ? `<div class="backup-warn">${icon('upload')}<span><b>Import your workbook</b><small>Import INVOICES AND QUOTES so every past invoice and quote is counted. Until then only documents made in the app are shown.</small></span><label class="btn sm primary">Import<input type="file" id="biz-import" accept=".xlsx,.xlsm" hidden></label></div>` : ''}
     ${needsReimport ? `<div class="backup-warn">${icon('upload')}<span><b>Re-import your workbook</b><small>Re-import the latest INVOICES AND QUOTES once to bring in due dates, paid dates and the costs from your SERV PD pricing documents.</small></span><label class="btn sm primary">Re-import<input type="file" id="biz-import" accept=".xlsx,.xlsm" hidden></label></div>` : ''}
     <div class="biz-years" role="tablist">${[...ys, ''].map((y) => `<button class="chip ${y === yr ? 'is-on' : ''}" data-y="${y}">${y || 'All years'}</button>`).join('')}</div>
@@ -1531,6 +1567,14 @@ async function renderBusiness() {
     <h2 class="h2">Top sites</h2>
     <div class="doc-list">${s.siteRows.map((x) => `<div class="doc-row"><span class="q-main"><b>${esc(x.key)}</b><small>${esc(x.custName || '')} · ${x.n} invoice${x.n === 1 ? '' : 's'}</small></span><span class="q-amt"><b>${money(x.invoiced)}</b></span></div>`).join('') || '<p class="muted small">None.</p>'}</div>
 
+    <h2 class="h2">Workbook imports <span class="muted">${arcs.length + (arc ? 0 : book ? 1 : 0)}</span></h2>
+    <div class="doc-list">
+      ${!arc && book ? `<div class="doc-row biz-imp"><span class="q-main"><b>${esc(book.sourceName || 'Workbook')}</b><small>Current · imported ${fmtDate((book.importedAt || '').slice(0, 10))} · ${book.register.length} tabs up to tab ${book.seq?.tab || 0}</small></span>
+        <label class="btn sm">${icon('upload')} Import newer<input type="file" class="biz-import2" accept=".xlsx,.xlsm" hidden></label></div>` : ''}
+      ${arcs.map((a) => `<div class="doc-row biz-imp ${arc?.id === a.id ? 'is-on' : ''}"><span class="q-main"><b>${esc(a.sourceName || 'Workbook')}</b><small>Archived · imported ${fmtDate((a.importedAt || '').slice(0, 10))} · ${a.register.length} tabs up to tab ${a.seq?.tab || 0}</small></span>
+        <span class="biz-imp-btns"><button class="btn sm biz-arc-view" data-id="${esc(a.id)}">${arc?.id === a.id ? 'Viewing' : 'View'}</button><button class="btn sm biz-arc-diff" data-id="${esc(a.id)}">Changes since</button><button class="icon-btn sm biz-arc-del" data-id="${esc(a.id)}" aria-label="Delete this archive">${icon('trash')}</button></span></div>`).join('')}
+    </div>
+    <p class="small muted">Each new import keeps the one it replaces here, so you can look back at any month and see what changed.</p>
     <div class="row-btns"><button class="btn primary" id="biz-xlsx">${icon('sheet')} Excel summary (${esc(label)})</button></div>
     <section class="panel biz-src"><p class="small"><b>Where these figures come from</b></p><ul class="small muted">
       <li>Invoices and quotes: ${esc(BIZ_SOURCES.book)}, plus those made in the app${book ? ` (workbook imported ${fmtDate(book.importedAt.slice(0, 10))})` : ''}.</li>
@@ -1568,6 +1612,22 @@ async function renderBusiness() {
     if (e) dialog({ title: `${e.ref}${e.part ? ' ' + e.part : ''}`, body: `<ul class="sheet-list small"><li>Workbook tab <b>${esc(e.id)}</b></li><li>${esc(e.custName || '')} (${esc(e.cust)})</li><li>${esc(e.site || '')}</li><li>Date ${fmtDate(e.date)} · due ${fmtDate(e.due)}${e.paidOn ? ` · paid ${fmtDate(e.paidOn)}` : ''}</li><li>Subtotal ${money(e.subtotal)} · total ${money(e.total)}</li><li>Status ${esc(Q_STATUSES[e.status] || e.status || 'not set')}</li>${e.cost ? `<li>Materials ${money(e.cost.materials)} · labour ${money(e.cost.labour)} (${esc(e.cost.from)})</li>` : ''}</ul>` });
   }));
   $('#biz-xlsx').onclick = async () => { const bz = busy('Making the Excel summary…'); try { await businessXlsx(s, label); } catch (err) { toast(err.message, 'error'); } bz.done(); };
+  $('#biz-arc-back')?.addEventListener('click', () => { state.bizArchive = null; refresh(); });
+  $$('.biz-arc-view').forEach((b) => (b.onclick = () => { state.bizArchive = state.bizArchive === b.dataset.id ? null : b.dataset.id; state.bizYear = null; refresh(); }));
+  $$('.biz-arc-diff').forEach((b) => (b.onclick = async () => {
+    const a = arcs.find((x) => x.id === b.dataset.id);
+    const cur = await quoteBook();
+    if (!a || !cur) return;
+    await dialog({ title: `Changes since ${fmtDate((a.importedAt || '').slice(0, 10))}`, body: changesHtml(compareBooks(a, cur), a).replace('The previous one is kept in Business › Workbook imports.', `Compared with the current workbook (${esc(cur.sourceName || '')}).`) });
+  }));
+  $$('.biz-arc-del').forEach((b) => (b.onclick = async () => {
+    const a = arcs.find((x) => x.id === b.dataset.id);
+    if (!a || !(await confirmBox('Delete this archive?', `${a.sourceName || 'Workbook'} imported ${fmtDate((a.importedAt || '').slice(0, 10))}. Your Excel file is not affected.`))) return;
+    await db.remove('settings', a.id);
+    if (state.bizArchive === a.id) state.bizArchive = null;
+    refresh();
+  }));
+  $$('.biz-import2').forEach((inp) => (inp.onchange = async () => { if (inp.files[0]) await importQuoteBook(inp.files[0]); }));
   const imp = $('#biz-import');
   if (imp) imp.onchange = async () => { if (imp.files[0]) { await importQuoteBook(imp.files[0]); refresh(); } };
 }
