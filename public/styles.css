@@ -1300,3 +1300,4 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .biz-cust .q-main small { display: block; }
 .biz-sites { margin: -4px 6px 4px; padding: 8px 12px; border: 1px solid var(--line); border-top: 0; border-radius: 0 0 10px 10px; background: var(--surface-2); }
 .biz-sites > div { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; padding: 2px 0; }
+.biz-sites .biz-rename { margin-top: 8px; }

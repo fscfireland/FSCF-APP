@@ -1415,7 +1415,8 @@ async function businessData() {
       if (doors.length) extra[d.id] = { materials: doors.reduce((a, x) => a + x.materials, 0), labour: doors.reduce((a, x) => a + x.labour, 0) + (d.preLimsCost || 0), from: d.pd || 'app quote' };
     } catch { /* site removed */ }
   }
-  return { book, appDocs, ledger: buildLedger(book, appDocs, await bizMarks(), extra) };
+  const ownNames = (await db.get('settings', 'bizNames'))?.names || {};
+  return { book, appDocs, ledger: buildLedger(book, appDocs, await bizMarks(), extra, ownNames) };
 }
 async function setPaid(e, paid) {
   if (e.src === 'app') {
@@ -1501,10 +1502,10 @@ async function renderBusiness() {
       <div class="doc-list">${s.paid.slice(0, 200).map((e) => invRow(e, { paid: true })).join('') || '<p class="muted small">None.</p>'}</div></details>
 
     <h2 class="h2">Customers <span class="muted">${cs.length}</span></h2>
-    <div class="doc-list">${cs.map((x, i) => `<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${esc(x.key)} · ${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'} · ${pct(x.invoiced, s.invoiced)} of the total</small></span>
-        <span class="q-amt"><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}</span></button>
-        <div class="biz-sites" data-i="${i}" hidden>${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}</div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
-    <p class="small muted">Invoiced is ex VAT; owed is inc VAT. Tap a customer to see their sites.</p>
+    <div class="doc-list">${cs.map((x, i) => `<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${esc(x.key)} · ${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'} · ${pct(x.invoiced, s.invoiced)} of the total</small>${x.contacts?.length ? `<small>Contacts: ${esc(x.contacts.slice(0, 4).join(', '))}${x.contacts.length > 4 ? ` +${x.contacts.length - 4}` : ''}</small>` : ''}</span>
+        <span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}</span></button>
+        <div class="biz-sites" data-i="${i}" hidden>${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}<button type="button" class="btn sm biz-rename" data-id="${esc(x.key)}" data-name="${esc(x.custName || '')}">${icon('pencil')} Customer name</button></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
+    <p class="small muted">Invoiced is the total of that customer's invoices in this period, ex VAT. Owed is their unpaid invoices, inc VAT. Tap a customer to see their sites and to set the customer name.</p>
 
     <h2 class="h2">Type of work</h2>
     <div class="biz-work">${s.work.map((w) => `<div><span>${esc(w.label)} <small class="muted">${w.n}</small></span><i style="--w:${(w.invoiced / topWork) * 100}%"></i><b>${money(w.invoiced)}</b></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
@@ -1547,6 +1548,19 @@ async function renderBusiness() {
     $('#biz-read').textContent = `${v.label} · ${money(v.v)} ex VAT`;
   }));
   $$('.biz-cust').forEach((r) => (r.onclick = () => { const x = $(`.biz-sites[data-i="${r.dataset.i}"]`); x.hidden = !x.hidden; }));
+  $$('.biz-rename').forEach((b) => (b.onclick = async () => {
+    const r = await dialog({
+      title: `Customer name · ${b.dataset.id}`,
+      body: `<p class="small">The name shown for this customer ID on the Business page and in its Excel summary. Leave blank to use the name read from your workbook.</p><label class="field"><span>Name</span><input name="n" value="${esc(b.dataset.name)}" placeholder="e.g. HSE Mid West"></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Save', value: true, kind: 'primary' }],
+    });
+    if (r.value !== true) return;
+    const names = (await db.get('settings', 'bizNames'))?.names || {};
+    if ((r.data.n || '').trim()) names[b.dataset.id] = r.data.n.trim();
+    else names[b.dataset.id] = undefined;
+    await db.put('settings', { id: 'bizNames', names: JSON.parse(JSON.stringify(names)) });
+    refresh();
+  }));
   $$('.biz-pay').forEach((b) => (b.onclick = () => { const e = ledger.find((x) => x.id === b.dataset.id); if (e) setPaid(e, b.dataset.paid === '1'); }));
   $$('.biz-open').forEach((b) => (b.onclick = () => {
     if (b.dataset.src === 'app') return go({ view: 'quote', quoteId: b.dataset.id });

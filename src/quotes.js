@@ -33,10 +33,10 @@ export function parseTabName(name) {
   if (!m) return null;
   const rest = m[3];
   const a = /\bA-0*(\d+)/i.exec(rest);
-  const inv = /INV-0*(\d+)/i.exec(rest);
+  const inv = /INV-0*(\d+)([A-Z]?)\b/i.exec(rest);
   return {
     tab: +m[1], cust: m[2].toUpperCase(), quote: a ? 'A-' + pad3(+a[1]) : '', quoteNo: a ? +a[1] : 0,
-    inv: inv ? 'INV-' + pad3(+inv[1]) : '', invNo: inv ? +inv[1] : 0, kind: inv ? 'INV' : 'Q',
+    inv: inv ? 'INV-' + pad3(+inv[1]) + (inv[2] || '').toUpperCase() : '', invNo: inv ? +inv[1] : 0, kind: inv ? 'INV' : 'Q',
     part: /\bDEP\b/i.test(rest) ? 'DEP' : /\bBAL\b/i.test(rest) ? 'BAL' : '',
   };
 }
@@ -141,7 +141,9 @@ export async function readWorkbook(file, onProgress = () => {}) {
   if (wb.Sheets.SUMMARY) {
     for (const r of XLSX.utils.sheet_to_json(wb.Sheets.SUMMARY, { header: 1, raw: true, defval: null }).slice(1)) {
       const name = str(r[1]);
-      if (name) reg[name] = { workType: str(r[6]).toUpperCase(), location: str(r[5]), status: str(r[8]).toUpperCase(), paidOn: excelDate(r[12]) };
+      // the register is the master record: its Date, Subtotal and Total are used
+      // first (older tabs have a different layout the tab reader can miss)
+      if (name) reg[name] = { workType: str(r[6]).toUpperCase(), location: str(r[5]), status: str(r[8]).toUpperCase(), paidOn: excelDate(r[12]), date: excelDate(r[9]), subtotal: num(r[10]), total: num(r[11]) };
     }
   }
 
@@ -156,7 +158,7 @@ export async function readWorkbook(file, onProgress = () => {}) {
     try { x = readDocSheet(XLSX, ws); } catch { continue; }
     const rg = reg[d.name] || reg[d.name.replace(/\s+/g, ' ')] || {};
     const workType = rg.workType || '';
-    register.push({ sheet: d.name, tab: d.tab, kind: d.kind, part: d.part, cust: d.cust, quote: d.quote, inv: d.inv, date: x.date, due: x.due || '', paidOn: rg.paidOn || '', subtotal: x.sum.subtotal ?? null, total: x.sum.total ?? null, status: rg.status || '', workType, location: rg.location || x.siteLines[0] || '', po: x.po, items: x.items, notes: x.notes, vatRate: x.sum.vatRate ?? null, siteLines: x.siteLines });
+    register.push({ sheet: d.name, tab: d.tab, kind: d.kind, part: d.part, cust: d.cust, quote: d.quote, inv: d.inv, date: rg.date || x.date, due: x.due || '', paidOn: rg.paidOn || '', subtotal: rg.subtotal ?? x.sum.subtotal ?? null, total: rg.total ?? x.sum.total ?? null, custLines: x.custLines, status: rg.status || '', workType, location: rg.location || x.siteLines[0] || '', po: x.po, items: x.items, notes: x.notes, vatRate: x.sum.vatRate ?? null, siteLines: x.siteLines });
     const c = (customers[d.cust] ||= { id: d.cust, lines: [], sites: {}, vatRate: null, last: '' });
     if (x.custLines.length && (x.date || '') >= (c.last || '')) { c.lines = x.custLines; c.last = x.date || c.last; }
     if (x.sum.vatRate != null && (x.date || '') >= (c.vatDate || '')) { c.vatRate = x.sum.vatRate; c.vatDate = x.date; }

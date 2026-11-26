@@ -33,10 +33,24 @@ const keyOf = (kind, quote, inv, part) => `${kind}|${kind === 'INV' ? inv : quot
 // One list of every quote and invoice: workbook tabs plus app documents. A
 // document in both (same number) is taken from the app, where it can be edited.
 // `marks` holds paid / status changes made on this page to workbook documents.
-export function buildLedger(book, appDocs, marks = {}, extra = {}) {
+export function buildLedger(book, appDocs, marks = {}, extra = {}, ownNames = {}) {
+  // Customer name: the customer block line that appears on most of that customer's
+  // documents (e.g. "HSE Mid West"), not the contact person on the latest one.
+  // Contacts: the first line of each document's customer block.
+  const blocks = {};
+  const addBlock = (id, lines) => { if (id && lines?.length) (blocks[id] ||= []).push(lines.map((l) => String(l).trim()).filter(Boolean)); };
+  for (const r of book?.register || []) addBlock(r.cust, r.custLines);
+  for (const d of appDocs) addBlock(d.cust?.id, d.cust?.lines);
+  for (const c of book?.customers || []) if (!blocks[c.id]) addBlock(c.id, c.lines);
   const names = {};
-  for (const c of book?.customers || []) names[c.id] = c.lines?.[0] || '';
-  for (const d of appDocs) if (d.cust?.id && d.cust.lines?.[0]) names[d.cust.id] ||= d.cust.lines[0];
+  const contacts = {};
+  for (const [id, list] of Object.entries(blocks)) {
+    const score = new Map();
+    for (const lines of list) lines.slice(0, 4).forEach((l, i) => { const k = l.toUpperCase(); const x = score.get(k) || { l, n: 0, pos: 0 }; x.n++; x.pos += i; score.set(k, x); });
+    const best = [...score.values()].sort((a, b) => b.n - a.n || a.pos / a.n - b.pos / b.n)[0];
+    names[id] = best?.l || '';
+    contacts[id] = [...new Set(list.map((l) => l[0]).filter((l) => l && l.toUpperCase() !== names[id].toUpperCase()))];
+  }
   const out = new Map();
   for (const r of book?.register || []) {
     const m = marks[r.sheet] || {};
@@ -47,8 +61,9 @@ export function buildLedger(book, appDocs, marks = {}, extra = {}) {
       subtotal: r2(sub), total: r2(r.total ?? sub), status: m.status || r.status || '', paidOn: m.paidOn || r.paidOn || '', workType: r.workType || '',
       pd: '', cost: null,
     };
-    out.set(keyOf(e.kind, e.quote, e.inv, e.part), e);
+    out.set('wb|' + r.sheet, e); // each workbook tab once, even if two share a number
   }
+  const wbKey = new Map([...out.entries()].map(([k, e]) => [keyOf(e.kind, e.quote, e.inv, e.part), k]));
   for (const d of appDocs) {
     const t = totals(d);
     const e = {
@@ -58,11 +73,15 @@ export function buildLedger(book, appDocs, marks = {}, extra = {}) {
       pd: d.pd || '', projectId: d.projectId || null, fromQuoteId: d.fromQuoteId || null,
       cost: d.matCost != null || d.labCost != null ? { materials: r2(d.matCost), labour: r2((d.labCost || 0) + (d.preLimsCost || 0)), from: d.pd || 'app quote' } : (extra[d.id] || null),
     };
-    out.set(keyOf(e.kind, e.quote, e.inv, e.part), e);
+    const k = keyOf(e.kind, e.quote, e.inv, e.part);
+    if (wbKey.has(k)) out.delete(wbKey.get(k)); // the app copy replaces the workbook tab
+    out.set('app|' + d.id, e);
   }
   const all = [...out.values()];
   for (const e of all) {
-    e.custName = names[e.cust] || '';
+    for (const k of ['date', 'due', 'paidOn']) if (e[k] && e[k] < '2000') e[k] = '';
+    e.custName = ownNames[e.cust] || names[e.cust] || '';
+    e.contacts = contacts[e.cust] || [];
     if (!e.due && e.date) e.due = addDays(e.date, e.days);
   }
   linkCosts(all, book?.pds || []);
@@ -128,7 +147,7 @@ export function summarise(ledger, year = '', todayIso = new Date().toISOString()
     const g = new Map();
     for (const e of invs) {
       const k = keyFn(e);
-      const x = g.get(k) || { key: k, n: 0, invoiced: 0, paid: 0, owed: 0, sites: new Map(), custName: e.custName };
+      const x = g.get(k) || { key: k, n: 0, invoiced: 0, paid: 0, owed: 0, sites: new Map(), custName: e.custName, contacts: e.contacts };
       x.n++; x.invoiced += e.subtotal;
       if (isPaid(e)) x.paid += e.total; else x.owed += e.total;
       if (e.site) x.sites.set(e.site.toUpperCase(), r2((x.sites.get(e.site.toUpperCase()) || 0) + e.subtotal));
