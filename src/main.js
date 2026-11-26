@@ -262,12 +262,7 @@ async function renderProjects() {
     </section>` : '';
 
   // grouping and filtering
-  let groupBy = 'group';
-  try {
-    groupBy = localStorage.getItem('fscf-groupby') || 'group';
-  } catch {
-    /* storage blocked */
-  }
+  const groupBy = 'group'; // projects are listed under their group
   const types = [...new Set(projects.map((p) => p.workType || '').filter(Boolean))].sort();
   const q = (state.projQ || '').toLowerCase();
   const shown = projects.filter((p) =>
@@ -312,9 +307,12 @@ async function renderProjects() {
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
-        <label class="search">${icon('search')}<input id="proj-q" type="search" placeholder="Search site, client or group…" value="${esc(state.projQ || '')}"></label>
-        <div class="seg seg4" role="group" aria-label="Group projects by">
-          ${[['group', 'Group'], ['type', 'Type of work'], ['client', 'Client'], ['none', 'None']].map(([v, l]) => `<button class="seg-btn ${groupBy === v ? 'is-on' : ''}" data-gb="${v}">${l}</button>`).join('')}
+        <div class="site-pick">
+          <label class="search">${icon('search')}<input id="proj-q" type="search" placeholder="Search or pick a site…" value="${esc(state.projQ || '')}" autocomplete="off"><button type="button" class="icon-btn sm site-dd-btn" id="proj-dd" aria-label="Show all sites" aria-expanded="${state.siteDd ? 'true' : 'false'}">${icon('down')}</button></label>
+          <div class="site-dd" id="site-dd" ${state.siteDd ? '' : 'hidden'}>${(() => {
+            const list = [...shown].sort((a, b) => (a.site || '').localeCompare(b.site || ''));
+            return list.length ? list.map((p) => `<button type="button" class="site-dd-row" data-id="${p.id}"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([p.client, p.group].filter(Boolean).join(' · '))}</small></button>`).join('') : '<p class="muted small pad">No sites match.</p>';
+          })()}</div>
         </div>
         ${types.length > 1 ? `<div class="chips wrap">${['', ...types].map((t) => `<button class="chip type-chip ${(state.projType || '') === t ? 'is-on' : ''}" data-t="${esc(t)}">${esc(t || 'All types')} ${t ? `<b>${projects.filter((p) => (p.workType || '') === t).length}</b>` : ''}</button>`).join('')}</div>` : ''}
       </div>` : ''}
@@ -373,14 +371,22 @@ async function renderProjects() {
   const demo = $('#demo');
   if (demo) demo.onclick = loadDemo;
   $$('.project-card').forEach((el) => (el.onclick = () => go({ view: 'project', projectId: el.dataset.id, tab: 'plans' })));
-  $$('[data-gb]').forEach((b) => (b.onclick = () => {
-    try {
-      localStorage.setItem('fscf-groupby', b.dataset.gb);
-    } catch {
-      /* storage blocked */
-    }
-    refresh();
-  }));
+  // site drop-down: the ▾ button opens every site (or those matching the search); tap one to open it
+  const dd = $('#site-dd');
+  const setDd = (open) => {
+    state.siteDd = open;
+    if (dd) dd.hidden = !open;
+    $('#proj-dd')?.setAttribute('aria-expanded', open ? 'true' : 'false');
+  };
+  $('#proj-dd')?.addEventListener('click', (e) => { e.preventDefault(); setDd(!state.siteDd); });
+  $$('.site-dd-row').forEach((b) => (b.onclick = () => { setDd(false); go({ view: 'project', projectId: b.dataset.id, tab: 'plans' }); }));
+  const closeDd = (e) => {
+    if (!state.siteDd || e.target.closest?.('.site-pick')) return;
+    setDd(false);
+  };
+  document.removeEventListener('pointerdown', homeDdCloser);
+  homeDdCloser = closeDd;
+  document.addEventListener('pointerdown', homeDdCloser);
   $$('.type-chip').forEach((c) => (c.onclick = () => { state.projType = c.dataset.t; refresh(); }));
   $$('.pgroup-head').forEach((h) => (h.onclick = () => {
     const k = h.closest('.pgroup').dataset.k;
@@ -393,6 +399,7 @@ async function renderProjects() {
   const pq = $('#proj-q');
   if (pq) pq.oninput = () => {
     state.projQ = pq.value;
+    state.siteDd = !!pq.value.trim(); // typing shows the matching sites
     const pos = pq.selectionStart;
     refresh().then(() => {
       const n = $('#proj-q');
@@ -401,6 +408,8 @@ async function renderProjects() {
     });
   };
 }
+
+let homeDdCloser = () => {};
 
 function statusBar(doors) {
   const total = doors.length || 1;
