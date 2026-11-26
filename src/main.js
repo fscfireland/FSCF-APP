@@ -4,7 +4,7 @@ import * as db from './db.js';
 import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, labourTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
-  setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION, OLD_DOOR_TYPES, DOOR_TYPES_VERSION,
+  setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION, OLD_DOOR_TYPES, DOOR_TYPES_VERSION, DOOR_TYPE_NOTES, doorTypeGroup,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
   DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails, DEFAULT_KITS, KIND_IDS, kindForWork, DEFAULT_TEMPLATES,
 } from './defaults.js';
@@ -4248,7 +4248,12 @@ async function drawSheet(door) {
         <label class="field"><span>Pin ref / ID</span><input id="f-ref" data-k="ref" value="${esc(door.ref)}" placeholder="e.g. 001" autocomplete="off"></label>
         <label class="field"><span>Location / room</span><input id="f-location" data-k="location" value="${esc(door.location)}" placeholder="e.g. Bedroom 4" autocomplete="off"></label>
         <label class="field"><span>${esc(K.item)} type</span>
-          <select id="f-type" data-k="doorType"><option value="">Select…</option>${types.map((t) => `<option ${t === door.doorType ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select>
+          <select id="f-type" data-k="doorType"><option value="">Select…</option>${(() => {
+            const groups = [...new Set(types.map(doorTypeGroup))];
+            const opt = (t) => `<option ${t === door.doorType ? 'selected' : ''}>${esc(t)}</option>`;
+            return groups.length < 2 ? types.map(opt).join('') : groups.map((g) => `<optgroup label="${esc(g)}">${types.filter((t) => doorTypeGroup(t) === g).map(opt).join('')}</optgroup>`).join('');
+          })()}</select>
+          <small class="muted type-note" id="f-type-note">${esc(DOOR_TYPE_NOTES.find(([re]) => re.test(door.doorType || ''))?.[1] || '')}</small>
         </label>
         <label class="field" ${kindNow === 'fd' ? '' : 'hidden'}><span>Leaf configuration</span>
           <select id="f-leaf" data-k="leaf">${LEAF_CONFIGS.map((t) => `<option value="${esc(t)}" ${t === (door.leaf || '') ? 'selected' : ''}>${esc(t || 'Select…')}</option>`).join('')}</select>
@@ -4524,6 +4529,7 @@ async function drawSheet(door) {
       }
       if (inp.value === '__new') return; // handled by the "Add new category" dialog
       queue({ [inp.dataset.k]: inp.value });
+      if (inp.dataset.k === 'doorType' && $('#f-type-note')) $('#f-type-note').textContent = DOOR_TYPE_NOTES.find(([re]) => re.test(inp.value))?.[1] || '';
       if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || K.item + ' ' + door.pinNo;
       if (inp.dataset.k === 'zoneNo' || inp.dataset.k === 'zoneName') {
         // a zone number from the project's zone list fills in its name

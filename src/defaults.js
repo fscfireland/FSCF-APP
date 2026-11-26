@@ -354,16 +354,32 @@ export const DEFAULT_DOOR_TYPES = [
   'E90 (FD90)',
   'E120 (FD120)',
   'Notional fire door',
+  'Nominal fire door',
   'Non-rated',
   'Unknown – no evidence of rating',
 ];
+
+// Doors without test evidence (BS 8214:2026 uses these terms), and unknown
+export const DOOR_TYPE_NOTES = [
+  [/notional/i, 'Notional: no test certificate or label, but evidence (e.g. original drawings or specification) that it met the fire door standard in force when the building was built. Only relevant within a fire risk assessment.'],
+  [/nominal/i, 'Nominal: built and fitted like a fire door, but no test evidence or certification, and it does not meet the notional description. Judged on its construction only.'],
+  [/unknown/i, 'Unknown: no evidence of a fire rating could be found. Treat as unconfirmed until evidence is provided or the door is replaced.'],
+];
+// Group the door types for the picker
+export function doorTypeGroup(t) {
+  if (/^E\s?I?\s?\d|^FD\s?\d/i.test(t)) return 'Fire rated (European, FD in brackets)';
+  if (/notional|nominal/i.test(t)) return 'No test evidence';
+  if (/unknown/i.test(t)) return 'Unknown';
+  if (/non.?rated/i.test(t)) return 'Not a fire door';
+  return 'Other';
+}
 
 // Door types as written before (FD first) → the European-first names
 export const OLD_DOOR_TYPES = {
   'FD30 (EI 30)': 'E30 (FD30)', 'FD30S (EI 30-Sa)': 'E30Sa (FD30S)', 'FD60 (EI 60)': 'E60 (FD60)',
   'FD60S (EI 60-Sa)': 'E60Sa (FD60S)', 'FD90 (EI 90)': 'E90 (FD90)', 'FD120 (EI 120)': 'E120 (FD120)',
 };
-export const DOOR_TYPES_VERSION = 2;
+export const DOOR_TYPES_VERSION = 3;
 
 export const LEAF_CONFIGS = ['', 'Single leaf', 'Double leaf', 'Leaf and a half', 'Single with fanlight', 'Double with fanlight'];
 
