@@ -2991,10 +2991,10 @@ function renderPlansTab(body, project, plans, doors, active) {
     }).join('')}
     <div class="plan-grid">
       <label class="plan-card upload">
-        <input type="file" id="plan-file" accept="application/pdf,image/*" hidden>
+        <input type="file" id="plan-file" accept="application/pdf,image/*" multiple hidden>
         <span class="upload-ico">${icon('upload')}</span>
-        <b>Upload drawing</b>
-        <small>PDF or photo of a floor plan. Each PDF page becomes a plan.</small>
+        <b>Upload drawings</b>
+        <small>PDFs or photos of floor plans – pick several at once. Each PDF page becomes a plan.</small>
       </label>
     </div>`;
   bindSvc(body, project, plans);
@@ -3030,14 +3030,14 @@ function renderPlansTab(body, project, plans, doors, active) {
     $('.folder-menu', fs).onclick = () => folderMenu(project, plans, doors, f);
   });
   $('#plan-file').onchange = async (e) => {
-    const file = e.target.files[0];
+    const files = [...e.target.files];
     e.target.value = '';
-    if (!file) return;
-    // which collection does it go in?
+    if (!files.length) return;
+    // which collection do they go in?
     let target = active === '*' || isFolderPick(active) ? plansIn(plans, active)[0]?.collection || colls[0] || '' : active;
     if (named) {
       const r = await dialog({
-        title: 'Add drawing to…',
+        title: files.length > 1 ? `Add ${files.length} drawings to…` : 'Add drawing to…',
         body: `
           <label class="field"><span>Collection</span>
             <select name="coll" id="up-coll">${collOptions(colls, target, { folders: false })}<option value="__new">New collection…</option></select></label>
@@ -3046,31 +3046,38 @@ function renderPlansTab(body, project, plans, doors, active) {
             <label class="field"><span>If new: name / section</span><input name="newname" id="up-new" placeholder="${esc(suggestName(colls, false))}"></label>
           </div>
           <datalist id="up-folders">${listFolders(colls).map((f) => `<option value="${esc(f)}"></option>`).join('')}</datalist>`,
-        buttons: [{ label: 'Cancel', value: false }, { label: 'Add drawing', value: true, kind: 'primary' }],
+        buttons: [{ label: 'Cancel', value: false }, { label: files.length > 1 ? `Add ${files.length} drawings` : 'Add drawing', value: true, kind: 'primary' }],
       });
       if (r.value !== true) return;
       target = r.data.coll === '__new' ? joinColl((r.data.newfolder || '').trim(), (r.data.newname || '').trim() || suggestName(colls, !(r.data.newfolder || '').trim())) : r.data.coll;
     }
-    const kind = await pickKind('What is this drawing for?', kindIds().find((k) => kitOf(k).name === project.workType) || kindForWork(project.workType));
+    const kind = await pickKind(files.length > 1 ? 'What are these drawings for?' : 'What is this drawing for?', kindIds().find((k) => kitOf(k).name === project.workType) || kindForWork(project.workType));
     if (!kind) return;
     const bz = busy('Reading drawing…');
-    try {
-      const pages = await importDrawing(file, bz.update);
-      let order = plansIn(plans, target).length;
-      let first = null;
-      for (const pg of pages) {
-        const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, inspType: kind, ...pg });
-        first ||= rec;
+    let order = plansIn(plans, target).length;
+    let first = null;
+    let added = 0;
+    const failed = [];
+    // in name order, so "1 Lower ground", "2 Ground"… stay in sequence
+    files.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+    for (const [n, file] of files.entries()) {
+      try {
+        const pages = await importDrawing(file, (m) => bz.update(files.length > 1 ? `Drawing ${n + 1} of ${files.length}: ${m}` : m));
+        for (const pg of pages) {
+          const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, inspType: kind, ...pg });
+          first ||= rec;
+          added++;
+        }
+      } catch (err) {
+        console.error(err);
+        failed.push(file.name);
       }
-      bz.done();
-      toast(pages.length > 1 ? `${pages.length} plans added` : 'Plan added');
-      if (pages.length === 1) go({ view: 'plan', projectId: project.id, planId: first.id });
-      else refresh();
-    } catch (err) {
-      bz.done();
-      console.error(err);
-      toast('Could not read that file: ' + err.message, 'error');
     }
+    bz.done();
+    if (failed.length) toast(`Could not read ${failed.join(', ')}`, 'error');
+    else toast(added > 1 ? `${added} plans added` : 'Plan added');
+    if (added === 1) go({ view: 'plan', projectId: project.id, planId: first.id });
+    else refresh();
   };
 }
 

@@ -55,6 +55,7 @@ export class PlanViewer {
   }
 
   destroy() {
+    clearTimeout(this.settle);
     window.removeEventListener('resize', this._resize);
     if (this.url) URL.revokeObjectURL(this.url);
     this.el.innerHTML = '';
@@ -125,8 +126,18 @@ export class PlanViewer {
     if (this.raf) return;
     this.raf = requestAnimationFrame(() => {
       this.raf = 0;
+      // While moving, the drawing rides on its own GPU layer for smooth panning.
+      // Once it settles it goes back to a plain 2D transform, so iPhones redraw
+      // it sharply in pieces instead of one huge layer (which shows black patches).
+      this.stage.classList.add('is-moving');
       this.stage.style.transform = `translate3d(${this.tx}px, ${this.ty}px, 0) scale(${this.s})`;
       this.stage.style.setProperty('--inv', String(1 / this.s));
+      clearTimeout(this.settle);
+      this.settle = setTimeout(() => {
+        if (this.pointers.size) return this._apply();
+        this.stage.classList.remove('is-moving');
+        this.stage.style.transform = `translate(${this.tx}px, ${this.ty}px) scale(${this.s})`;
+      }, 180);
     });
   }
 
