@@ -1002,9 +1002,9 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .pick-page img { width: 72px; height: 52px; object-fit: contain; background: #fff; border: 1px solid var(--line); border-radius: 6px; }
 
 /* quotes & invoices */
-.q-list { display: grid; gap: 6px; margin-bottom: 14px; }
-.q-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: left; color: inherit; font: inherit; width: 100%; }
-.q-row.is-wb { cursor: default; }
+.doc-list { display: grid; gap: 6px; margin-bottom: 14px; }
+.doc-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); text-align: left; color: inherit; font: inherit; width: 100%; }
+.doc-row.is-wb { cursor: default; }
 .q-kind { font: 700 11px/1 var(--mono, monospace); padding: 5px 6px; border-radius: 6px; background: #fff2cc; color: #7a5b00; }
 .q-kind.is-inv { background: #a9d18e; color: #24470f; }
 .q-main b { display: block; }
@@ -1042,3 +1042,15 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 
 .q-tie { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; }
 .q-tie small { display: block; color: var(--ink-2); font-size: 12.5px; }
+
+/* iPhone: stop drawing the big plan behind an open door panel. iOS runs out of
+   graphics memory compositing it under the scrolling panel and paints black tiles. */
+.sheet { overflow-x: hidden; -webkit-overflow-scrolling: touch; transform: translateZ(0); }
+@media (max-width: 899px) {
+  body.sheet-open .plan-screen .stage { visibility: hidden; }
+  body.sheet-open .plan-screen .viewer { background: var(--plan-bg); }
+  .sheet-backdrop { background: rgba(10, 16, 22, 0.55); }
+  .sheet { box-shadow: 0 -2px 12px rgba(0,0,0,.18); }
+}
+.sheet-body { grid-template-columns: minmax(0, 1fr); }
+.sheet-body > * { min-width: 0; }

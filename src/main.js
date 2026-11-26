@@ -671,7 +671,7 @@ async function renderQuotes() {
   const status = (s) => `<span class="q-status q-${(s || '').toLowerCase()}">${esc(s || '')}</span>`;
   const row = (d) => {
     const t = totals(d);
-    return `<button class="q-row" data-id="${d.id}"><span class="q-kind ${d.kind === 'INV' ? 'is-inv' : ''}">${d.kind === 'INV' ? 'INV' : 'Q'}</span>
+    return `<button class="doc-row" data-id="${d.id}"><span class="q-kind ${d.kind === 'INV' ? 'is-inv' : ''}">${d.kind === 'INV' ? 'INV' : 'Q'}</span>
       <span class="q-main"><b>${esc(d.kind === 'INV' ? d.inv : d.quote)} · ${esc(d.cust?.id || '')}</b><small>${esc((d.site?.lines || [])[0] || (d.cust?.lines || [])[0] || '')} · ${fmtDate(d.date)}</small></span>
       <span class="q-amt"><b>${money(t.total)}</b>${status(d.status)}</span></button>`;
   };
@@ -686,9 +686,9 @@ async function renderQuotes() {
       <button class="btn" id="q-newinv">${icon('plus')} New invoice</button>
     </div>
     <h2 class="h2">Made in the app <span class="muted">${docs.length}</span></h2>
-    <div class="q-list">${docs.map(row).join('') || '<p class="muted small">None yet.</p>'}</div>
+    <div class="doc-list">${docs.map(row).join('') || '<p class="muted small">None yet.</p>'}</div>
     ${book ? `<details class="panel fold-d"><summary class="h2">In the workbook <span class="muted">latest ${wbRecent.length}</span></summary>
-      <div class="q-list">${wbRecent.map((r) => `<div class="q-row is-wb"><span class="q-kind ${r.kind === 'INV' ? 'is-inv' : ''}">${r.kind === 'INV' ? 'INV' : 'Q'}</span>
+      <div class="doc-list">${wbRecent.map((r) => `<div class="doc-row is-wb"><span class="q-kind ${r.kind === 'INV' ? 'is-inv' : ''}">${r.kind === 'INV' ? 'INV' : 'Q'}</span>
         <span class="q-main"><b>${esc(r.kind === 'INV' ? r.inv : r.quote)} · ${esc(r.cust)}</b><small>${esc(r.location || '')} · ${fmtDate(r.date)}</small></span>
         <span class="q-amt"><b>${r.total != null ? money(r.total) : ''}</b>${status(r.status)}${r.kind === 'Q' && r.items?.length ? `<button class="btn sm wb-inv" data-sheet="${esc(r.sheet)}">Invoice</button>` : ''}</span></div>`).join('')}</div></details>
     <section class="panel">
@@ -701,7 +701,7 @@ async function renderQuotes() {
     </section>` : ''}`;
   $$('.qb-import').forEach((inp) => (inp.onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importQuoteBook(f); }));
   $('#q-rule')?.addEventListener('change', (e) => saveLists({ pricingRule: e.target.value }));
-  $$('.q-row[data-id]').forEach((b) => (b.onclick = () => go({ view: 'quote', quoteId: b.dataset.id })));
+  $$('.doc-row[data-id]').forEach((b) => (b.onclick = () => go({ view: 'quote', quoteId: b.dataset.id })));
   $('#q-new').onclick = () => newQuoteDoc('Q');
   $('#q-newinv').onclick = () => newInvoiceFrom(null);
   $('#q-fromrep').onclick = () => quoteFromReport(null);
