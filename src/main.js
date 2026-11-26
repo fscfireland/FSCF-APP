@@ -365,7 +365,7 @@ async function renderProjects() {
 
   app.innerHTML = `
     <header class="bar">
-      <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Ireland</b><small>Fire safety compliance &amp; facilities</small></div></div>
+      <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Ireland <span class="rev-chip" title="App version: close and reopen the app to get the latest">Rev ${esc(VERSION_TAG.replace(/^app v/, ''))}</span></b><small>Fire safety compliance &amp; facilities</small></div></div>
       <span class="bar-btns">
         ${lists.libPin ? `<button class="icon-btn owner-lock ${priced() ? 'is-open' : ''}" id="owner-lock" aria-label="${priced() ? 'Lock prices' : 'Unlock prices'}">${icon('shield')}<span>${priced() ? 'Unlocked' : 'Locked'}</span></button>` : ''}
         <button class="icon-btn" id="settings" aria-label="Settings">${icon('gear')}</button>
@@ -5418,9 +5418,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.53.2';
+const VERSION_TAG = 'app v0.53.3';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'logo colours, simpler site search';
+const WHATS_NEW = 'rev number at the top of Home';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

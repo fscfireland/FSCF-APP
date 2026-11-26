@@ -1539,3 +1539,5 @@ body.sheet-open .tabbar { display: none; }
 .update-bar span { min-width: 0; line-height: 1.3; }
 .update-bar .ico { flex: none; }
 .update-bar .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; flex: none; }
+.rev-chip { align-self: center; padding: 2px 8px; border-radius: 9px; background: var(--surface-2); color: var(--ink-2); font: 600 11px var(--font); white-space: nowrap; }
+.brand b .rev-chip { display: inline-block; vertical-align: 3px; margin-left: 4px; }
