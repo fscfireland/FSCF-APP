@@ -1430,3 +1430,22 @@ body.sheet-open .tabbar { display: none; }
 .dc-prices label { min-width: 0; }
 .dc-prices input { width: 100%; min-width: 0; }
 .np-row .field, .np-row input, .np-row select { min-width: 0; width: 100%; }
+
+/* ---------- One-thumb pass (owner, 26 Nov 2026) ---------- */
+/* Pin: Prev / Done / Next fixed to the foot of the pin */
+.sheet-nav { position: sticky; bottom: 0; z-index: 3; display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 8px; padding: 10px max(16px, var(--safe-r)) calc(10px + var(--safe-b)) max(16px, var(--safe-l)); background: var(--bg); border-top: 1px solid var(--line); box-shadow: 0 -4px 14px rgba(21, 33, 44, 0.06); }
+.sheet-nav .btn { min-height: 50px; justify-content: center; font-size: 15px; }
+.sheet-nav .btn:disabled { opacity: .4; }
+.sheet-nav .sn-fwd .ico, .sheet-nav .sn-fwd svg { transform: scaleX(-1); }
+.sheet-body { padding-bottom: 16px; }
+/* Pin: smaller map preview on phones, so Pass / Fail shows straight away */
+@media (max-width: 600px) { .sheet .door-map { aspect-ratio: auto; height: 118px; } }
+.fold-note summary { cursor: pointer; color: var(--ink-2); font-size: 12.5px; padding: 4px 0; }
+.dup-row { margin-top: 6px; }
+/* Drawing: icon-only tools on phones so Add always fits; Start service down by the thumb */
+@media (max-width: 520px) {
+  .plan-toolbar .tb-txt { display: none; }
+  .plan-toolbar .btn.big:not(.primary) { min-width: 52px; padding: 0 14px; }
+  .plan-svc-pill { top: auto; bottom: calc(86px + var(--safe-b)); max-width: calc(100% - 90px); }
+}
+@media (max-width: 520px) { .mode-banner:not([hidden]) + .plan-svc-pill { top: auto; } }

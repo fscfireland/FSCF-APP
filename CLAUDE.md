@@ -139,6 +139,9 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   groups. Home shortcuts: Last site (settings `lastSite`), New site, Overdue, Quote from report; Pricing Hub / Business /
   Quotes cards moved to the Business tab (`bizhub`, PIN). Schedule (`renderSchedule`, `scheduleGroups`): door nextDue
   grouped by site + drawing into overdue / next 30 days / upcoming. Repairs (`renderRepairsAll`) → site Repairs tab.
+- One-thumb pass (26 Nov 2026): pin has a sticky Prev / Done / Next bar (`#sheet-nav`, doors on the same drawing by pin
+  number, go(..., {replace:true})); smaller map preview on phones; Duplicate / Copy buttons moved down by Delete; leaf
+  key folded; on phones the drawing toolbar is icon-only (Add always fits) and Start service sits at the bottom.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

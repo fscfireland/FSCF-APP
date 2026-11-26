@@ -5416,7 +5416,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.51.2';
+const VERSION_TAG = 'app v0.52.0';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -5474,7 +5474,7 @@ async function drawSheet(door) {
         </label>
         <label class="field" ${kitOf(kindNow).base === 'fd' ? '' : 'hidden'}><span>Leaf / swing</span>
           <select id="f-leaf" data-k="leaf">${LEAF_CONFIGS.map((t) => `<option value="${esc(t)}" ${t === (door.leaf || '') ? 'selected' : ''}>${esc(t || 'Select…')}</option>`).join('')}</select>
-          <small class="muted type-note">SA = single action, DA = double action, SD = single door, DD = double door, RH / LH = right / left hand, BL = big leaf (unequal pair).</small>
+          <details class="type-note fold-note"><summary>What do these mean?</summary><small class="muted">SA = single action, DA = double action, SD = single door, DD = double door, RH / LH = right / left hand, BL = big leaf (unequal pair).</small></details>
         </label>
         <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
         <label class="field"><span>Fire alarm zone name</span><input id="f-zname" data-k="zoneName" value="${esc(door.zoneName)}" placeholder="e.g. East wing ground floor" autocomplete="off" list="zone-names"></label>
@@ -5571,9 +5571,31 @@ async function drawSheet(door) {
           : state.view === 'plan' ? `<button class="btn" id="sh-move">${icon('move')} Move pin</button>` : `<button class="btn" id="sh-show">${icon('plan')} Show on plan</button>`}
         <button class="btn ghost danger-text" id="sh-del">${icon('trash')} Delete ${esc(K.item.toLowerCase())}</button>
       </div>
-    </div>`;
+    </div>
+    <nav class="sheet-nav" id="sheet-nav" aria-label="Doors on this drawing">
+      <button type="button" class="btn" id="sn-prev" disabled>${icon('back')} <span>Prev</span></button>
+      <button type="button" class="btn primary" id="sn-done">${icon('check')} Done</button>
+      <button type="button" class="btn" id="sn-next" disabled><span>Next</span> <span class="sn-fwd">${icon('back')}</span></button>
+    </nav>`;
 
   try { wireSheetJump(el); } catch (err) { console.error(err); $('#sheet-jump', el)?.remove(); } // the bar must never stop a pin opening
+  // one-thumb: copy / duplicate buttons sit down by Delete, out of the way of Pass / Fail
+  { const dup = $('.dup-row', el); const acts = $('.sheet-actions', el); if (dup && acts) acts.before(dup); }
+  // Prev / Done / Next: work along the drawing door by door without closing the pin
+  (async () => {
+    try {
+      const sibs = (await db.projectDoors(door.projectId)).filter((x) => (x.planId || '') === (door.planId || '')).sort((a, b) => (a.pinNo || 0) - (b.pinNo || 0));
+      const i = sibs.findIndex((x) => x.id === door.id);
+      const prev = sibs[i - 1];
+      const next = sibs[i + 1];
+      const pad = (n) => String(n || '').padStart(3, '0');
+      const bp = $('#sn-prev', el); const bn = $('#sn-next', el);
+      if (!bp || !bn) return;
+      if (prev) { bp.disabled = false; bp.querySelector('span').textContent = pad(prev.pinNo); bp.onclick = () => go({ ...state, doorId: prev.id }, { replace: true }); }
+      if (next) { bn.disabled = false; bn.querySelector('span').textContent = pad(next.pinNo); bn.onclick = () => go({ ...state, doorId: next.id }, { replace: true }); }
+    } catch { /* the bar is a convenience */ }
+  })();
+  $('#sn-done', el)?.addEventListener('click', () => back());
   // a due date shown but not yet stored (frequency set after this door was inspected)
   let current = freq && door.inspectedOn && !door.nextDue ? { ...door, nextDue: addMonths(door.inspectedOn, freq) } : door;
   let redrawDefects = null;
