@@ -142,6 +142,13 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - One-thumb pass (26 Nov 2026): pin has a sticky Prev / Done / Next bar (`#sheet-nav`, doors on the same drawing by pin
   number, go(..., {replace:true})); smaller map preview on phones; Duplicate / Copy buttons moved down by Delete; leaf
   key folded; on phones the drawing toolbar is icon-only (Add always fits) and Start service sits at the bottom.
+- Design pass (26 Nov 2026, v0.53.0, modelled on SafetyCulture / Fieldwire): softer white cards; Home backup warning
+  short (button under the words on narrow phones); Ask Claude + My files as two tiles; site tabs keep counts beside the
+  name and scroll sideways; repeat-service tip moved onto the Copy to new collection button; door list Import from Excel +
+  Template on one line; pin title "002 · ROOM" with type / drawing / Saved on one line; Duplicate / Copy to / Copy from and
+  Photo / Video / Gallery as icon tiles on phones; no-questions panel is one line with Set up; extra field sections
+  (DCS 058 grade level) fold away and open when filled; shorter ironmongery wording (refs kept). Fixed pages that were
+  wider than the Galaxy S9+ (320 px): home site search, defect cards (long ART names).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

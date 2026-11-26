@@ -378,7 +378,7 @@ async function renderProjects() {
         const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
         const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
         if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} <span>Saved on this device · backed up ${days ? 'yesterday' : 'today'}${lists.autoBackup ? ' · automatic backup on' : ''}</span> <button class="link-btn" id="home-backup">Back up now</button></div>`;
-        return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Back up everything to Google Drive.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
+        return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Only on this device. Back up to Google Drive.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
       })()}
       <div class="quick-row" aria-label="Shortcuts">
         <button type="button" class="quick-btn" id="qk-last" ${lastSite ? '' : 'disabled'}>${icon('plan')}<span>Last site</span>${lastSite ? `<small>${esc(lastSite.site)}</small>` : ''}</button>
@@ -387,8 +387,10 @@ async function renderProjects() {
         <button type="button" class="quick-btn" id="qk-quote">${icon('report')}<span>Quote from report</span></button>
       </div>
       ${liveHtml}
-      <button class="lib-card ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Ask about your sites, doors and reports, or have it update them for you</small></span>${icon('more')}</button>
-      <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
+      <div class="tile-pair">
+        <button class="lib-card tile ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Sites, doors, reports</small></span></button>
+        <button class="lib-card tile" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private${lists.libPin ? ' · PIN' : ''}</small></span></button>
+      </div>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
         <div class="site-pick">
@@ -3836,7 +3838,7 @@ function renderPlansTab(body, project, plans, doors, active) {
         <div class="coll-head">
           <span class="coll-name">${icon('plan')}<span><b>${esc(splitColl(c).folder ? sectionLabel(c) : collLabel(c))}</b><small>${ps.length} drawing${ps.length === 1 ? '' : 's'} · ${pins} pin${pins === 1 ? '' : 's'}${c === active && colls.length > 1 ? ' · <span class="coll-cur">current</span>' : ''}</small></span></span>
           <span class="row-btns">
-            <button class="btn sm coll-copy">${icon('plus')} Copy to new collection</button>
+            <button class="btn sm coll-copy" title="Repeat service: start next month's folder with the same drawings and pins">${icon('plus')} Copy to new collection</button>
             <button class="icon-btn sm coll-menu" aria-label="Collection options">${icon('more')}</button>
           </span>
         </div>
@@ -3844,7 +3846,6 @@ function renderPlansTab(body, project, plans, doors, active) {
       </section>`;
   };
   body.innerHTML = `
-    ${plans.length && !named ? `<p class="muted small coll-tip">Doing a repeat service? Use <b>Copy to new collection</b> to start next month's folder with the same drawings and pins.</p>` : ''}
     ${colls.filter((c) => !splitColl(c).folder).map(group).join('')}
     ${listFolders(colls).map((f) => {
       const inF = colls.filter((c) => splitColl(c).folder === f);
@@ -4164,7 +4165,7 @@ function renderDoorsTab(body, project, plans, doors) {
     (!q || [d.ref, d.location, d.doorType, String(d.pinNo), planName[d.planId], d.zoneNo && 'zone ' + d.zoneNo, d.zoneName, d.category].join(' ').toLowerCase().includes(q)));
   body.innerHTML = `
     <div class="row-btns import-row">
-      <label class="btn sm">${icon('upload')} Import doors from Excel<input type="file" id="imp-file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" hidden></label>
+      <label class="btn sm">${icon('upload')} Import from Excel<input type="file" id="imp-file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" hidden></label>
       <button class="btn ghost sm" id="imp-template">${icon('download')} Template</button>
     </div>
     <div class="chips" role="group" aria-label="Filter by status">
@@ -5418,7 +5419,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.52.2';
+const VERSION_TAG = 'app v0.53.0';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -5447,7 +5448,7 @@ async function drawSheet(door) {
     <div class="sheet-grip" aria-hidden="true"></div>
     <header class="sheet-head">
       <span class="pin-badge lg ${s.id === 'not_inspected' ? 'is-hollow' : ''}" id="sh-badge" style="--pin:${s.color}">${door.pinNo}</span>
-      <div class="sheet-title"><b id="sh-title">${esc(door.ref || K.item + ' ' + door.pinNo)}</b><small><button type="button" class="kind-chip kind-pick ${kcls(kindNow)}" id="sh-kind" aria-label="Inspection type: ${esc(K.name)}. Tap to change">${esc(K.name)} ${icon('down')}</button> ${esc(plan?.name || '')} <span id="saved" class="saved">Saved</span></small></div>
+      <div class="sheet-title"><b><span id="sh-title">${esc(door.ref || K.item + ' ' + door.pinNo)}</span><span class="sh-loc" id="sh-loc">${door.location ? ' · ' + esc(door.location) : ''}</span></b><small><button type="button" class="kind-chip kind-pick ${kcls(kindNow)}" id="sh-kind" aria-label="Inspection type: ${esc(K.name)}. Tap to change">${esc(K.name)} ${icon('down')}</button><span class="sh-plan">${esc(plan?.name || '')}</span><span id="saved" class="saved">Saved</span></small></div>
       <button class="icon-btn" id="sh-close" aria-label="Close">${icon('close')}</button>
     </header>
     <div class="sheet-body">
@@ -5458,9 +5459,9 @@ async function drawSheet(door) {
       </fieldset>
       ${autoRes ? '<p class="auto-res" id="auto-res"></p>' : ''}
       <div class="dup-row">
-        <button type="button" class="btn" id="sh-dup">${icon('plus')} Duplicate here</button>
-        <button type="button" class="btn" id="sh-copyto">${icon('plan')} Copy to drawing…</button>
-        <button type="button" class="btn" id="sh-copyfrom">${icon('sheet')} Copy details from…</button>
+        <button type="button" class="btn" id="sh-dup" title="Duplicate this pin here">${icon('plus')} Duplicate</button>
+        <button type="button" class="btn" id="sh-copyto" title="Copy this pin to another drawing">${icon('plan')} Copy to…</button>
+        <button type="button" class="btn" id="sh-copyfrom" title="Copy details from another pin">${icon('sheet')} Copy from…</button>
       </div>
 
       <div class="grid2">
@@ -5528,7 +5529,7 @@ async function drawSheet(door) {
           <button class="btn sm" id="add-defect">${icon('plus')} Add defect</button>
         </div>
         <p class="fill-note" id="cost-fails" hidden></p>
-        ${kitOf(kindNow).base === 'fd' ? `<label class="iron-maint"><input type="checkbox" id="f-iron" ${door.ironMaint !== false ? 'checked' : ''}><span class="hc"><b>IRONMONGERY: maintenance required</b><small>Standard on every door: clean hinges of oil and filings, monitor for wear, lightly oil the keeper (BM TRADA Q-Mark ART 10; GAI guide s.8). Goes on the repair and pricing sheets. Untick if not needed.</small></span></label>` : ''}
+        ${kitOf(kindNow).base === 'fd' ? `<label class="iron-maint"><input type="checkbox" id="f-iron" ${door.ironMaint !== false ? 'checked' : ''}><span class="hc"><b>IRONMONGERY: maintenance required</b><small>Clean hinges, check for wear, lightly oil the keeper (BM TRADA Q-Mark ART 10; GAI guide s.8). On the repair and pricing sheets; untick if not needed.</small></span></label>` : ''}
         <div id="defects"></div>
       </section>
 
@@ -5800,6 +5801,7 @@ async function drawSheet(door) {
       if (inp.dataset.k === 'doorType' && $('#f-type-note')) $('#f-type-note').textContent = DOOR_TYPE_NOTES.find(([re]) => re.test(inp.value))?.[1] || '';
       if (inp.dataset.k === 'doorType') switchForType(inp.value);
       if (inp.dataset.k === 'ref') $('#sh-title').textContent = inp.value || K.item + ' ' + door.pinNo;
+      if (inp.dataset.k === 'location' && $('#sh-loc')) $('#sh-loc').textContent = inp.value.trim() ? ' · ' + inp.value.trim() : '';
       if (inp.dataset.k === 'zoneNo' || inp.dataset.k === 'zoneName') {
         // a zone number from the project's zone list fills in its name
         const known = zoneMap.get(inp.value.trim().replace(/^zone\s*/i, ''));
@@ -6063,6 +6065,7 @@ async function drawSheet(door) {
       $(id).hidden = !qs.length || arranging;
       $(id).setAttribute('aria-pressed', String(on));
     }
+    $('#q-arrange').hidden = qs.length < 2;
     $('#q-arrange').setAttribute('aria-pressed', String(arranging));
     $('#q-arrange').innerHTML = arranging ? `${icon('check')} Done arranging` : `${icon('grip')} Arrange`;
     if (arranging) return drawArrange();
@@ -6081,7 +6084,8 @@ async function drawSheet(door) {
           ${open ? `<textarea class="q-note" id="q-note-${esc(q.id)}" rows="2" placeholder="Note on this check, e.g. closer leaking oil">${esc(note)}</textarea>` : ''}
         </div>`;
       }).join('')
-      : '<p class="muted small">No questions set up. Add them in Settings.</p>';
+      : '<p class="muted small q-empty">No questions for this checklist yet. Tap <b>Set up</b> to add them.</p>';
+    $('#q-edit').innerHTML = qs.length ? `${icon('gear')} Edit questions` : `${icon('plus')} Set up`;
     $$('.q-row', el).forEach((row) => {
       $$('.q-btn', row).forEach((b) => (b.onclick = () => {
         const q = qs.find((x) => x.id === row.dataset.id);
@@ -6520,6 +6524,7 @@ async function drawSheet(door) {
   $('#f-iron')?.addEventListener('change', (e) => queue({ ironMaint: e.target.checked }));
 
   // Replacement: one drop-down; choosing a replacement opens its fields
+  const openSecs = new Set();
   const drawRep = () => {
     const box = $('#rep-fields');
     if (!box) return;
@@ -6546,13 +6551,19 @@ async function drawSheet(door) {
         ? `<label class="field span2"><span>${esc(f.label)}</span><textarea id="${id}" data-attr="${f.id}" rows="2" placeholder="${esc(f.placeholder || '')}">${esc(v)}</textarea></label>`
         : `<label class="field"><span>${esc(f.label)}</span><input id="${id}" data-attr="${f.id}" value="${esc(v)}" placeholder="${esc(f.placeholder || '')}" autocomplete="off"></label>`;
     };
-    box.innerHTML = secs.map((sc) => `
+    const filled = (sc) => sc.fields.filter((f) => (a[f.id] ?? '') !== '').length;
+    box.innerHTML = secs.map((sc) => sc.when !== 'replacement' ? `
+      <details class="rep-sec rep-fold" data-sec="${esc(sc.id)}" ${filled(sc) || openSecs.has(sc.id) ? 'open' : ''}>
+        <summary><span>${esc(sc.name)}</span><small>${filled(sc)} of ${sc.fields.length} filled</small></summary>
+        <div class="grid2">${sc.fields.map(fieldHtml).join('')}</div>
+      </details>` : `
       <div class="rep-sec">
         <h4>${esc(sc.name)}</h4>
         ${sc.when === 'replacement' ? `<p class="rep-auto"><span>Rating <b>${esc(ratingOf(current) || 'set the door type')}</b></span><span>Swing <b>${esc(swingOf(current) || 'set leaf / swing')}</b></span><span>Supply <b>${esc(SUPPLY[current.replacement] || '')}</b></span></p>` : ''}
         <div class="grid2">${sc.fields.map(fieldHtml).join('')}</div>
         ${sc.when === 'replacement' ? '<button type="button" class="btn sm" id="rep-copy">Copy sizes from another door…</button>' : ''}
       </div>`).join('');
+    $$('.rep-fold', box).forEach((d) => d.addEventListener('toggle', () => { if (d.open) openSecs.add(d.dataset.sec); else openSecs.delete(d.dataset.sec); }));
     $$('[data-attr]', box).forEach((inp) => {
       const ev = inp.tagName === 'SELECT' ? 'change' : 'input';
       inp.addEventListener(ev, async () => {

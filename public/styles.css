@@ -1449,3 +1449,78 @@ body.sheet-open .tabbar { display: none; }
   .plan-svc-pill { top: auto; bottom: calc(86px + var(--safe-b)); max-width: calc(100% - 90px); }
 }
 @media (max-width: 520px) { .mode-banner:not([hidden]) + .plan-svc-pill { top: auto; } }
+
+/* ---------- Design pass (owner, 26 Nov 2026): calmer cards, less text, one-line controls ----------
+   Modelled on field inspection apps (SafetyCulture, Fieldwire): white cards with a soft
+   shadow on a grey page, short labels, one action per row, secondary detail folded away. */
+.block, .project-card, .lib-card, .quick-btn { border-color: color-mix(in srgb, var(--line) 70%, transparent); box-shadow: 0 1px 2px rgba(21, 33, 44, 0.05), 0 2px 8px rgba(21, 33, 44, 0.04); }
+.block { padding: 14px; border-radius: 14px; }
+.block-head h3 { font-size: 15px; letter-spacing: .02em; }
+.field > span { font-size: 12px; letter-spacing: .03em; }
+/* Home: one-line backup warning; the button drops under the words on narrow phones */
+.backup-warn { display: grid; grid-template-columns: auto 1fr auto; }
+.backup-warn b { font-size: 14px; }
+@media (max-width: 400px) {
+  .backup-warn { grid-template-columns: auto 1fr; }
+  .backup-warn .btn { grid-column: 1 / -1; width: 100%; min-height: 44px; }
+}
+/* Home: Ask Claude and My files as two tiles */
+.tile-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 18px; }
+.tile-pair .lib-card { margin: 0; padding: 12px; gap: 10px; min-height: 64px; }
+.tile-pair .lib-card > .ico:first-child { width: 24px; height: 24px; }
+.tile-pair .lib-card b { font-size: 14px; }
+.tile-pair .lib-card small { font-size: 11.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.quick-btn { min-height: 76px; }
+.quick-btn span { line-height: 1.15; }
+/* Site tabs: the count sits beside the name, so every tab lines up */
+.tab { white-space: nowrap; padding: 0 4px; }
+.tab-n { display: inline-block; margin-left: 2px; vertical-align: 1px; }
+/* Door list: import and template on one line */
+.import-row { display: flex; flex-wrap: nowrap; gap: 6px; align-items: center; }
+.import-row .btn { flex: none; }
+/* Pin: title is "002 · Bedroom 2"; type, drawing and Saved on one line below */
+.sheet-title b { font-size: 18px; }
+.sh-loc { font-weight: 500; color: var(--ink-2); }
+.sheet-title small { display: flex; align-items: center; gap: 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sheet-title small .kind-chip { flex: none; }
+.sheet-title .saved { margin-left: auto; flex: none; }
+/* Pin: Duplicate / Copy to / Copy from, short and on one line */
+.dup-row .btn { min-height: 44px; white-space: nowrap; font-size: 13.5px; padding: 0 6px; gap: 4px; }
+.dup-row .btn .ico { width: 16px; height: 16px; flex: none; }
+/* Pin: no questions set up -> one short line */
+.q-empty { margin: 0; }
+/* Pin: extra sections (e.g. BM TRADA DCS 058 grade level) fold away until used */
+.rep-fold > summary { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 44px; cursor: pointer; list-style: none; font: 650 15px/1.2 var(--font-head); }
+.rep-fold > summary::-webkit-details-marker { display: none; }
+.rep-fold > summary::after { content: ''; flex: none; width: 9px; height: 9px; border-right: 2px solid var(--ink-2); border-bottom: 2px solid var(--ink-2); transform: rotate(45deg); margin: -4px 4px 0 0; transition: transform .15s; }
+.rep-fold[open] > summary::after { transform: rotate(-135deg); margin-top: 4px; }
+.rep-fold > summary span { flex: 1; min-width: 0; }
+.rep-fold > summary small { flex: none; font: 500 12px var(--font); color: var(--ink-2); }
+.rep-fold[open] { gap: 10px; }
+.rep-fold:not([open]) { gap: 0; }
+/* keep every page inside the phone's width (Galaxy S9+ is 320 px wide) */
+.tile-pair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.tile-pair .lib-card { min-width: 0; flex-direction: column; align-items: flex-start; gap: 6px; }
+.tile-pair .lib-card > span { width: 100%; }
+.tabs { overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+.tab { flex: 1 0 auto; }
+.import-row { flex-wrap: wrap; }
+.sheet-head { grid-template-columns: auto minmax(0, 1fr) auto; }
+.sheet-title small { min-width: 0; }
+.sheet-title small > :not(.kind-chip):not(.saved) { min-width: 0; }
+.sh-plan { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.block { grid-template-columns: minmax(0, 1fr); }
+.block select, .defect select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+.home-tools { grid-template-columns: minmax(0, 1fr); }
+.defect { grid-template-columns: minmax(0, 1fr); }
+.defect-fields { grid-template-columns: minmax(0, 1fr) 72px; }
+.defect-fields.no-qty { grid-template-columns: minmax(0, 1fr); }
+.dp-btns .btn { max-width: 100%; white-space: normal; text-align: left; }
+/* Pin on narrow phones: copy buttons and photo buttons as icon-over-label tiles, three across */
+@media (max-width: 420px) {
+  .dup-row .btn { flex-direction: column; gap: 2px; min-height: 52px; font-size: 12px; padding: 4px 2px; }
+  .dup-row .btn .ico { width: 18px; height: 18px; }
+  #sj-photos .block-head .row-btns { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; width: 100%; }
+  #sj-photos .block-head .row-btns .btn { flex-direction: column; gap: 2px; min-height: 56px; font-size: 12px; padding: 4px 2px; }
+}
