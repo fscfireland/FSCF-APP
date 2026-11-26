@@ -59,7 +59,7 @@ export function buildLedger(book, appDocs, marks = {}, extra = {}, ownNames = {}
       src: 'wb', id: r.sheet, ref: r.kind === 'INV' ? r.inv : r.quote, kind: r.kind, part: r.part || '', quote: r.quote, inv: r.inv,
       cust: r.cust, site: (r.siteLines?.[0] || r.location || '').trim(), date: r.date || '', due: r.due || '', days: 30,
       subtotal: r2(sub), total: r2(r.total ?? sub), status: m.status || r.status || '', paidOn: m.paidOn || r.paidOn || '', workType: r.workType || '',
-      pd: '', cost: null,
+      pd: '', cost: null, contact: (r.custLines?.[0] || '').trim(),
     };
     out.set('wb|' + r.sheet, e); // each workbook tab once, even if two share a number
   }
@@ -70,7 +70,7 @@ export function buildLedger(book, appDocs, marks = {}, extra = {}, ownNames = {}
       src: 'app', id: d.id, ref: d.kind === 'INV' ? d.inv : d.quote, kind: d.kind === 'INV' ? 'INV' : 'Q', part: d.part || '', quote: d.quote, inv: d.inv,
       cust: d.cust?.id || '', site: (d.site?.lines?.[0] || '').trim(), date: d.date || '', due: '', days: Number(d.days) || 30,
       subtotal: r2(t.subtotal + t.preLims + t.fuel), total: t.total, status: d.status || '', paidOn: d.paidOn || '', workType: d.workType || '',
-      pd: d.pd || '', projectId: d.projectId || null, fromQuoteId: d.fromQuoteId || null,
+      contact: (d.cust?.lines?.[0] || '').trim(), pd: d.pd || '', projectId: d.projectId || null, fromQuoteId: d.fromQuoteId || null,
       cost: d.matCost != null || d.labCost != null ? { materials: r2(d.matCost), labour: r2((d.labCost || 0) + (d.preLimsCost || 0)), from: d.pd || 'app quote' } : (extra[d.id] || null),
     };
     const k = keyOf(e.kind, e.quote, e.inv, e.part);
@@ -82,6 +82,8 @@ export function buildLedger(book, appDocs, marks = {}, extra = {}, ownNames = {}
     for (const k of ['date', 'due', 'paidOn']) if (e[k] && e[k] < '2000') e[k] = '';
     e.custName = ownNames[e.cust] || names[e.cust] || '';
     e.contacts = contacts[e.cust] || [];
+    // a delivery address that is only the contact's name is not a site
+    if (e.site && e.contact && e.site.toUpperCase().replace(/\s+/g, '') === e.contact.toUpperCase().replace(/\s+/g, '')) e.site = '';
     if (!e.due && e.date) e.due = addDays(e.date, e.days);
   }
   linkCosts(all, book?.pds || []);
@@ -147,13 +149,14 @@ export function summarise(ledger, year = '', todayIso = new Date().toISOString()
     const g = new Map();
     for (const e of invs) {
       const k = keyFn(e);
-      const x = g.get(k) || { key: k, n: 0, invoiced: 0, paid: 0, owed: 0, sites: new Map(), custName: e.custName, contacts: e.contacts };
-      x.n++; x.invoiced += e.subtotal;
+      const x = g.get(k) || { key: k, n: 0, invoiced: 0, paid: 0, owed: 0, sites: new Map(), custName: e.custName, contacts: e.contacts, list: [] };
+      x.n++; x.invoiced += e.subtotal; x.list.push(e);
       if (isPaid(e)) x.paid += e.total; else x.owed += e.total;
-      if (e.site) x.sites.set(e.site.toUpperCase(), r2((x.sites.get(e.site.toUpperCase()) || 0) + e.subtotal));
+      const site = (e.site || 'Site not given').toUpperCase();
+      x.sites.set(site, r2((x.sites.get(site) || 0) + e.subtotal));
       g.set(k, x);
     }
-    return [...g.values()].map((x) => ({ ...x, invoiced: r2(x.invoiced), paid: r2(x.paid), owed: r2(x.owed), sites: [...x.sites.entries()].sort((a, b) => b[1] - a[1]) })).sort((a, b) => b.invoiced - a.invoiced);
+    return [...g.values()].map((x) => ({ ...x, invoiced: r2(x.invoiced), paid: r2(x.paid), owed: r2(x.owed), sites: [...x.sites.entries()].sort((a, b) => b[1] - a[1]), list: x.list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.ref || '').localeCompare(a.ref || '')) })).sort((a, b) => b.invoiced - a.invoiced);
   };
   const customers = group((e) => e.cust || '—');
   const work = group((e) => e.workType || '').map((w) => ({ ...w, label: WORK_TYPES[w.key] || (w.key ? w.key : 'Not set') }));

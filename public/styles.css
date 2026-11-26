@@ -1307,3 +1307,10 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .biz-imp-btns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .biz-imp > label.btn { justify-self: start; }
 .biz-ch { margin: 4px 0 8px; padding-left: 18px; }
+.biz-sub { margin: 6px 0 4px; font-size: 12px; font-weight: 700; color: var(--ink-2); }
+.biz-sub:not(:first-child) { margin-top: 12px; }
+.biz-inv { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; }
+.biz-inv small { display: block; color: var(--ink-2); font-size: 12px; }
+.biz-inv .q-amt small { color: var(--ink-2); }
+.biz-inv .q-amt small.ps-warn { color: var(--st-fail); }
+.biz-inv-tot { display: flex; justify-content: space-between; padding: 6px 0 2px; font-size: 13.5px; }
