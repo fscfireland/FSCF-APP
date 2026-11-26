@@ -170,8 +170,10 @@ export async function addToCalendar(mcp, it) {
 
 // ---------- Gmail drafts (never sent by the app) ----------
 export const emailsIn = (lines) => [...new Set((lines || []).join(' ').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [])].map((x) => x.toLowerCase());
-export async function gmailDraft(mcp, { to = [], subject, body }) {
-  const r = await mcp.callTool(GMAIL, 'create_draft', { to, subject, body });
+export async function gmailDraft(mcp, { to = [], subject, body, file = null }) {
+  const input = { to, subject, body };
+  if (file) input.attachments = [{ filename: file.name, mimeType: file.type, content: { $file: { data: file.blob, name: file.name, type: file.type } } }];
+  const r = await mcp.callTool(GMAIL, 'create_draft', input);
   const p = r?.payload || {};
   return { id: p.id || '', link: typeof p.viewUrl === 'string' && p.viewUrl.startsWith('https://') ? p.viewUrl : '' };
 }

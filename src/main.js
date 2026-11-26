@@ -37,6 +37,7 @@ import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript, saveFile, safeName } from './files.js';
 import { startVoice } from './voice.js';
+import { statementRows, statementPdf } from './statement.js';
 import { buildAgenda, saveIcs, connectorStatus, CONNECT_HELP, connectorError, addToCalendar, gmailDraft, chaseEmail, listEmail, TASKS, CONNECTORS } from './agenda.js';
 import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, isDraftInv, archiveOf, compareBooks } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
@@ -1495,6 +1496,55 @@ function invRow(e, { late = false, paid = false } = {}) {
     <button class="btn sm ${paid ? '' : 'primary'} biz-pay" ${invRow.readOnly ? 'hidden' : ''} data-id="${esc(e.id)}" data-paid="${paid ? '0' : '1'}">${paid ? 'Mark unpaid' : 'Mark paid'}</button>
   </div>`;
 }
+// Statement of account (layout as the owner's SOA tabs; rules in statement.js)
+async function statementFor(custId, ledger, book, conn) {
+  const t = today();
+  const first = t.slice(0, 8) + '01';
+  const custLines = (book?.customers || []).find((c) => c.id === custId)?.lines || [];
+  const name = ledger.find((e) => e.cust === custId)?.custName || custLines[0] || custId;
+  const r = await dialog({
+    title: `Statement · ${name}`,
+    body: `<p class="small">Every unpaid invoice, plus the invoices dated in the period (paid ones show nothing outstanding). Invoices not sent yet (WIP) are left off. Laid out like your SOA tabs.</p>
+      <div class="grid2"><label class="field"><span>Period from</span><input type="date" name="from" value="${first}"></label><label class="field"><span>to</span><input type="date" name="to" value="${t}"></label></div>
+      <div class="ps-costs" id="soa-sum"></div>
+      <label class="field"><span>Email to (for the Gmail draft)</span><input name="to_email" value="${esc([...new Set(ledger.filter((e) => e.cust === custId).flatMap((e) => e.emails || []))].join(', '))}" placeholder="customer@example.ie"></label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Gmail draft', value: 'mail' }, { label: 'Save PDF', value: 'pdf', kind: 'primary' }],
+    onOpen: (form) => {
+      const upd = () => {
+        const st = statementRows(ledger, custId, form.from.value, form.to.value);
+        $('#soa-sum', form).innerHTML = `<div><span>Invoices on the statement</span><b>${st.rows.length}</b></div><div><span>Invoiced (inc VAT)</span><b>${money(st.total)}</b></div><div class="ps-tot"><span>Outstanding</span><b>${money(st.out)}</b></div>${st.overdue ? `<div><span class="ps-warn">of which overdue</span><b class="ps-warn">${money(st.overdue)}</b></div>` : ''}`;
+      };
+      form.from.onchange = upd; form.to.onchange = upd; upd();
+    },
+  });
+  if (!r.value) return;
+  const from = r.data.from || first;
+  const to = r.data.to || t;
+  const st = statementRows(ledger, custId, from, to);
+  if (!st.rows.length) return toast('No invoices for that period', 'error');
+  const bz = busy('Making the statement…');
+  try {
+    const blob = await statementPdf({ jsPDF: await loadJsPdfLib(), lists, book, cust: custId, custLines: custLines.length ? custLines : [name], from, to, asAt: t, st });
+    const mon = new Date(to + 'T12:00:00').toLocaleDateString('en-IE', { month: 'short', year: 'numeric' }).toUpperCase();
+    const fname = `${custId} ${mon} SOA.pdf`;
+    bz.done();
+    if (r.value === 'pdf') return saveFile(fname, blob);
+    if (!conn?.mcp) return toast('Gmail cannot be reached here. Use Save PDF and attach it.', 'error');
+    const lt = await conn.mcp.listTools().catch(() => null);
+    const canAttach = !!lt?.fileArgs;
+    const toList = String(r.data.to_email || '').split(/[,;\s]+/).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+    const body = [`Hi,`, '', `Please find attached our statement of account for ${monthName(to)}.`, '', `Balance outstanding: ${money(st.out)}${st.overdue ? ` (of which ${money(st.overdue)} is overdue)` : ''}.`, '', 'Please quote the invoice number with all payments. If you have any questions, just let me know.', '', 'Kind regards,', 'Mark Crosby', 'FSCF Ireland'].join('\n');
+    const bz2 = busy('Making a Gmail draft…');
+    try {
+      const d = await gmailDraft(conn.mcp, { to: toList, subject: `Statement of account – ${name} – ${monthName(to)}`, body, file: canAttach ? { blob, name: fname, type: 'application/pdf' } : null });
+      bz2.done();
+      if (!canAttach) saveFile(fname, blob);
+      await dialog({ title: 'Draft in Gmail', body: `<p>The statement email is in your Gmail Drafts${toList.length ? '' : " (add the customer's address there)"}.${canAttach ? ' The PDF is attached.' : ' This app cannot attach files here, so the PDF was saved: attach it in Gmail.'}</p>${d.link ? `<p><a href="${esc(d.link)}" target="_blank" rel="noopener">Open the draft</a></p>` : ''}` });
+    } catch (err) { bz2.done(); await dialog({ title: 'No draft made', body: `<p>${esc(connectorError(err, CONNECTORS.GMAIL))}</p>` }); }
+  } catch (err) { bz.done(); toast(err.message, 'error'); }
+}
+const monthName = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('en-IE', { month: 'long', year: 'numeric' });
+
 async function renderBusiness() {
   app.innerHTML = `
     <header class="bar">
@@ -1582,7 +1632,7 @@ async function renderBusiness() {
           <p class="small muted biz-wt-key">${[...new Set(x.list.map((e) => e.workType).filter(Boolean))].map((k) => `${esc(k)} = ${esc(WORK_TYPES[k] || k)}`).join(' · ')}</p>
           ${x.byContact.length > 1 ? `<p class="biz-sub">By contact</p>${x.byContact.map((c) => `<div><span>${esc(c.name)} <small class="muted">${c.n} invoice${c.n === 1 ? '' : 's'}</small></span><b>${money(c.invoiced)}</b></div>`).join('')}` : ''}
           <p class="biz-sub">Sites</p>
-          ${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}<button type="button" class="btn sm biz-rename" data-id="${esc(x.key)}" data-name="${esc(x.custName || '')}">${icon('pencil')} Customer name</button></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
+          ${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}<div class="row-btns biz-cust-btns"><button type="button" class="btn sm biz-soa" data-id="${esc(x.key)}">${icon('report')} Statement</button><button type="button" class="btn sm biz-rename" data-id="${esc(x.key)}" data-name="${esc(x.custName || '')}">${icon('pencil')} Customer name</button></div></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
     <p class="small muted">Invoiced is the total of that customer's invoices in this period, ex VAT. Owed is their unpaid invoices, inc VAT. Tap a customer to see their invoices and sites, and to set the customer name.</p>
 
     <h2 class="h2" id="bj-work">Type of work</h2>
@@ -1729,6 +1779,7 @@ async function renderBusiness() {
   }));
   $$('.biz-cust:not(.biz-site)').forEach((r) => (r.onclick = () => { const x = $(`.biz-sites[data-i="${r.dataset.i}"]:not(.biz-site-drop)`); x.hidden = !x.hidden; }));
   $$('.biz-site').forEach((r) => (r.onclick = () => { const x = $(`.biz-site-drop[data-si="${r.dataset.i}"]`); x.hidden = !x.hidden; }));
+  $$('.biz-soa').forEach((b) => (b.onclick = () => statementFor(b.dataset.id, ledger, book, conn)));
   $$('.biz-rename').forEach((b) => (b.onclick = async () => {
     const r = await dialog({
       title: `Customer name · ${b.dataset.id}`,
@@ -5101,7 +5152,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.49.0';
+const VERSION_TAG = 'app v0.49.1';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

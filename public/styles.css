@@ -1373,3 +1373,4 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 @keyframes mic-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--st-fail) 30%, transparent); } }
 .mic-partial { position: fixed; z-index: 80; font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; box-shadow: var(--shadow); }
 .mic-partial[hidden] { display: none; }
+.biz-cust-btns { margin-top: 8px; }
