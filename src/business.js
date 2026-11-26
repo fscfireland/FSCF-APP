@@ -24,7 +24,7 @@ const dayDiff = (a, b) => Math.round((Date.parse(b + 'T12:00:00') - Date.parse(a
 export const SOURCES = {
   book: 'INVOICES AND QUOTES workbook (FSCF)',
   due: 'Invoice Due Date box; if blank, invoice date + 30 days (FSCF invoice terms: "Payment is due by the date shown above")',
-  paid: 'SUMMARY register, Paid and Paid On Date columns (FSCF)',
+  paid: 'SUMMARY register, Paid and Paid On Date columns (FSCF); invoices with status WIP or PROC are not yet sent and are not counted as invoiced or owed (SUMMARY register WIP column)',
   cost: 'SERV PD pricing documents: PRICE, LABOUR and WITH MARGIN columns (FSCF)',
 };
 
@@ -112,7 +112,11 @@ function linkCosts(all, pds) {
 }
 
 export const isPaid = (e) => e.status === 'P';
-const isLiveInv = (e) => e.kind === 'INV' && e.status !== 'NP';
+// Invoice status, as in the SUMMARY register: P paid, UP unpaid (sent),
+// WIP / PROC an invoice tab not yet sent (the register keeps a separate WIP
+// column), NP not proceeding. Only sent invoices count as invoiced or owed.
+export const isDraftInv = (e) => e.kind === 'INV' && (e.status === 'WIP' || e.status === 'PROC');
+const isLiveInv = (e) => e.kind === 'INV' && e.status !== 'NP' && !isDraftInv(e);
 
 export function years(ledger) {
   return [...new Set(ledger.map((e) => (e.date || '').slice(0, 4)).filter((y) => /^\d{4}$/.test(y)))].sort().reverse();
@@ -122,6 +126,7 @@ export function years(ledger) {
 export function summarise(ledger, year = '', todayIso = new Date().toISOString().slice(0, 10)) {
   const inYear = (e) => !year || (e.date || '').startsWith(year);
   const invs = ledger.filter((e) => isLiveInv(e) && inYear(e));
+  const drafts = ledger.filter((e) => isDraftInv(e) && inYear(e)).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   const quotes = ledger.filter((e) => e.kind === 'Q' && inYear(e));
   const sum = (l, k) => r2(l.reduce((a, e) => a + (Number(e[k]) || 0), 0));
   // owed and overdue are for every year: a debt is still a debt
@@ -145,20 +150,23 @@ export function summarise(ledger, year = '', todayIso = new Date().toISOString()
   months.forEach((m) => { m.invoiced = r2(m.invoiced); m.paid = r2(m.paid); });
   const byYear = year ? [] : years(ledger).reverse().map((y) => { const l = ledger.filter((e) => isLiveInv(e) && e.date.startsWith(y)); return { y, invoiced: sum(l, 'subtotal'), n: l.length }; });
 
-  const group = (keyFn) => {
+  const group = (keyFn, withDrafts = false) => {
     const g = new Map();
-    for (const e of invs) {
+    for (const e of [...invs, ...(withDrafts ? drafts : [])]) {
       const k = keyFn(e);
-      const x = g.get(k) || { key: k, n: 0, invoiced: 0, paid: 0, owed: 0, sites: new Map(), custName: e.custName, contacts: e.contacts, list: [] };
-      x.n++; x.invoiced += e.subtotal; x.list.push(e);
+      const x = g.get(k) || { key: k, n: 0, invoiced: 0, paid: 0, owed: 0, draft: 0, sites: new Map(), custName: e.custName, contacts: e.contacts, list: [] };
+      x.list.push(e);
+      g.set(k, x);
+      if (isDraftInv(e)) { x.draft += e.subtotal; continue; } // listed, not counted as invoiced
+      x.n++; x.invoiced += e.subtotal;
       if (isPaid(e)) x.paid += e.total; else x.owed += e.total;
       const site = (e.site || 'Site not given').toUpperCase();
       x.sites.set(site, r2((x.sites.get(site) || 0) + e.subtotal));
       g.set(k, x);
     }
-    return [...g.values()].map((x) => ({ ...x, invoiced: r2(x.invoiced), paid: r2(x.paid), owed: r2(x.owed), sites: [...x.sites.entries()].sort((a, b) => b[1] - a[1]), list: x.list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.ref || '').localeCompare(a.ref || '')) })).sort((a, b) => b.invoiced - a.invoiced);
+    return [...g.values()].map((x) => ({ ...x, invoiced: r2(x.invoiced), paid: r2(x.paid), owed: r2(x.owed), draft: r2(x.draft), sites: [...x.sites.entries()].sort((a, b) => b[1] - a[1]), list: x.list.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.ref || '').localeCompare(a.ref || '')) })).sort((a, b) => b.invoiced - a.invoiced);
   };
-  const customers = group((e) => e.cust || '—');
+  const customers = group((e) => e.cust || '—', true);
   const work = group((e) => e.workType || '').map((w) => ({ ...w, label: WORK_TYPES[w.key] || (w.key ? w.key : 'Not set') }));
   const siteRows = group((e) => (e.site || 'Not set').toUpperCase()).slice(0, 15);
 
@@ -169,7 +177,7 @@ export function summarise(ledger, year = '', todayIso = new Date().toISOString()
   const cost = { n: costed.length, of: invs.length, sell: costedSell, materials: mat, labour: lab, margin: r2(costedSell - mat - lab) };
 
   return {
-    year, invs, quotes,
+    year, invs, quotes, drafts, draftTotal: sum(drafts, 'subtotal'),
     invoiced: sum(invs, 'subtotal'), invoicedInc: sum(invs, 'total'), received: sum(paid, 'total'),
     owed: sum(unpaid, 'total'), overdue, overdueTotal: sum(overdue, 'total'), notDue, paid, ageing,
     quoted: sum(quotes, 'subtotal'), won, lost, open, openTotal: sum(open, 'subtotal'),
@@ -189,6 +197,7 @@ export async function businessXlsx(s, label) {
     [],
     ['Work invoiced (ex VAT)', s.invoiced], ['Invoiced inc VAT', s.invoicedInc], ['Received (inc VAT)', s.received],
     ['Owed now, all years (inc VAT)', s.owed], ['Overdue now (inc VAT)', s.overdueTotal], ['Overdue invoices', s.overdue.length],
+    ['Invoices not sent yet, WIP (ex VAT)', s.draftTotal], ['Invoices not sent yet', s.drafts.length],
     ['Quotes issued (ex VAT)', s.quoted], ['Quotes won', s.won.length], ['Quotes not proceeding', s.lost.length], ['Quotes open', s.open.length],
     ['Average days to be paid', s.avgDaysToPay ?? ''],
     [],
@@ -201,6 +210,7 @@ export async function businessXlsx(s, label) {
   const lateBy = Object.fromEntries(s.overdue.map((e) => [e.id, e.late]));
   add('Invoices', [['Invoice', 'Quote', 'Customer ID', 'Customer', 'Site', 'Work type', 'Date', 'Due', 'Status', 'Paid on', 'Subtotal ex VAT', 'Total inc VAT', 'Days overdue', 'Materials', 'Labour', 'Pricing doc'],
     ...s.invs.sort((a, b) => a.date.localeCompare(b.date)).map((e) => invRow({ ...e, late: lateBy[e.id] || 0 }))], [12, 9, 11, 30, 34, 16, 11, 11, 16, 11, 14, 14, 10, 12, 12, 26]);
+  add('Not sent yet (WIP)', [['Invoice', 'Customer ID', 'Customer', 'Site', 'Work type', 'Date', 'Status', 'Subtotal ex VAT'], ...s.drafts.map((e) => [e.ref + (e.part ? ' ' + e.part : ''), e.cust, e.custName, e.site, e.workType, e.date, e.status, e.subtotal])], [12, 11, 30, 34, 10, 11, 8, 14]);
   add('Overdue', [['Invoice', 'Customer', 'Site', 'Date', 'Due', 'Days overdue', 'Total inc VAT'], ...s.overdue.map((e) => [e.ref + (e.part ? ' ' + e.part : ''), e.custName || e.cust, e.site, e.date, e.due, e.late, e.total])], [12, 30, 34, 11, 11, 12, 14]);
   add('Customers', [['Customer ID', 'Customer', 'Invoices', 'Invoiced ex VAT', 'Paid inc VAT', 'Owed inc VAT', 'Sites'], ...s.customers.map((c) => [c.key, c.custName, c.n, c.invoiced, c.paid, c.owed, c.sites.map(([k, v]) => `${k} (${money(v)})`).join('; ')])], [11, 30, 9, 15, 14, 14, 60]);
   add('Work types', [['Work type', 'Invoices', 'Invoiced ex VAT', 'Paid inc VAT', 'Owed inc VAT'], ...s.work.map((w) => [w.label, w.n, w.invoiced, w.paid, w.owed])], [22, 9, 15, 14, 14]);

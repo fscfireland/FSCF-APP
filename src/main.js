@@ -36,7 +36,7 @@ import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript, saveFile, safeName } from './files.js';
-import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, archiveOf, compareBooks } from './business.js';
+import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, isDraftInv, archiveOf, compareBooks } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
 const reader = async () => { await loadScript('reader.js'); return window.FSCFReader; };
 const aiDoors = async (...a) => (await reader()).aiDoors(...a);
@@ -1534,6 +1534,9 @@ async function renderBusiness() {
 
     <details class="biz-fold" ${s.notDue.length && s.notDue.length < 8 ? 'open' : ''}><summary><b>Unpaid, not due yet</b> <span class="muted">${s.notDue.length} · ${money(s.notDue.reduce((a, e) => a + e.total, 0))}</span></summary>
       <div class="doc-list">${s.notDue.map((e) => invRow(e)).join('') || '<p class="muted small">None.</p>'}</div></details>
+    <details class="biz-fold"><summary><b>Not sent yet (WIP) ${esc(label)}</b> <span class="muted">${s.drafts.length} · ${money(s.draftTotal)} ex VAT</span></summary>
+      <p class="small muted">Invoice tabs with status WIP or PROC in your SUMMARY register. Not counted as invoiced or owed until set to UP (unpaid) or P (paid).</p>
+      <div class="doc-list">${s.drafts.map((e) => `<button class="doc-row biz-open" data-id="${esc(e.id)}" data-src="${e.src}"><span class="q-kind is-inv">INV</span><span class="q-main"><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''} · ${esc(e.custName || e.cust)}</b><small>${esc(e.site || '')}${e.site ? ' · ' : ''}${fmtDate(e.date)} · ${esc(e.workType || '')}</small></span><span class="q-amt"><b>${money(e.subtotal)}</b></span></button>`).join('') || '<p class="muted small">None.</p>'}</div></details>
     <details class="biz-fold"><summary><b>Paid ${esc(label)}</b> <span class="muted">${s.paid.length} · ${money(s.received)}</span></summary>
       <div class="doc-list">${s.paid.slice(0, 200).map((e) => invRow(e, { paid: true })).join('') || '<p class="muted small">None.</p>'}</div></details>
 
@@ -1542,8 +1545,10 @@ async function renderBusiness() {
         <span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}</span></button>
         <div class="biz-sites" data-i="${i}" hidden>
           <p class="biz-sub">Invoices <span class="muted">${x.list.length}</span></p>
-          ${x.list.map((e) => { const late = !isPaid(e) && e.due && e.due < today(); return `<button type="button" class="biz-open biz-inv" data-id="${esc(e.id)}" data-src="${e.src}"><span><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''}</b><small>${fmtDate(e.date)}${e.site ? ' · ' + esc(e.site) : ''}${e.contact && x.contacts?.length ? ' · ' + esc(e.contact) : ''}</small></span><span class="q-amt"><b>${money(e.subtotal)}</b><small class="${isPaid(e) ? 'muted' : late ? 'ps-warn' : ''}">${isPaid(e) ? 'Paid' : late ? 'Overdue' : esc(Q_STATUSES[e.status] || 'Unpaid')}</small></span></button>`; }).join('')}
-          <div class="biz-inv-tot"><span>Total ex VAT</span><b>${money(x.invoiced)}</b></div>
+          ${x.list.map((e) => { const draft = isDraftInv(e); const late = !draft && !isPaid(e) && e.due && e.due < today(); return `<button type="button" class="biz-open biz-inv ${draft ? 'is-draft' : ''}" data-id="${esc(e.id)}" data-src="${e.src}"><span><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''}${e.workType ? ` <i class="biz-wt" title="${esc(WORK_TYPES[e.workType] || '')}">${esc(e.workType)}</i>` : ''}</b><small>${fmtDate(e.date)}${e.site ? ' · ' + esc(e.site) : ''}${e.contact && x.contacts?.length ? ' · ' + esc(e.contact) : ''}</small></span><span class="q-amt"><b>${money(e.subtotal)}</b><small class="${isPaid(e) || draft ? 'muted' : late ? 'ps-warn' : ''}">${isPaid(e) ? 'Paid' : draft ? 'Not sent yet (' + esc(e.status) + ')' : late ? 'Overdue' : 'Unpaid'}</small></span></button>`; }).join('')}
+          <div class="biz-inv-tot"><span>Total invoiced ex VAT</span><b>${money(x.invoiced)}</b></div>
+          ${x.draft ? `<div class="biz-inv-tot muted"><span>Not sent yet (WIP), not counted</span><b>${money(x.draft)}</b></div>` : ''}
+          <p class="small muted biz-wt-key">${[...new Set(x.list.map((e) => e.workType).filter(Boolean))].map((k) => `${esc(k)} = ${esc(WORK_TYPES[k] || k)}`).join(' · ')}</p>
           <p class="biz-sub">Sites</p>
           ${x.sites.map(([k, v]) => `<div><span>${esc(k)}</span><b>${money(v)}</b></div>`).join('')}<button type="button" class="btn sm biz-rename" data-id="${esc(x.key)}" data-name="${esc(x.custName || '')}">${icon('pencil')} Customer name</button></div>`).join('') || '<p class="muted small">No invoices in this period.</p>'}</div>
     <p class="small muted">Invoiced is the total of that customer's invoices in this period, ex VAT. Owed is their unpaid invoices, inc VAT. Tap a customer to see their invoices and sites, and to set the customer name.</p>

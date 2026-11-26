@@ -1314,3 +1314,7 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .biz-inv .q-amt small { color: var(--ink-2); }
 .biz-inv .q-amt small.ps-warn { color: var(--st-fail); }
 .biz-inv-tot { display: flex; justify-content: space-between; padding: 6px 0 2px; font-size: 13.5px; }
+.biz-wt { font: 700 10.5px/1 var(--font-mono); font-style: normal; padding: 2px 5px; margin-left: 4px; border-radius: 5px; background: var(--surface-2); color: var(--ink-2); vertical-align: 1px; }
+.biz-inv.is-draft { opacity: .75; }
+.biz-inv-tot.muted { color: var(--ink-2); }
+.biz-wt-key { margin: 6px 0 0; }
