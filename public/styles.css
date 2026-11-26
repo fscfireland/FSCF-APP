@@ -1549,3 +1549,12 @@ body.sheet-open .tabbar { display: none; }
 .doc-row.biz-row:has(.biz-chase) { grid-template-columns: 1fr auto; }
 .doc-row.biz-row:has(.biz-chase) > .biz-open { grid-column: 1 / -1; }
 .doc-row.biz-row .biz-chase { justify-self: end; }
+/* Every button stays inside the screen: long labels wrap on phones (owner, 26 Nov 2026 full screen check) */
+.btn { max-width: 100%; }
+@media (max-width: 600px) {
+  .btn { white-space: normal; text-align: center; line-height: 1.25; }
+  .btn.sm { padding-block: 4px; }
+}
+.ai-suggest .chip { max-width: 100%; }
+.pp-row:not(.dc-row) { grid-template-columns: auto minmax(0, 1fr) auto; }
+.dc-row .pp-step { justify-self: end; }

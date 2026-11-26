@@ -78,6 +78,9 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   folders take the next number.
 
 ## Working style
+- **Before every publish run the full screen check** `tests/screen-check.cjs` (every page + main pop-ups, Galaxy S9+ and
+  Tab S4, light and dark, with the demo site and a copy of the owner's workbook). Fix everything it prints. Then look at
+  its screenshots by eye. Never tell the owner "checked" for screens it didn't cover (owner, 26 Nov 2026).
 - Show a clickable mock-up first when a change is large or visual and the owner asks to see it.
 - Test every change (Playwright, plus openpyxl or pdftotext for exports) before publishing.
 - Keep existing behaviour unless the owner asks to change it. Add, don't rework.
