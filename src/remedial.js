@@ -12,6 +12,19 @@ Repairs must maintain the tested fire resistance and smoke control of each door 
 
 Tick each item when it is complete. Photograph every door after repair and report anything that cannot be repaired to FSCF Ireland before proceeding.`;
 
+// Ironmongery maintenance: standard on every inspected fire door / exit door
+// (switch off per door). Wording from FSCF's remedial reports, recommendation (10).
+export const IRON_MAINT = {
+  label: 'IRONMONGERY: maintenance required',
+  remedial: 'Clean the hinges of oil and filings and monitor them for signs of wear; lightly oil the keeper plate so the door latches as required (BM TRADA Q-Mark Fire Door Maintenance, ART 10 Operational maintenance; GAI Specifier\'s Guide, Ironmongery for Fire and Escape Doors, section 8 Maintenance of ironmongery)',
+};
+const NON_DOOR = ['dampers', 'alarm', 'emlight', 'ext'];
+export function ironMaintOn(d) {
+  if (d.ironMaint === false || NON_DOOR.includes(d.kind)) return false;
+  if (['not_inspected', 'no_access', 'na'].includes(d.status || 'not_inspected')) return false;
+  return d.ironMaint === true || !!d.kind || !!d.doorType;
+}
+
 // Actions that aren't repair work, so they don't become tick items
 const NOT_WORK = /^(no action required|refer to client|further investigation)/i;
 
@@ -28,6 +41,7 @@ export function remedialItems(d) {
       items.push({ key: 'd:' + x.label, text: x.remedial || x.label, sub: x.remedial ? x.label : '', qty: Number(x.qty) > 1 ? Number(x.qty) : 0 });
     }
   }
+  if (ironMaintOn(d)) items.push({ key: 'm:iron', text: IRON_MAINT.remedial, sub: IRON_MAINT.label, qty: 1 });
   for (const a of doorActions(d)) {
     if (NOT_WORK.test(a)) continue;
     items.push({ key: 'a:' + a, text: a, sub: 'Recommended action', qty: 0 });

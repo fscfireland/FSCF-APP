@@ -9,7 +9,7 @@ import { loadSheetJS, saveFile, safeName } from './files.js';
 import { photoInView } from './history.js';
 import { doorViews } from './filters.js';
 import { fmtDate } from './ui.js';
-import { remedialItems } from './remedial.js';
+import { remedialItems, IRON_MAINT, ironMaintOn } from './remedial.js';
 import { SUPPLY, fieldText, ratingOf, swingOf, missingFor } from './fields.js';
 
 const EURO = '"€"#,##0.00';
@@ -151,6 +151,12 @@ export async function exportProjectXlsx(project, questions = [], opts = {}) {
       pRows.push([
         d.pinNo ?? '', d.ref || '', planName[d.planId] || '', d.location || '', d.doorType || '',
         statusLabel(d), x.label || '', x.remedial || '', Number(x.qty) || 1, null, null, d.notes || '',
+      ]);
+    }
+    if (ironMaintOn(d)) {
+      pRows.push([
+        d.pinNo ?? '', d.ref || '', planName[d.planId] || '', d.location || '', d.doorType || '',
+        statusLabel(d), IRON_MAINT.label, IRON_MAINT.remedial, 1, null, null, d.notes || '',
       ]);
     }
   }

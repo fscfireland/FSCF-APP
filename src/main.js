@@ -21,7 +21,7 @@ import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
 import { markupPhoto, plainThumb } from './photomark.js';
-import { DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
+import { IRON_MAINT, DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
 import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView, addMonths, FREQUENCIES, freqText } from './history.js';
@@ -203,6 +203,7 @@ function registerHeadTexts() {
       for (const d of K.defects || []) t.push(d.label, d.remedial);
     }
     for (const d of lists.defects || []) t.push(d.label, d.remedial);
+    t.push(IRON_MAINT.label, IRON_MAINT.remedial);
     setHeadTexts(t);
   } catch (e) {
     console.warn(e);
@@ -4602,6 +4603,7 @@ async function drawSheet(door) {
           <button class="btn sm" id="add-defect">${icon('plus')} Add defect</button>
         </div>
         <p class="fill-note" id="cost-fails" hidden></p>
+        ${kitOf(kindNow).base === 'fd' ? `<label class="iron-maint"><input type="checkbox" id="f-iron" ${door.ironMaint !== false ? 'checked' : ''}><span class="hc"><b>IRONMONGERY: maintenance required</b><small>Standard on every door: clean hinges of oil and filings, monitor for wear, lightly oil the keeper (BM TRADA Q-Mark ART 10; GAI guide s.8). Goes on the repair and pricing sheets. Untick if not needed.</small></span></label>` : ''}
         <div id="defects"></div>
       </section>
 
@@ -5555,6 +5557,7 @@ async function drawSheet(door) {
   $('#f-zname')?.addEventListener('change', learnZone);
   $('#sh-dup').onclick = () => duplicateDoor(current);
   $('#sh-copyto').onclick = () => duplicateDoor(current, { other: true });
+  $('#f-iron')?.addEventListener('change', (e) => queue({ ironMaint: e.target.checked }));
 
   // Replacement: one drop-down; choosing a replacement opens its fields
   const drawRep = () => {

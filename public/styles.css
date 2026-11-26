@@ -1227,3 +1227,10 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 
 /* house style: typed text shows in capitals too (saved as typed) */
 input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-case) { text-transform: uppercase; }
+
+/* ironmongery maintenance switch in Defects & remedial work */
+.iron-maint { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: start; padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--st-noaccess); border-radius: 10px; background: var(--bg); cursor: pointer; }
+.iron-maint input { width: 22px; height: 22px; margin: 1px 0 0; accent-color: var(--st-noaccess); }
+.iron-maint b { display: block; }
+.iron-maint small { display: block; color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+.iron-maint:has(input:not(:checked)) { opacity: .6; border-left-color: var(--line); }
