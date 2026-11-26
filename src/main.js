@@ -4475,7 +4475,7 @@ async function drawSheet(door) {
           })()}</select>
           <small class="muted type-note" id="f-type-note">${esc(DOOR_TYPE_NOTES.find(([re]) => re.test(door.doorType || ''))?.[1] || '')}</small>
         </label>
-        <label class="field" ${kindNow === 'fd' ? '' : 'hidden'}><span>Leaf / swing</span>
+        <label class="field" ${kitOf(kindNow).base === 'fd' ? '' : 'hidden'}><span>Leaf / swing</span>
           <select id="f-leaf" data-k="leaf">${LEAF_CONFIGS.map((t) => `<option value="${esc(t)}" ${t === (door.leaf || '') ? 'selected' : ''}>${esc(t || 'Select…')}</option>`).join('')}</select>
           <small class="muted type-note">SA = single action, DA = double action, SD = single door, DD = double door, RH / LH = right / left hand, BL = big leaf (unequal pair).</small>
         </label>
