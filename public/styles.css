@@ -1083,3 +1083,17 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .ai-input textarea { flex: 1; min-width: 0; resize: none; border: 1px solid var(--line); border-radius: 20px; padding: 10px 14px; background: var(--surface); font-size: 16px; line-height: 1.35; max-height: 140px; }
 .ai-input .btn { border-radius: 50%; width: 44px; height: 44px; min-height: 44px; padding: 0; flex: none; }
 .ai-thinking .spinner { width: 16px; height: 16px; border-width: 2px; }
+
+/* pick several products for a fault */
+.dp-btns { display: flex; flex-wrap: wrap; gap: 6px; }
+.def-prod-row .dp-cost-l { grid-column: 1 / 3; grid-row: 3; display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); }
+.dp-cost-l .dp-cost { width: 96px; min-height: 36px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: var(--bg); color: var(--ink); font: inherit; font-size: 14px; }
+.def-prod-row .dp-text { padding: 0 10px; }
+.pp-h { margin: 12px 0 4px; font: 650 14px/1.2 var(--font-head); color: var(--ink-2); }
+.pp-list { display: grid; gap: 4px; }
+.pp-row { display: grid; grid-template-columns: auto 1fr 72px; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.pp-row:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.pp-row input[type=checkbox] { width: 22px; height: 22px; }
+.pp-row b { display: block; font-weight: 600; font-size: 14.5px; }
+.pp-row small { color: var(--ink-2); font-size: 12.5px; }
+.pp-qty { width: 72px; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; text-align: center; background: var(--bg); color: var(--ink); font: inherit; }

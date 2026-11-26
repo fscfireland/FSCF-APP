@@ -4355,16 +4355,21 @@ async function drawSheet(door) {
           <div class="def-prods">
             ${linked.length ? `<span class="def-prods-h">Products${cat ? ' · ' + esc(cat) : ''}</span>` : ''}
             ${linked.map((m) => `
-              <div class="def-prod-row" data-id="${esc(m.id)}">
-                <select class="dp-name" aria-label="Product">
+              <div class="def-prod-row ${m.custom ? 'is-custom' : ''}" data-id="${esc(m.id)}">
+                ${m.custom ? `<input class="dp-name dp-text" value="${esc(m.name || '')}" placeholder="Type the item, e.g. 100 mm stainless hinge" aria-label="Product">
+                ${priced() ? `<label class="dp-cost-l">€ each<input class="dp-cost" type="number" inputmode="decimal" min="0" step="any" value="${m.cost ? esc(m.cost) : ''}" placeholder="0.00"></label>` : ''}`
+                : `<select class="dp-name" aria-label="Product">
                   ${opts.map((o) => `<option value="${esc(o.id)}" ${o.name === m.name ? 'selected' : ''}>${esc(o.name)}${o.cost && priced() ? ' – ' + euro(o.cost) : ''}</option>`).join('')}
                   ${!opts.some((o) => o.name === m.name) ? `<option value="" selected>${esc(m.name)}</option>` : ''}
-                </select>
+                </select>`}
                 <span class="stepper"><button type="button" class="dp-minus" aria-label="One fewer">−</button><input class="dp-qty" type="number" inputmode="decimal" min="0" step="any" value="${esc(m.qty ?? 1)}" aria-label="Quantity"><button type="button" class="dp-plus" aria-label="One more">+</button></span>
                 <input class="dp-spec" value="${esc(m.spec || '')}" placeholder="${cat === 'Signs' ? 'e.g. push side' : 'note, e.g. head + hinge side'}" aria-label="Note">
                 <button class="icon-btn sm dp-del" aria-label="Remove product">${icon('close')}</button>
               </div>`).join('')}
-            ${opts.length ? `<button type="button" class="btn ghost sm dp-add">${icon('plus')} ${linked.length ? 'Add another product' : 'Add product' + (cat ? ' (' + esc(cat.toLowerCase()) + ')' : '')}</button>` : ''}
+            <div class="dp-btns">
+              ${opts.length ? `<button type="button" class="btn sm dp-pick">${icon('list')} Pick products${cat ? ' (' + esc(cat.toLowerCase()) + ')' : ''}</button>` : ''}
+              <button type="button" class="btn ghost sm dp-add">${icon('plus')} ${linked.length ? 'Add another product' : 'Add your own product'}</button>
+            </div>
           </div>
         </div>`;
       }).join('')
@@ -4388,13 +4393,43 @@ async function drawSheet(door) {
         queue({ defects: current.defects.map((x, j) => (j === i ? { ...x, qty: Number(e.target.value) || 1 } : x)) });
       });
       $('.dp-add', row)?.addEventListener('click', () => {
-        const { opts } = prodOptions(d);
-        const used = new Set((current.materials || []).filter((m) => m.forKey === key).map((m) => m.name));
-        const o = opts.find((x) => !used.has(x.name)) || opts[0];
-        queue({ materials: [...(current.materials || []), { id: db.uid(), name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, qty: 1, cat: matCat(o), forKey: key, spec: '' }] });
+        const { cat } = prodOptions(d);
+        queue({ materials: [...(current.materials || []), { id: db.uid(), custom: true, name: '', unit: 'each', cost: 0, qty: 1, cat: cat || 'Other', forKey: key, spec: '' }] });
+        drawDefects();
+        $$('.dp-text', $$('.defect', el)[i]).at(-1)?.focus();
+      });
+      // tick several products at once, each with its quantity
+      $('.dp-pick', row)?.addEventListener('click', async () => {
+        const { cat, opts } = prodOptions(d);
+        const mine = (current.materials || []).filter((m) => m.forKey === key && !m.custom);
+        const groups = [...new Set(opts.map((o) => matCat(o)))].sort((x, y) => (y === cat) - (x === cat));
+        const r = await dialog({
+          title: `Products for: ${d.label}`,
+          body: `<p class="small muted">Tick everything this fault needs and set the quantities. Untick to take a product off.</p>
+            ${groups.map((g) => `${groups.length > 1 ? `<h3 class="pp-h">${esc(g)}</h3>` : ''}<div class="pp-list">
+              ${opts.map((o, j) => [o, j]).filter(([o]) => matCat(o) === g).map(([o, j]) => {
+                const have = mine.find((m) => m.name === o.name);
+                return `<label class="pp-row"><input type="checkbox" name="c${j}" ${have ? 'checked' : ''}>
+                  <span><b>${esc(o.name)}</b>${priced() && o.cost ? `<small>${euro(o.cost)} ${esc(o.unit && o.unit !== 'each' ? 'per ' + o.unit : 'each')}</small>` : ''}</span>
+                  <input class="pp-qty" type="number" inputmode="decimal" min="0" step="any" name="q${j}" value="${esc(have ? have.qty ?? 1 : 1)}" aria-label="Quantity"></label>`;
+              }).join('')}</div>`).join('')}`,
+          buttons: [{ label: 'Cancel', value: false }, { label: 'Done', value: true, kind: 'primary' }],
+          onOpen: (form) => {
+            // typing a quantity ticks the product
+            $$('.pp-qty', form).forEach((q) => q.addEventListener('input', () => { q.closest('.pp-row').querySelector('input[type=checkbox]').checked = Number(q.value) > 0; }));
+          },
+        });
+        if (r.value !== true) return;
+        const keepOthers = (current.materials || []).filter((m) => m.forKey !== key);
+        const typed = (current.materials || []).filter((m) => m.forKey === key && m.custom);
+        const chosen = opts.map((o, j) => [o, j]).filter(([, j]) => r.data['c' + j] && Number(r.data['q' + j]) > 0).map(([o, j]) => {
+          const have = mine.find((m) => m.name === o.name);
+          return { ...(have || { id: db.uid(), spec: '' }), name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, cat: matCat(o), forKey: key, qty: Number(r.data['q' + j]) };
+        });
+        queue({ materials: [...keepOthers, ...chosen, ...typed] });
         drawDefects();
         drawMaterials();
-        $$('.dp-name', $$('.defect', el)[i]).at(-1)?.focus();
+        toast(`${chosen.length} product${chosen.length === 1 ? '' : 's'} on this fault`);
       });
       $$('.def-prod-row', row).forEach((pr) => {
         const id = pr.dataset.id;
@@ -4403,10 +4438,20 @@ async function drawSheet(door) {
         qty.oninput = () => { setMat(id, { qty: Number(qty.value) || 0 }); drawMaterials(); };
         $('.dp-minus', pr).onclick = () => setQty((Number(qty.value) || 0) - 1);
         $('.dp-plus', pr).onclick = () => setQty((Number(qty.value) || 0) + 1);
-        $('.dp-name', pr).onchange = (e) => {
-          const o = (lists.materials || []).find((x) => x.id === e.target.value);
-          if (o) { setMat(id, { name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, cat: matCat(o) }); drawMaterials(); }
-        };
+        if (pr.classList.contains('is-custom')) {
+          const nm = $('.dp-name', pr);
+          nm.oninput = () => { setMat(id, { name: nm.value }); drawMaterials(); };
+          // an empty free-text line is dropped when you leave it
+          nm.onblur = () => setTimeout(() => {
+            if (!nm.value.trim() && !pr.contains(document.activeElement)) { queue({ materials: current.materials.filter((m) => m.id !== id) }); drawDefects(); drawMaterials(); }
+          }, 150);
+          $('.dp-cost', pr)?.addEventListener('input', (e) => { setMat(id, { cost: Number(e.target.value) || 0 }); drawMaterials(); });
+        } else {
+          $('.dp-name', pr).onchange = (e) => {
+            const o = (lists.materials || []).find((x) => x.id === e.target.value);
+            if (o) { setMat(id, { name: o.name, unit: o.unit || 'each', cost: Number(o.cost) || 0, cat: matCat(o) }); drawMaterials(); }
+          };
+        }
         $('.dp-spec', pr).oninput = (e) => setMat(id, { spec: e.target.value });
         $('.dp-del', pr).onclick = () => { queue({ materials: current.materials.filter((m) => m.id !== id) }); drawDefects(); drawMaterials(); };
       });
