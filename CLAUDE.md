@@ -81,3 +81,20 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - Show a clickable mock-up first when a change is large or visual and the owner asks to see it.
 - Test every change (Playwright, plus openpyxl or pdftotext for exports) before publishing.
 - Keep existing behaviour unless the owner asks to change it. Add, don't rework.
+
+## Handover (end of the first long session, 26 Nov 2026)
+- All work is committed on branch `claude/fscf-fire-door-app-cirxvt`. A new session that is given
+  a different branch name should start from this branch (`git fetch origin claude/fscf-fire-door-app-cirxvt`
+  and branch from / merge it) so nothing is lost, then publish to the owner's app link above.
+- The owner's invoices and quotes workbook ("INVOICES AND QUOTES REV …" xlsx) is in Google Drive,
+  in the `10 FSCF IRELAND DOCUMENT HUB` folder. The app's Quotes & invoices section (`src/quotes.js`)
+  is modelled on it; check it for the latest revision before changing quotes.
+- Done recently: Replacement fields + production list; BM TRADA Q-Mark DCS 058 checklist (`qmark`),
+  ART picker with revisions (`src/arts.js`), door grade level, architrave survey (MFSS 058, tick per door);
+  ironmongery maintenance (on by default); capitals house style in app, PDFs and Excel; Drive backups.
+- Left for later (owner's choice): the rest of the BM TRADA paperwork – Scheme Procedures Acceptance (SPA 058,
+  prescribed wording, client signature), Record of Maintenance Activities (RMA 058) and the RMA pack PDF,
+  RMA register (LMR/CMR 058), photo tags before/during/after, maintenance label fitted, operative initials,
+  ARTs completed with revisions, annual ART expiry warning. Also: reference audit of the older default
+  questions/defects (rule 1), headings on questions/defects that have none ("DOOR CLOSER: …"),
+  ironmongery maintenance as a priced item in customer quotes, Supabase online version / own web address.
