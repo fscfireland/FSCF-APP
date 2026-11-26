@@ -1259,6 +1259,61 @@ async function editSitePrices(project, scope = null) {
   refresh();
 }
 
+// Site ↔ pricing link. A quote made from a report keeps its projectId; an
+// invoice made from that quote keeps fromQuoteId, so both are traced back to
+// the site. Failed doors (same rule as the quote: priceDoors) that are on no
+// live quote are counted as "not quoted yet".
+const isFailedForQuote = (d) => d.status === 'fail' || (d.actions || []).length || (d.materials || []).length;
+function siteMoney(docs, projectId, doors = null) {
+  const byId = Object.fromEntries(docs.map((d) => [d.id, d]));
+  const siteOf = (d) => d.projectId || byId[d.fromQuoteId]?.projectId || null;
+  const mine = docs.filter((d) => siteOf(d) === projectId).sort((a, b) => (b.tab || 0) - (a.tab || 0));
+  const qs = mine.filter((d) => d.kind !== 'INV');
+  const invs = mine.filter((d) => d.kind === 'INV');
+  const tot = (list) => list.reduce((a, d) => a + (totals(d).total || 0), 0);
+  const liveQ = qs.filter((d) => d.status !== 'NP');
+  const onQuote = new Set(liveQ.flatMap((d) => (d.items || []).map((i) => i.doorId).filter(Boolean)));
+  const unquoted = doors ? doors.filter((d) => isFailedForQuote(d) && !onQuote.has(d.id)).length : 0;
+  return {
+    docs: mine, qs, invs, unquoted,
+    quoted: tot(liveQ), invoiced: tot(invs),
+    paid: tot(invs.filter((d) => d.status === 'P')),
+    owed: tot(invs.filter((d) => d.status !== 'P' && d.status !== 'NP')),
+  };
+}
+// One quote / invoice row with its status, which can be changed here
+function moneyRow(d) {
+  const t = totals(d);
+  return `<div class="doc-row sm-row"><button class="sm-open" data-id="${d.id}"><span class="q-kind ${d.kind === 'INV' ? 'is-inv' : ''}">${d.kind === 'INV' ? 'INV' : 'Q'}</span>
+    <span class="q-main"><b>${esc(d.kind === 'INV' ? d.inv : d.quote)}${d.part ? ' ' + esc(d.part) : ''}</b><small>${fmtDate(d.date)} · ${money(t.total)}</small></span></button>
+    <select class="sm-status" data-id="${d.id}" aria-label="Status">${Object.entries(Q_STATUSES).map(([k, v]) => `<option value="${k}" ${k === d.status ? 'selected' : ''}>${v}</option>`).join('')}</select></div>`;
+}
+function wireMoneyRows(root) {
+  $$('.sm-open', root).forEach((b) => (b.onclick = () => go({ view: 'quote', quoteId: b.dataset.id })));
+  $$('.sm-status', root).forEach((s) => (s.onchange = async () => {
+    const d = await db.get('quotes', s.dataset.id);
+    if (!d) return;
+    await db.put('quotes', { ...d, status: s.value });
+    toast(`${d.kind === 'INV' ? d.inv : d.quote}: ${Q_STATUSES[s.value]}`);
+    refresh();
+  }));
+}
+// Export tab panel: what has been quoted and invoiced for this site
+async function fillSiteMoney(el, project) {
+  if (!el || !priced()) return;
+  const m = siteMoney(await db.all('quotes'), project.id, await db.projectDoors(project.id));
+  el.innerHTML = `
+    <div class="ps-costs sm-sum">
+      <div><span>Quoted</span><b>${money(m.quoted)}</b></div>
+      <div><span>Invoiced</span><b>${money(m.invoiced)}</b></div>
+      <div><span>Paid</span><b>${money(m.paid)}</b></div>
+      <div class="ps-tot"><span>Still owed</span><b>${money(m.owed)}</b></div>
+    </div>
+    ${m.unquoted ? `<p class="fill-note">${icon('door')} <span>${m.unquoted} failed door${m.unquoted === 1 ? ' is' : 's are'} not on any quote yet. Make a new quote to include ${m.unquoted === 1 ? 'it' : 'them'}.</span></p>` : ''}
+    <div class="doc-list">${m.docs.map(moneyRow).join('') || '<p class="muted small">No quotes or invoices for this site yet.</p>'}</div>`;
+  wireMoneyRows(el);
+}
+
 // Pricing Hub: every pricing tool in one owner-only page. It only gathers the
 // existing tools (price list, site/collection prices, margin rule, quotes and
 // invoices); it adds no new rates or rules of its own.
@@ -1292,6 +1347,11 @@ async function renderPricing() {
   const sum = (list) => list.reduce((a, d) => a + (totals(d).total || 0), 0);
   const unpaid = invs.filter((d) => d.status === 'UP');
   const openQ = qs.filter((d) => d.status === 'PROC' || d.status === 'WIP');
+  const bySite = [];
+  for (const p of projects) {
+    const m = siteMoney(docs, p.id, await db.projectDoors(p.id));
+    if (m.docs.length || m.unquoted) bySite.push({ p, m });
+  }
   body.innerHTML = `
     <div class="ph-stats">
       <div><span>Products</span><b>${mats.length}</b>${noCost ? `<small class="ps-warn">${noCost} with no price</small>` : '<small>all priced</small>'}</div>
@@ -1299,6 +1359,8 @@ async function renderPricing() {
       <div><span>Open quotes</span><b>${openQ.length}</b><small>${money(sum(openQ))}</small></div>
       <div><span>Unpaid invoices</span><b>${unpaid.length}</b><small>${money(sum(unpaid))}</small></div>
     </div>
+    <h2 class="h2">By site</h2>
+    ${bySite.length ? `<div class="doc-list">${bySite.map(({ p, m }) => `<button class="doc-row ph-sitem" data-id="${p.id}"><span class="q-main"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([m.qs.length ? `${m.qs.length} quote${m.qs.length === 1 ? '' : 's'} ${money(m.quoted)}` : '', m.invs.length ? `${m.invs.length} invoice${m.invs.length === 1 ? '' : 's'} ${money(m.invoiced)}` : '', m.paid ? `paid ${money(m.paid)}` : ''].filter(Boolean).join(' · ') || 'Nothing quoted yet')}</small>${m.unquoted ? `<small class="ps-warn">${m.unquoted} failed door${m.unquoted === 1 ? '' : 's'} not quoted yet</small>` : ''}</span><span class="q-amt">${m.owed ? `<b>${money(m.owed)}</b><small class="muted">owed</small>` : ''}</span></button>`).join('')}</div>` : '<p class="muted small">No site has quotes, invoices or failed doors yet.</p>'}
     <h2 class="h2">Prices</h2>
     <button class="lib-card" id="ph-list">${icon('list')}<span><b>Normal price list</b><small>${mats.length} products · used on every site · Settings › Products</small></span>${icon('more')}</button>
     <button class="lib-card" id="ph-site">${icon('door')}<span><b>Site and collection prices</b><small>Give a site, or a collection on a site, its own prices</small></span>${icon('more')}</button>
@@ -1319,6 +1381,7 @@ async function renderPricing() {
     </div>`;
   $('#ph-list').onclick = () => { state.allMats = true; openFolds.add('mats'); go({ view: 'settings' }); };
   $('#ph-site').onclick = () => pricesHome();
+  $$('.ph-sitem').forEach((b) => (b.onclick = () => go({ view: 'project', projectId: b.dataset.id, tab: 'export' })));
   $$('.ph-own').forEach((b) => (b.onclick = async () => { const p = projects.find((x) => x.id === b.dataset.id); if (p) await editSitePrices(p, null); }));
   $('#ph-rule').onchange = (e) => saveLists({ pricingRule: e.target.value });
   $('#ph-quotes').onclick = () => go({ view: 'quotes' });
@@ -3548,6 +3611,7 @@ function renderExportTab(body, project, plans, allDoors) {
       <p>One line per failed door at its full price, numbered on from your workbook. The door-by-door breakdown goes in a pricing doc tab laid out like your SERV PDs, with the quote's lines linked to it, so changing a rate in Excel updates the quote.</p>
       <div class="row-btns"><button class="btn primary" id="rep-quote">${icon(priced() ? 'report' : 'shield')} Make the quote${priced() ? '' : ' (owner PIN)'}</button>
       ${priced() ? `<button class="btn" id="site-prices">${icon('list')} Prices for this site${priceCount(project) + Object.values(project.collPrices || {}).reduce((a, x) => a + Object.keys(x).length, 0) ? ' ✦' : ''}</button>` : ''}</div>
+      ${priced() ? `<h3 class="h2 sm-head">Quotes and invoices for this site</h3><div id="site-money"></div>` : ''}
     </section>`}
     <section class="panel">
       <h2 class="h2">${icon('shield')} Backup</h2>
@@ -3613,6 +3677,7 @@ function renderExportTab(body, project, plans, allDoors) {
     refresh();
   });
   $('#rep-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) quoteFromReport(project); });
+  fillSiteMoney($('#site-money'), project);
   $('#site-prices')?.addEventListener('click', () => editSitePrices(project, state.coll && state.coll !== '*' && !String(state.coll).startsWith('F:') ? state.coll : null));
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
