@@ -5061,10 +5061,39 @@ async function renderSheet() {
   document.body.classList.add('sheet-open');
   sheetRoot.innerHTML = `<div class="sheet-backdrop" id="sheet-bd"></div><section class="sheet ${state.repair ? 'is-repair' : ''}" role="dialog" aria-label="${state.repair ? 'Repairs' : 'Door record'}" id="sheet"></section>`;
   $('#sheet-bd').onclick = () => back();
-  if (state.repair) await drawRepairSheet(door);
-  else await drawSheet(door);
+  try {
+    if (state.repair) await drawRepairSheet(door);
+    else await drawSheet(door);
+  } catch (err) {
+    // never leave a half-drawn pin behind a backdrop (it looks frozen): close it and say why
+    console.error(err);
+    sheetDoorId = null;
+    sheetRoot.innerHTML = '';
+    document.body.classList.remove('sheet-open');
+    state = { ...state, doorId: null, repair: false };
+    showAppError(err, `opening pin ${door.pinNo || ''}`);
+    return;
+  }
   if (state.view === 'plan') refreshPins();
 }
+
+// Errors are shown on screen (once each), so the owner can send a screenshot
+// instead of the app silently stopping.
+const shownErrors = new Set();
+function showAppError(err, where = '') {
+  const msg = String(err?.message || err || 'unknown error').slice(0, 200);
+  const key = where + msg;
+  if (shownErrors.has(key)) return;
+  shownErrors.add(key);
+  const line = (err?.stack || '').split('\n').find((l) => /app\.js|artifact|main|:\d+:\d+/.test(l)) || '';
+  dialog({
+    title: 'Something went wrong',
+    body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
+  });
+}
+const VERSION_TAG = 'app v0.48.2';
+window.addEventListener('error', (e) => showAppError(e.error || e.message));
+window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
 async function drawSheet(door) {
   const el = $('#sheet');
@@ -5219,7 +5248,7 @@ async function drawSheet(door) {
       </div>
     </div>`;
 
-  wireSheetJump(el);
+  try { wireSheetJump(el); } catch (err) { console.error(err); $('#sheet-jump', el)?.remove(); } // the bar must never stop a pin opening
   // a due date shown but not yet stored (frequency set after this door was inspected)
   let current = freq && door.inspectedOn && !door.nextDue ? { ...door, nextDue: addMonths(door.inspectedOn, freq) } : door;
   let redrawDefects = null;
