@@ -120,7 +120,8 @@ async function loadLists() {
   if ((s?.typesVersion || 1) < DOOR_TYPES_VERSION) {
     const swap = (t) => OLD_DOOR_TYPES[t] || t;
     const fix = (list) => {
-      const out = [...new Set((list || []).map(swap))];
+      // renamed types go back to their place in the standard order (e.g. final exits beside Non-rated)
+      const out = [...new Set((list || []).filter((t) => !OLD_DOOR_TYPES[t]))];
       for (const [i, t] of DEFAULT_DOOR_TYPES.entries()) if (!out.includes(t)) out.splice(Math.min(i, out.length), 0, t); // adds E30Sa4 / E60Sa4
       return out;
     };

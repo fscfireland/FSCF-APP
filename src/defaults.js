@@ -348,8 +348,6 @@ export const DEFAULT_DOOR_TYPES = [
   'E30 (FD30)',
   'E30Sa (FD30S)',
   'E30Sa4 (FD30S)',
-  'E30Sa Final exit – emergency (FD30S)',
-  'E30Sa Final exit – panic (FD30S)',
   'E60 (FD60)',
   'E60Sa (FD60S)',
   'E60Sa4 (FD60S)',
@@ -358,6 +356,8 @@ export const DEFAULT_DOOR_TYPES = [
   'Notional fire door',
   'Nominal fire door',
   'Non-rated',
+  'Final exit – emergency',
+  'Final exit – panic',
   'Unknown – no evidence of rating',
 ];
 
@@ -373,7 +373,7 @@ export function doorTypeGroup(t) {
   if (/^E\s?I?\s?\d|^FD\s?\d/i.test(t)) return 'Fire rated (European, FD in brackets)';
   if (/notional|nominal/i.test(t)) return 'No test evidence';
   if (/unknown/i.test(t)) return 'Unknown';
-  if (/non.?rated/i.test(t)) return 'Not a fire door';
+  if (/non.?rated|final exit/i.test(t)) return 'Not a fire door';
   return 'Other';
 }
 
@@ -381,8 +381,9 @@ export function doorTypeGroup(t) {
 export const OLD_DOOR_TYPES = {
   'FD30 (EI 30)': 'E30 (FD30)', 'FD30S (EI 30-Sa)': 'E30Sa (FD30S)', 'FD60 (EI 60)': 'E60 (FD60)',
   'FD60S (EI 60-Sa)': 'E60Sa (FD60S)', 'FD90 (EI 90)': 'E90 (FD90)', 'FD120 (EI 120)': 'E120 (FD120)',
+  'E30Sa Final exit – emergency (FD30S)': 'Final exit – emergency', 'E30Sa Final exit – panic (FD30S)': 'Final exit – panic',
 };
-export const DOOR_TYPES_VERSION = 4;
+export const DOOR_TYPES_VERSION = 5;
 
 export const LEAF_CONFIGS = ['', 'SASD RH', 'SASD LH', 'DADD', 'SADD BLRH', 'SADD BLLH', 'SADD Equal pair', 'Single leaf', 'Double leaf', 'Leaf and a half', 'Single with fanlight', 'Double with fanlight'];
 
