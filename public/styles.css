@@ -1366,3 +1366,10 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .co-opt.is-pass input:checked + span { background: var(--st-pass); border-color: var(--st-pass); color: #fff; }
 .co-opt.is-fail input:checked + span { background: var(--st-fail); border-color: var(--st-fail); color: #fff; }
 .co-all { margin: 4px 0 10px; }
+/* Voice notes: microphone floating at the corner of the note box being typed in */
+.mic-btn { position: fixed; z-index: 80; width: 36px; height: 36px; border-radius: 50%; border: 1px solid var(--line); background: var(--surface); color: var(--ink); display: grid; place-items: center; box-shadow: var(--shadow); padding: 0; cursor: pointer; }
+.mic-btn[hidden] { display: none; }
+.mic-btn.is-on { background: var(--st-fail); border-color: var(--st-fail); color: #fff; animation: mic-pulse 1.2s ease-in-out infinite; }
+@keyframes mic-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--st-fail) 30%, transparent); } }
+.mic-partial { position: fixed; z-index: 80; font-size: 13px; color: var(--ink-2); background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; box-shadow: var(--shadow); }
+.mic-partial[hidden] { display: none; }

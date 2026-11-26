@@ -36,6 +36,7 @@ import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript, saveFile, safeName } from './files.js';
+import { startVoice } from './voice.js';
 import { buildAgenda, saveIcs, connectorStatus, CONNECT_HELP, connectorError, addToCalendar, gmailDraft, chaseEmail, listEmail, TASKS, CONNECTORS } from './agenda.js';
 import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, isDraftInv, archiveOf, compareBooks } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
@@ -5100,7 +5101,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.48.3';
+const VERSION_TAG = 'app v0.49.0';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -7438,6 +7439,8 @@ async function start() {
   registerHeadTexts();
   startCaps(document.body);
   render();
+  window.addEventListener('fscf-toast', (e) => toast(e.detail));
+  startVoice(); // voice notes, where Claude offers dictation
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.claude) {
     // When a new version has been published, offer a one-tap refresh
     const hadController = !!navigator.serviceWorker.controller;
