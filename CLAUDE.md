@@ -156,11 +156,14 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - Update notice (v0.53.2): inside the Claude app a republish can't tell an open page, so on the first open of a new
   version the app shows "Updated to app vX: <WHATS_NEW>" once (settings `seenVersion`). **Change WHATS_NEW in main.js
   with every release** (one short line). Home footer shows the version and "close and reopen the app to get the latest"; REV chip beside FSCF IRELAND at the top of Home (v0.53.3). theme-color meta is also in the artifact build (scripts/build.mjs).
+- Business page tidy (v0.53.4): long buttons wrap (page was wider than the S9+); overdue, customers and top sites show the
+  first 5 then "Show all" (`foldList`, per WIP / owed / paid group); customer rows one line (contacts in the opened panel);
+  Draft email + Mark paid side by side; shorter Business tab card wording.
 - Customer portal mock-up (26 Nov 2026, owner asked to see it first): `mockups/customer-portal.html`, published separately
   at https://claude.ai/artifact/U56NaRn8HZGxCxJA9M8zuo (not the app). Customer: email sign-in link, only their sites,
   pass/fail tiles, reports to open, doors with defects + references, no prices. Owner: overview, activity log (sign-ins,
   sites/doors viewed, downloads; customer drop-down), customers & access (invite, sites per customer, access on/off).
-  Needs the Supabase online version; waiting for the owner's go-ahead.
+  Owner approved the mock-up ("that would be perfect"). Needs the Supabase online version: owner to create the account.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

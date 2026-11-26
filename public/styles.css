@@ -1541,3 +1541,11 @@ body.sheet-open .tabbar { display: none; }
 .update-bar .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; flex: none; }
 .rev-chip { align-self: center; padding: 2px 8px; border-radius: 9px; background: var(--surface-2); color: var(--ink-2); font: 600 11px var(--font); white-space: nowrap; }
 .brand b .rev-chip { display: inline-block; vertical-align: 3px; margin-left: 4px; }
+/* Business page: long buttons wrap instead of pushing the page wider than the phone */
+#rem-cal, #rem-ics, #rem-mail, #biz-towb, .biz-cust-btns .btn, .biz-fold .btn { white-space: normal; max-width: 100%; text-align: center; line-height: 1.25; padding-block: 6px; }
+.biz-more { justify-self: start; margin: 6px 0 2px; color: var(--accent); }
+.doc-list { min-width: 0; }
+/* overdue invoice: Draft email and Mark paid side by side */
+.doc-row.biz-row:has(.biz-chase) { grid-template-columns: 1fr auto; }
+.doc-row.biz-row:has(.biz-chase) > .biz-open { grid-column: 1 / -1; }
+.doc-row.biz-row .biz-chase { justify-self: end; }

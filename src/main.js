@@ -1637,9 +1637,9 @@ async function renderBizHub() {
   app.innerHTML = `${topBar('Business', priced() ? 'Owner only · never shown to the customer' : 'Owner only')}
     <main class="page">
       ${priced() ? `
-        <button class="lib-card" id="bh-business">${icon('sheet')}<span><b>Business</b><small>Overdue and paid invoices, customers, sites, reminders, statements</small></span>${icon('more')}</button>
-        <button class="lib-card" id="bh-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Make, send and add to your workbook</small></span>${icon('more')}</button>
-        <button class="lib-card" id="bh-pricing">${icon('list')}<span><b>Pricing Hub</b><small>Price list, site prices, margin and fail item costs</small></span>${icon('more')}</button>
+        <button class="lib-card" id="bh-business">${icon('sheet')}<span><b>Business</b><small>Invoices, customers, reminders</small></span>${icon('more')}</button>
+        <button class="lib-card" id="bh-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Make, send, add to workbook</small></span>${icon('more')}</button>
+        <button class="lib-card" id="bh-pricing">${icon('list')}<span><b>Pricing Hub</b><small>Prices, margin, fail item costs</small></span>${icon('more')}</button>
         <div class="row-btns"><button class="btn" id="bh-lock">${icon('shield')} Lock prices</button></div>`
       : `<section class="panel bh-lock"><p><b>Owner only</b></p><p class="small muted">Enter your PIN to open the Business page, Quotes &amp; invoices and the Pricing Hub.</p><button class="btn primary" id="bh-unlock">${icon('shield')} Unlock</button></section>`}
     </main>`;
@@ -1878,9 +1878,10 @@ async function renderBusiness() {
 
     <h2 class="h2" id="bj-cust">Customers <span class="muted">${cs.length}</span></h2>
     <div class="biz-years biz-order">${[['action', 'WIP and owed first'], ['az', 'A–Z'], ['size', 'Largest first']].map(([k, t]) => `<button class="chip ${csOrder === k ? 'is-on' : ''}" data-o="${k}">${t}</button>`).join('')}</div>
-    <div class="doc-list">${cs.map((x, i) => `${csOrder === 'action' && (i === 0 || rank(cs[i - 1]) !== rank(x)) ? `<p class="biz-sub biz-group">${groupLabel[rank(x)]} <span class="muted">${cs.filter((y) => rank(y) === rank(x)).length}</span></p>` : ''}<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${esc(x.key)} · ${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'} · ${pct(x.invoiced, s.invoiced)} of the total</small>${x.contacts?.length ? `<small>Contacts: ${esc(x.contacts.slice(0, 4).join(', '))}${x.contacts.length > 4 ? ` +${x.contacts.length - 4}` : ''}</small>` : ''}</span>
+    <div class="doc-list">${cs.map((x, i) => `${csOrder === 'action' && (i === 0 || rank(cs[i - 1]) !== rank(x)) ? `<p class="biz-sub biz-group">${groupLabel[rank(x)]} <span class="muted">${cs.filter((y) => rank(y) === rank(x)).length}</span></p>` : ''}<button type="button" class="doc-row biz-cust" data-i="${i}"><span class="q-main"><b>${esc(x.custName || x.key)}</b><small>${x.n} invoice${x.n === 1 ? '' : 's'} · ${x.sites.length} site${x.sites.length === 1 ? '' : 's'}</small></span>
         <span class="q-amt"><small class="muted">Invoiced</small><b>${money(x.invoiced)}</b>${x.owed ? `<small class="ps-warn">${money(x.owed)} owed</small>` : '<small class="muted">nothing owed</small>'}${x.draft ? `<small class="biz-wip-amt">${money(x.draft)} WIP</small>` : ''}</span></button>
         <div class="biz-sites" data-i="${i}" hidden>
+          <p class="small muted">${esc(x.key)} · ${pct(x.invoiced, s.invoiced)} of the total${x.contacts?.length ? ` · Contacts: ${esc(x.contacts.join(', '))}` : ''}</p>
           <p class="biz-sub">Invoices <span class="muted">${x.list.length}</span></p>
           ${x.list.map((e) => { const draft = isDraftInv(e); const late = !draft && !isPaid(e) && e.due && e.due < today(); return `<button type="button" class="biz-open biz-inv ${draft ? 'is-draft' : ''}" data-id="${esc(e.id)}" data-src="${e.src}"><span><b>${esc(e.ref)}${e.part ? ' ' + esc(e.part) : ''}${e.workType ? ` <i class="biz-wt" title="${esc(WORK_TYPES[e.workType] || '')}">${esc(e.workType)}</i>` : ''}</b><small>${fmtDate(e.date)}${e.site ? ' · ' + esc(e.site) : ''}${e.contact && x.contacts?.length ? ' · ' + esc(e.contact) : ''}</small></span><span class="q-amt"><b>${money(e.subtotal)}</b><small class="${isPaid(e) || draft ? 'muted' : late ? 'ps-warn' : ''}">${isPaid(e) ? 'Paid' : draft ? 'Not sent yet (' + esc(e.status) + ')' : late ? 'Overdue' : 'Unpaid'}</small></span></button>`; }).join('')}
           <div class="biz-inv-tot"><span>Total invoiced ex VAT</span><b>${money(x.invoiced)}</b></div>
@@ -2034,6 +2035,34 @@ async function renderBusiness() {
     const v = bars[+b.dataset.i];
     $('#biz-read').textContent = `${v.label} · ${money(v.v)} ex VAT`;
   }));
+  // Long lists (overdue, customers, sites): first few rows, then "Show all" (owner: one section ran very long)
+  const foldList = (list, n = 5) => {
+    if (!list || list.dataset.folded) return;
+    list.dataset.folded = '1';
+    let seg = [];
+    const close = (after) => {
+      const rows = seg.filter((x) => x.classList.contains('doc-row'));
+      if (rows.length > n + 1) {
+        const extra = rows.slice(n);
+        extra.forEach((r) => { r.hidden = true; });
+        const b = document.createElement('button');
+        b.type = 'button'; b.className = 'btn sm ghost biz-more';
+        b.textContent = `Show all ${rows.length} (${extra.length} more)`;
+        b.onclick = () => { extra.forEach((r) => { r.hidden = false; }); b.remove(); };
+        after.after(b);
+      }
+      seg = [];
+    };
+    const kids = [...list.children];
+    kids.forEach((k, i) => {
+      if (k.classList.contains('biz-group') && seg.length) close(kids[i - 1]);
+      seg.push(k);
+    });
+    if (seg.length) close(kids[kids.length - 1]);
+  };
+  if (s.overdue.length) foldList($('#bj-overdue ~ .doc-list'));
+  foldList($('#bj-cust ~ .doc-list'));
+  foldList($('#bj-sites ~ .doc-list'));
   $$('.biz-cust:not(.biz-site)').forEach((r) => (r.onclick = () => { const x = $(`.biz-sites[data-i="${r.dataset.i}"]:not(.biz-site-drop)`); x.hidden = !x.hidden; }));
   $$('.biz-site').forEach((r) => (r.onclick = () => { const x = $(`.biz-site-drop[data-si="${r.dataset.i}"]`); x.hidden = !x.hidden; }));
   $$('.biz-soa').forEach((b) => (b.onclick = () => statementFor(b.dataset.id, ledger, book, conn)));
@@ -5418,9 +5447,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.53.3';
+const VERSION_TAG = 'app v0.53.4';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'rev number at the top of Home';
+const WHATS_NEW = 'Business page fits the phone; long lists show the first few';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
