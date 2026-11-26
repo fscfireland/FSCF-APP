@@ -21,7 +21,7 @@ import { markupPhoto, plainThumb } from './photomark.js';
 import { DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
-import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView } from './history.js';
+import { saveDoor, logEvent, setActor, snapshotOf, tagPhotosForSnapshot, photoInView, addMonths, FREQUENCIES, freqText } from './history.js';
 import { emptyFilter, isFiltered, applyFilter, filterOptions, describeFilter } from './filters.js';
 import {
   collLabel, listCollections, activeCollection, plansIn, suggestName, copyCollection, renameCollection, deleteCollection,
@@ -524,6 +524,7 @@ async function importFromDrawing(file) {
       <div class="grid2"><label class="field"><span>Client</span><input name="client" placeholder="e.g. HSE"></label>
         <label class="field"><span>Inspection date</span><input type="date" name="date" value="${today()}"></label></div>
       <label class="field"><span>Address / Eircode</span><input name="address"></label>
+      <label class="field"><span>Inspection frequency</span><select name="frequency">${freqOpts('')}</select><small class="muted">Each door's next inspection due date is worked out from its inspection date.</small></label>
       <label class="field"><span>Inspection type</span><select name="kind">${kindIds().map((k) => `<option value="${k}" ${k === 'fd' ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
       ${lists.aiKey ? `<label class="check-line"><input type="checkbox" name="ai" checked> Use the drawing reader for pages with no readable text${priced() ? ' (about US$0.30–0.80 a page)' : ''}</label>` : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Create project', value: true, kind: 'primary' }],
@@ -540,6 +541,7 @@ async function importFromDrawing(file) {
     const text = isPdf ? await textDoors(file).catch(() => []) : [];
     const project = await db.put('projects', {
       id: db.uid(), site: r.data.site.trim() || file.name, client: r.data.client.trim(), address: r.data.address.trim(), date: r.data.date || today(),
+      frequency: Number(r.data.frequency) || 0,
       workType: kindIds().includes(kind) && kind !== 'fd' ? kitOf(kind).name : 'Fire door inspection', scheme: lists.lastScheme || DEFAULT_SCHEME, zones: [], nextPin: 1,
     });
     let first = null;
@@ -1131,6 +1133,7 @@ async function importFieldwire(file) {
       <div class="grid2"><label class="field"><span>Client</span><input name="client" placeholder="e.g. HSE"></label>
         <label class="field"><span>Inspection date</span><input type="date" name="date" value="${esc(fw.date)}"></label></div>
       <label class="field"><span>Address / Eircode</span><input name="address" value="${esc(fw.eircode)}"></label>
+      <label class="field"><span>Inspection frequency</span><select name="frequency">${freqOpts('')}</select><small class="muted">Each door's next inspection due date is worked out from its inspection date.</small></label>
       ${fw.checklist.length ? `<label class="field"><span>Checklist</span><select name="kit">
         ${match ? `<option value="${match}" selected>Use "${esc(kitOf(match).name)}" (same questions)</option>` : `<option value="__new" selected>Create "${esc(fw.checklist.length + ' point check')}" from the report</option>`}
         ${kindIds().filter((k) => k !== match).map((k) => `<option value="${k}">${esc(kitOf(k).name)}</option>`).join('')}</select></label>` : ''}
@@ -1183,6 +1186,21 @@ async function importFieldwire(file) {
   }
 }
 
+const freqOpts = (cur) => `<option value="">Not set</option>${FREQUENCIES.map(([n, t]) => `<option value="${n}" ${Number(cur) === n ? 'selected' : ''}>${t}</option>`).join('')}`;
+
+// The site's visit frequency changed: work out every inspected door's next due date again
+async function applyFrequency(project) {
+  const f = Number(project.frequency) || 0;
+  if (!f) return;
+  let n = 0;
+  for (const d of await db.projectDoors(project.id)) {
+    if (!d.inspectedOn) continue;
+    const due = addMonths(d.inspectedOn, f);
+    if (due !== d.nextDue) { await saveDoor({ ...d, nextDue: due }, [`Next inspection due set from the site's frequency (${freqText(f).toLowerCase()})`]); n++; }
+  }
+  if (n) toast(`Next inspection due updated on ${n} door${n === 1 ? '' : 's'} (${freqText(f).toLowerCase()})`);
+}
+
 async function editProject(existing) {
   const p = existing || { client: '', site: '', address: '', date: today(), scheme: lists.lastScheme || DEFAULT_SCHEME };
   const cur = schemeById(p.scheme) ? p.scheme : DEFAULT_SCHEME;
@@ -1202,7 +1220,10 @@ async function editProject(existing) {
       <datalist id="pf-types">${(lists.workTypes || DEFAULT_WORK_TYPES).map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
       <datalist id="pf-clients">${clientNames.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
       <label class="field"><span>Address</span><input name="address" id="pf-address" value="${esc(p.address)}" placeholder="Town, county / Eircode"></label>
-      <label class="field"><span>Inspection date</span><input type="date" name="date" id="pf-date" value="${esc(p.date)}"></label>
+      <div class="grid2">
+        <label class="field"><span>Inspection date</span><input type="date" name="date" id="pf-date" value="${esc(p.date)}"></label>
+        <label class="field"><span>Inspection frequency</span><select name="frequency">${freqOpts(p.frequency)}</select><small class="muted">Each door's next inspection due date is worked out from its inspection date.</small></label>
+      </div>
       <label class="field"><span>Fire alarm zones (one per line: number, name)</span>
         <textarea name="zones" id="pf-zones" rows="4" placeholder="1, Main entrance\n2, East wing ground floor\n3, Stair core">${esc(zonesToText(p.zones))}</textarea>
         <small class="muted">Typing a zone number on a door fills in its name. New zones typed on doors are added here.</small></label>
@@ -1219,7 +1240,9 @@ async function editProject(existing) {
   });
   if (r.value !== true) return null;
   const { zones: zonesRaw, ...form } = r.data;
+  form.frequency = Number(form.frequency) || 0;
   const rec = await db.put('projects', { ...p, ...form, zones: parseZones(zonesRaw), id: p.id || db.uid(), nextPin: p.nextPin || 1 });
+  if (existing && form.frequency && form.frequency !== (Number(p.frequency) || 0)) await applyFrequency(rec);
   if (r.data.scheme && r.data.scheme !== lists.lastScheme) await saveLists({ lastScheme: r.data.scheme });
   const wt = (r.data.workType || '').trim();
   if (wt && !(lists.workTypes || DEFAULT_WORK_TYPES).includes(wt)) await saveLists({ workTypes: [...(lists.workTypes || DEFAULT_WORK_TYPES), wt] });
@@ -1289,7 +1312,7 @@ async function renderProject() {
   app.innerHTML = `
     <header class="bar">
       <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
-      <div class="bar-title"><b>${esc(project.site || 'Untitled site')}</b><small>${esc([project.client, fmtDate(project.date)].filter(Boolean).join(' · '))}</small></div>
+      <div class="bar-title"><b>${esc(project.site || 'Untitled site')}</b><small>${esc([project.client, fmtDate(project.date), freqText(project.frequency).toLowerCase()].filter(Boolean).join(' · '))}</small></div>
       <button class="icon-btn" id="proj-edit" aria-label="Project details">${icon('more')}</button>
     </header>
     <nav class="tabs" role="tablist">
@@ -3764,6 +3787,7 @@ async function drawSheet(door) {
   const autoRes = lists.autoResult !== false && questionsFor(door, kq() || []).length > 0;
   // fire alarm zones already used on this project: number → name
   const project = await db.get('projects', door.projectId);
+  const freq = Number(project?.frequency) || 0;
   const zoneMap = new Map((project?.zones || []).filter((z) => z.no).map((z) => [String(z.no), z.name || '']));
   for (const x of await db.byIndex('doors', 'projectId', door.projectId)) {
     if (x.zoneNo && !zoneMap.get(x.zoneNo)) zoneMap.set(x.zoneNo, x.zoneName || '');
@@ -3862,7 +3886,7 @@ async function drawSheet(door) {
       <div class="grid2">
         <label class="field"><span>Inspected on</span><input type="date" id="f-on" data-k="inspectedOn" value="${esc(door.inspectedOn)}"></label>
         <label class="field"><span>Inspected by</span><input id="f-by" data-k="inspectedBy" value="${esc(door.inspectedBy)}" placeholder="Name"></label>
-        <label class="field"><span>Next inspection due</span><input type="date" id="f-due" data-k="nextDue" value="${esc(door.nextDue || '')}"></label>
+        <label class="field"><span>Next inspection due</span><input type="date" id="f-due" data-k="nextDue" value="${esc(door.nextDue || (freq && door.inspectedOn ? addMonths(door.inspectedOn, freq) : ''))}">${freq ? `<small class="muted">Auto: ${esc(freqText(freq).toLowerCase())} from the inspection date</small>` : ''}</label>
       </div>
       ${lists.gps !== false ? '<p class="gps-line" id="gps-line"></p>' : ''}
 
@@ -3880,7 +3904,8 @@ async function drawSheet(door) {
       </div>
     </div>`;
 
-  let current = door;
+  // a due date shown but not yet stored (frequency set after this door was inspected)
+  let current = freq && door.inspectedOn && !door.nextDue ? { ...door, nextDue: addMonths(door.inspectedOn, freq) } : door;
   let redrawDefects = null;
   // A failed checklist question adds its defect (and that defect's usual
   // product); answering it again as pass / N/A takes them back off.
@@ -3912,6 +3937,11 @@ async function drawSheet(door) {
   };
   const queue = (patch) => {
     if ('checks' in patch) patch = syncChecks({ ...patch });
+    if (freq && patch.inspectedOn && !('nextDue' in patch)) {
+      patch = { ...patch, nextDue: addMonths(patch.inspectedOn, freq) };
+      const due = $('#f-due');
+      if (due) due.value = patch.nextDue;
+    }
     current = { ...current, ...patch };
     pending = current;
     $('#saved').textContent = 'Saving…';

@@ -141,8 +141,26 @@ function mergeLog(log, entries) {
 
 // Save a door, recording what changed. Always merges onto the stored log so
 // events logged elsewhere (photos added, pin moved) are never lost.
+// A date n months on (31 Jan + 1 month = 28/29 Feb)
+export function addMonths(iso, n) {
+  const [y, m, d] = String(iso).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const t = new Date(Date.UTC(y, m - 1 + Number(n), 1));
+  const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
+  t.setUTCDate(Math.min(d, last));
+  return t.toISOString().slice(0, 10);
+}
+export const FREQUENCIES = [[1, 'Every month'], [2, 'Every 2 months'], [3, 'Every 3 months'], [6, 'Every 6 months'], [12, 'Every year']];
+export const freqText = (n) => (FREQUENCIES.find(([k]) => k === Number(n)) || [0, ''])[1];
+
 export async function saveDoor(next, extra = []) {
   const prev = await db.get('doors', next.id);
+  // next inspection due follows from the inspection date and the site's visit
+  // frequency, unless the due date was typed in this same change
+  const f = next.projectId ? Number((await db.get('projects', next.projectId))?.frequency) || 0 : 0;
+  if (f && next.inspectedOn && (next.nextDue || '') === (prev?.nextDue || '') && (next.inspectedOn !== prev?.inspectedOn || !next.nextDue)) {
+    next = { ...next, nextDue: addMonths(next.inspectedOn, f) };
+  }
   const entries = prev ? diffDoor(prev, next) : [{ text: 'Door added to plan' }];
   for (const t of extra) entries.push({ text: t });
   const log = entries.length ? mergeLog(prev?.log, entries) : prev?.log || [];
