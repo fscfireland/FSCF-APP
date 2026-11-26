@@ -134,7 +134,7 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   label, live formulas with cached values; SUMMARY (table DocumentRegister) gets a row with J/K/L formulas to the new
   tab and the table ref grows; calcChain removed + fullCalcOnLoad. Saved as next REV; docs get wbAddedAt/wbFile.
   Tested on REV 30 (34): LibreOffice recalculation matches the stored values.
-- Bottom tabs (owner approved mock-up, 26 Nov 2026): Home · Schedule · Repairs · Business · Settings (`updateTabBar`,
+- Bottom tabs (owner approved mock-up, 26 Nov 2026): Home · Schedule · Repairs · Business · Defects (Settings is the cog on Home; the Defects tab opens Settings › Defect list) (`updateTabBar`,
   TAB_OF); shown on top-level views only, hidden on a site, a drawing and when a pin is open. Schedule badge = overdue
   groups. Home shortcuts: Last site (settings `lastSite`), New site, Overdue, Quote from report; Pricing Hub / Business /
   Quotes cards moved to the Business tab (`bizhub`, PIN). Schedule (`renderSchedule`, `scheduleGroups`): door nextDue

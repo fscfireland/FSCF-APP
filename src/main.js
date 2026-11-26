@@ -1500,13 +1500,14 @@ async function bookArchives() {
 // Home · Schedule · Repairs · Business · Settings, on the top-level screens.
 // Hidden on a site, on a drawing and while a pin is open, so field work keeps
 // the whole screen. Business asks for the owner PIN.
-const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'settings' };
+// Settings itself is the cog at the top of Home; the last tab is the defect list (owner, 26 Nov 2026)
+const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'defects' };
 const TABS = [
   ['home', 'Home', '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', { view: 'projects' }],
   ['schedule', 'Schedule', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', { view: 'schedule' }],
   ['repairs', 'Repairs', '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>', { view: 'repairsAll' }],
   ['business', 'Business', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', { view: 'bizhub' }],
-  ['settings', 'Settings', '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>', { view: 'settings' }],
+  ['defects', 'Defects', '<path d="M9 5h11M9 12h11M9 19h11"/><path d="M3.5 4.5l2 2M5.5 4.5l-2 2M3.5 11.5l2 2M5.5 11.5l-2 2M3.5 18.5l2 2M5.5 18.5l-2 2"/>', { view: 'settings', focus: 's-defs', openDefs: true }],
 ];
 function updateTabBar() {
   let bar = document.getElementById('tabbar');
@@ -1519,12 +1520,14 @@ function updateTabBar() {
     document.body.append(bar);
     bar.querySelectorAll('button').forEach((b) => (b.onclick = () => {
       const t = TABS.find((x) => x[0] === b.dataset.tab);
-      if (TAB_OF[state.view] === t[0] && state.view === t[3].view) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+      if (t[0] === 'defects') openFolds.add('defs');
+      if (TAB_OF[state.view] === t[0] && state.view === t[3].view && t[0] !== 'defects') { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
       go({ ...t[3] });
     }));
   }
-  const tab = TAB_OF[state.view];
-  const show = !!tab && !state.doorId;
+  // Settings opened with the cog shows the tabs without lighting Defects
+  const tab = state.view === 'settings' && !state.openDefs ? '' : TAB_OF[state.view];
+  const show = state.view in TAB_OF && !state.doorId;
   bar.hidden = !show;
   document.body.classList.toggle('has-tabs', show);
   bar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
@@ -1635,7 +1638,6 @@ async function renderBizHub() {
       ${priced() ? `
         <button class="lib-card" id="bh-business">${icon('sheet')}<span><b>Business</b><small>Overdue and paid invoices, customers, sites, reminders, statements</small></span>${icon('more')}</button>
         <button class="lib-card" id="bh-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Make, send and add to your workbook</small></span>${icon('more')}</button>
-        <button class="lib-card" id="bh-fails">${icon('list')}<span><b>Fail item costs</b><small>Products, prices and labour for each fail item, per checklist</small></span>${icon('more')}</button>
         <button class="lib-card" id="bh-pricing">${icon('list')}<span><b>Pricing Hub</b><small>Price list, site prices, margin and fail item costs</small></span>${icon('more')}</button>
         <div class="row-btns"><button class="btn" id="bh-lock">${icon('shield')} Lock prices</button></div>`
       : `<section class="panel bh-lock"><p><b>Owner only</b></p><p class="small muted">Enter your PIN to open the Business page, Quotes &amp; invoices and the Pricing Hub.</p><button class="btn primary" id="bh-unlock">${icon('shield')} Unlock</button></section>`}
@@ -5416,7 +5418,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.52.1';
+const VERSION_TAG = 'app v0.52.2';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
