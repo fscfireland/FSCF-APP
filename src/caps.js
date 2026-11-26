@@ -106,7 +106,19 @@ export function capsPdf(doc) {
   const text = doc.text.bind(doc);
   const split = doc.splitTextToSize.bind(doc);
   const width = doc.getTextWidth.bind(doc);
-  doc.text = (t, ...a) => text(map(t), ...a);
+  doc.text = (t, x, y, o, ...rest) => {
+    const v = map(t);
+    // safety net: a single long line that would run off the page wraps instead
+    if (typeof v === 'string' && typeof x === 'number' && !(o && (o.maxWidth || (o.align && o.align !== 'left') || o.angle))) {
+      const avail = doc.internal.pageSize.getWidth() - x - 10;
+      if (avail > 20 && width(v) > avail) {
+        const lines = split(v, avail);
+        lines.forEach((l) => styled.add(l));
+        return text(lines, x, y, o, ...rest);
+      }
+    }
+    return text(v, x, y, o, ...rest);
+  };
   doc.splitTextToSize = (t, ...a) => {
     const out = split(map(t), ...a);
     (Array.isArray(out) ? out : [out]).forEach((l) => styled.add(l));

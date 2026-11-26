@@ -978,7 +978,10 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
   // instructions box
   font('normal', 9.5, C.ink);
   const lines = doc.splitTextToSize(t(opts.instructions || ''), CW - 10);
-  const boxH = lines.length * 4.3 + 33 + (opts.mode === 'price' ? 4.3 : 0);
+  font('bold', 9.5);
+  const ackLines = isPrice ? [] : doc.splitTextToSize(t('I have read these instructions and have the competencies required to carry out these repairs'), CW - 18);
+  font('normal', 9.5, C.ink);
+  const boxH = lines.length * 4.3 + 33 + (opts.mode === 'price' ? 4.3 : 0) + Math.max(0, ackLines.length - 1) * 4.3;
   doc.setDrawColor(...C.ink);
   doc.setLineWidth(0.4);
   doc.setFillColor(...C.soft);
@@ -995,11 +998,9 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     ay += (note.length - 1) * 4.3;
   } else {
     tickBox(M + 5, ay - 3.6, 5, !!opts.ack);
-    const ackText = 'I have read these instructions and have the competencies required to carry out these repairs';
-    let fs = 9.5;
-    font('bold', fs);
-    while (doc.getTextWidth(t(ackText)) > CW - 18 && fs > 6.5) font('bold', (fs -= 0.25));
-    text(ackText, M + 13, ay);
+    font('bold', 9.5);
+    doc.text(ackLines, M + 13, ay);
+    ay += (ackLines.length - 1) * 4.3;
   }
   ay += 9;
   font('normal', 9, C.ink2);
