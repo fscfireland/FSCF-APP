@@ -510,7 +510,8 @@ async function findDoorsOnPlan(plan) {
   const r = await dialog({
     title: `Find fire doors on "${plan.name}"`,
     body: `<p>Claude looks over the drawing and adds a pin at each fire door it finds, with the rating as the door type and the room as the location. Takes 1–4 minutes; keep the app open on this screen.</p>
-      ${priced() ? `<p class="small">Estimated cost: about <b>${usd(readerCost(plan))}</b>${plan.readerCache ? ' (part of it was read last time and is not charged again)' : ''}.</p>` : plan.readerCache ? '<p class="small">Part of this drawing was read last time; it carries on from there.</p>' : ''}
+      <p class="small">Estimated cost: about <b>${usd(readerCost(plan))}</b>${plan.readerCache ? ' (part of it was read last time and is not charged again)' : ''}.</p>
+      <p class="cost-note">${icon('spark')} <span><b>Cost will be charged to your account.</b> The drawing reader is billed by Anthropic to the account of the API key in Settings.</span></p>
       ${existing.length ? `<p class="small">This drawing already has ${existing.length} pin${existing.length === 1 ? '' : 's'}. Doors found right next to one of them are skipped.</p>` : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Find doors', value: true, kind: 'primary' }],
   });
@@ -550,7 +551,7 @@ async function importFromDrawing(file) {
       <label class="field"><span>Address / Eircode</span><input name="address"></label>
       <label class="field"><span>Inspection frequency</span><select name="frequency">${freqOpts('')}</select><small class="muted">Each door's next inspection due date is worked out from its inspection date.</small></label>
       <label class="field"><span>Inspection type</span><select name="kind">${kindIds().map((k) => `<option value="${k}" ${k === 'fd' ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
-      ${lists.aiKey ? `<label class="check-line"><input type="checkbox" name="ai" checked> Use the drawing reader for pages with no readable text${priced() ? ' (about US$0.30–0.80 a page)' : ''}</label>` : ''}`,
+      ${lists.aiKey ? `<label class="check-line"><input type="checkbox" name="ai" checked> Auto-pin pages with no readable text using the drawing reader (about US$0.30–0.80 a page)</label><p class="cost-note">${icon('spark')} <span><b>Cost will be charged to your account.</b> The drawing reader is billed by Anthropic to the account of the API key in Settings.</span></p>` : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Create project', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return;
@@ -589,8 +590,9 @@ async function importFromDrawing(file) {
         title: `Read ${scanned.length === 1 ? 'this drawing' : 'which drawings'}?`,
         body: `<p class="small">${scanned.length === 1 ? 'It has' : 'These have'} no readable text, so the drawing reader (Claude) will look for the doors. Untick cover sheets, notes and legend pages. Each takes 1–4 minutes; keep the app open.</p>
           <div class="pick-list">${scanned.map((pl, i) => `<label class="pick pick-page"><input type="checkbox" name="pg_${i}" checked>
-            ${thumbs[i] ? `<img alt="" src="${thumbs[i]}">` : ''}<span><b>${esc(pl.name)}</b>${priced() ? `<small>about ${usd(readerCost(pl))}</small>` : ''}</span></label>`).join('')}</div>
-          ${priced() && scanned.length > 1 ? `<p class="small">All ticked: about <b>${usd(scanned.reduce((a, pl) => a + readerCost(pl), 0))}</b></p>` : ''}`,
+            ${thumbs[i] ? `<img alt="" src="${thumbs[i]}">` : ''}<span><b>${esc(pl.name)}</b><small>about ${usd(readerCost(pl))}</small></span></label>`).join('')}</div>
+          ${scanned.length > 1 ? `<p class="small">All ticked: about <b>${usd(scanned.reduce((a, pl) => a + readerCost(pl), 0))}</b></p>` : ''}
+          <p class="cost-note">${icon('spark')} <span><b>Cost will be charged to your account.</b> The drawing reader is billed by Anthropic to the account of the API key in Settings.</span></p>`,
         buttons: [{ label: 'Skip for now', value: false }, { label: 'Read ticked drawings', value: true, kind: 'primary' }],
       });
       thumbs.forEach((u) => u && URL.revokeObjectURL(u));
@@ -6386,8 +6388,8 @@ async function newProjectMenu() {
     title: 'New project',
     body: `<div class="np-list">
       <button type="button" class="np-opt" data-np="blank">${icon('plus')}<span><b>Blank project</b><small>Type the site details, then upload drawings</small></span></button>
-      <label class="np-opt">${icon('plan')}<span><b>From a drawing</b><small>PDF or picture from your files, Drive or downloads. Pins are suggested from the door symbols</small></span><input type="file" data-np="drawing" accept="application/pdf,.pdf,image/*" hidden></label>
-      <label class="np-opt">${icon('camera')}<span><b>From a photo of a drawing</b><small>Take a photo of a paper drawing now</small></span><input type="file" data-np="photo" accept="image/*" capture="environment" hidden></label>
+      <label class="np-opt">${icon('plan')}<span><b>From a drawing</b><small>PDF or picture from your files, Drive or downloads. Pins are placed at the door symbols automatically: free for CAD PDFs with readable text; scanned drawings and photos use the drawing reader, about US$0.30–0.80 a page, charged to your account</small></span><input type="file" data-np="drawing" accept="application/pdf,.pdf,image/*" hidden></label>
+      <label class="np-opt">${icon('camera')}<span><b>From a photo of a drawing</b><small>Take a photo of a paper drawing now. Auto-pinning a photo uses the drawing reader: about US$0.30–0.80, charged to your account</small></span><input type="file" data-np="photo" accept="image/*" capture="environment" hidden></label>
       <label class="np-opt">${icon('upload')}<span><b>From a Fieldwire report</b><small>Fieldwire PDF report: drawings, pins and checklist answers come across</small></span><input type="file" data-np="fieldwire" accept="application/pdf,.pdf" hidden></label>
     </div>`,
     buttons: [{ label: 'Cancel', value: false }],

@@ -1194,3 +1194,7 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .np-opt > .ico { width: 26px; height: 26px; color: var(--accent); }
 .np-opt b { display: block; font-weight: 650; }
 .np-opt small { display: block; color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
+
+/* drawing reader cost warning */
+.cost-note { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--st-noaccess) 14%, var(--surface)); border: 1px solid color-mix(in srgb, var(--st-noaccess) 45%, var(--line)); color: var(--ink) !important; font-size: 13.5px; }
+.cost-note .ico { width: 18px; height: 18px; color: var(--st-noaccess); flex: none; margin-top: 1px; }
