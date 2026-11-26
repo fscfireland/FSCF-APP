@@ -14,7 +14,7 @@ const STATUS_IDS = ['not_inspected', 'pass', 'fail', 'repaired', 'na', 'no_acces
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 const DOOR_FIELDS = {
   ref: 'Pin ref / ID (numbers only, e.g. "012")', location: 'Location / room', doorType: 'Door type / rating, e.g. FD30S',
-  leaf: 'Leaf configuration, e.g. Single, Double', status: `Result: one of ${STATUS_IDS.join(', ')}`, notes: 'Notes (replaces the notes)',
+  leaf: 'Leaf / swing, e.g. SASD RH, SASD LH, DADD, SADD BLRH, SADD BLLH, SADD Equal pair', status: `Result: one of ${STATUS_IDS.join(', ')}`, notes: 'Notes (replaces the notes)',
   inspectedOn: 'Inspection date YYYY-MM-DD', inspectedBy: 'Inspector name', nextDue: 'Next inspection due YYYY-MM-DD',
   zoneNo: 'Fire alarm zone number', zoneName: 'Fire alarm zone name', risk: 'Risk rating', category: 'Category',
 };

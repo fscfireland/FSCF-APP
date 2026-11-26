@@ -3980,7 +3980,7 @@ async function bulkEdit() {
       <div class="grid2">
         <label class="field"><span>Category</span><select name="category" id="b-cat">${opts(lists.categories || DEFAULT_CATEGORIES, 'No category')}</select></label>
         <label class="field"><span>${esc(kitOf(kindNow).item)} type</span><select name="doorType" id="b-type">${opts(kt(), 'No type')}</select></label>
-        <label class="field"><span>Leaf configuration</span><select name="leaf" id="b-leaf">${opts(LEAF_CONFIGS.filter(Boolean), 'Not set')}</select></label>
+        <label class="field"><span>Leaf / swing</span><select name="leaf" id="b-leaf">${opts(LEAF_CONFIGS.filter(Boolean), 'Not set')}</select></label>
         <label class="field"><span>Status</span><select name="status" id="b-status">${keepOpt}${STATUSES.map((s) => `<option value="${s.id}">${esc(s.label)}</option>`).join('')}</select></label>
         <label class="field"><span>Risk rating</span><select name="risk" id="b-risk">${opts(lists.risks || DEFAULT_RISKS, NO_RISK)}</select></label>
         <label class="field"><span>Inspected by</span><input name="inspectedBy" id="b-by" placeholder="leave unchanged"></label>
@@ -4475,8 +4475,9 @@ async function drawSheet(door) {
           })()}</select>
           <small class="muted type-note" id="f-type-note">${esc(DOOR_TYPE_NOTES.find(([re]) => re.test(door.doorType || ''))?.[1] || '')}</small>
         </label>
-        <label class="field" ${kindNow === 'fd' ? '' : 'hidden'}><span>Leaf configuration</span>
+        <label class="field" ${kindNow === 'fd' ? '' : 'hidden'}><span>Leaf / swing</span>
           <select id="f-leaf" data-k="leaf">${LEAF_CONFIGS.map((t) => `<option value="${esc(t)}" ${t === (door.leaf || '') ? 'selected' : ''}>${esc(t || 'Select…')}</option>`).join('')}</select>
+          <small class="muted type-note">SA = single action, DA = double action, SD = single door, DD = double door, RH / LH = right / left hand, BL = big leaf (unequal pair).</small>
         </label>
         <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
         <label class="field"><span>Fire alarm zone name</span><input id="f-zname" data-k="zoneName" value="${esc(door.zoneName)}" placeholder="e.g. East wing ground floor" autocomplete="off" list="zone-names"></label>

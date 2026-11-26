@@ -31,7 +31,7 @@ const TEXT_FIELDS = {
   ref: 'Pin ref',
   location: 'Location',
   doorType: 'Door type',
-  leaf: 'Leaf configuration',
+  leaf: 'Leaf / swing',
   zoneNo: 'Fire alarm zone no.',
   zoneName: 'Fire alarm zone name',
   risk: 'Risk rating',

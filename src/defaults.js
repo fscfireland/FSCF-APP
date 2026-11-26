@@ -382,7 +382,7 @@ export const OLD_DOOR_TYPES = {
 };
 export const DOOR_TYPES_VERSION = 3;
 
-export const LEAF_CONFIGS = ['', 'Single leaf', 'Double leaf', 'Leaf and a half', 'Single with fanlight', 'Double with fanlight'];
+export const LEAF_CONFIGS = ['', 'SASD RH', 'SASD LH', 'DADD', 'SADD BLRH', 'SADD BLLH', 'SADD Equal pair', 'Single leaf', 'Double leaf', 'Leaf and a half', 'Single with fanlight', 'Double with fanlight'];
 
 // Each defect has a suggested remedial action that pre-fills the door record
 // and the pricing sheet. Edit these in Settings to match your own wording.
