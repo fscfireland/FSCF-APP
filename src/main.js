@@ -4993,6 +4993,38 @@ let afterSave = null; // refreshes the open door's history after each save
 let saveTimer = null;
 let pending = null;
 
+// Jump bar on a pin: one button per section, kept under the sheet's title while
+// scrolling. Sections that are hidden on this pin (no replacement, no signs)
+// hide their button; counts follow the section headings.
+function wireSheetJump(el) {
+  const bar = $('#sheet-jump', el);
+  if (!bar) return;
+  const sheet = el.closest('.sheet') || el;
+  const head = $('.sheet-head', el);
+  const setTop = () => sheet.style.setProperty('--sheet-head-h', `${head ? head.offsetHeight : 0}px`);
+  setTop();
+  const visible = (t) => t && !t.hidden && t.offsetParent !== null;
+  const sync = () => {
+    for (const c of $$('.chip', bar)) {
+      c.hidden = !visible($('#' + c.dataset.to, el));
+      const n = c.querySelector('b[data-n]');
+      if (n) n.textContent = ($('#' + n.dataset.n, el)?.textContent || '').replace(/[()]/g, '').trim();
+    }
+  };
+  sync();
+  const mo = new MutationObserver(() => sync());
+  mo.observe($('.sheet-body', el) || el, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['hidden'] });
+  for (const c of $$('.chip', bar)) {
+    c.onclick = () => {
+      const t = $('#' + c.dataset.to, el);
+      if (!t) return;
+      setTop();
+      const y = t.getBoundingClientRect().top - sheet.getBoundingClientRect().top + sheet.scrollTop - (head?.offsetHeight || 0) - bar.offsetHeight - 8;
+      sheet.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    };
+  }
+}
+
 async function renderSheet() {
   if (!state.doorId) {
     if (sheetDoorId) {
@@ -5052,7 +5084,8 @@ async function drawSheet(door) {
     </header>
     <div class="sheet-body">
       ${door.planId ? `<button type="button" class="door-map" id="door-map" aria-label="Show on the drawing"><img alt="Where this door is on ${esc(plan?.name || 'the drawing')}" id="door-map-img"><span>${icon('plan')} ${esc(plan?.name || 'Drawing')} · tap to view</span></button>` : ''}
-      <fieldset class="status-set" aria-label="Status">
+      <nav class="sheet-jump" id="sheet-jump" aria-label="Jump to">${[['sj-info', 'Info'], ['rep-block', 'Replacement'], ['sj-insp', 'Inspection', 'q-n'], ['sj-photos', 'Photos', 'ph-n'], ['sj-defs', 'Defects', 'def-n'], ['sj-acts', 'Recommendations', 'act-n'], ['sj-signs', 'Signs', 'sign-n'], ['sj-mats', 'Materials'], ['sj-dates', 'Notes & dates'], ['sj-hist', 'History']].map(([id, t, n]) => `<button type="button" class="chip" data-to="${id}">${t}${n ? ` <b data-n="${n}"></b>` : ''}</button>`).join('')}</nav>
+      <fieldset class="status-set" id="sj-info" aria-label="Status">
         ${STATUSES.filter((st) => !autoRes || !['pass', 'fail'].includes(st.id)).map((st) => `<label class="status-opt" style="--c:${st.color}"><input type="radio" name="status" value="${st.id}" ${st.id === (door.status || 'not_inspected') ? 'checked' : ''}><span>${st.label}</span></label>`).join('')}
       </fieldset>
       ${autoRes ? '<p class="auto-res" id="auto-res"></p>' : ''}
@@ -5096,7 +5129,7 @@ async function drawSheet(door) {
         <div id="rep-fields"></div>
       </section>
 
-      <section class="block">
+      <section class="block" id="sj-insp">
         <div class="block-head"><h3>Inspection questions <span class="muted" id="q-n"></span></h3>
           <span class="row-btns">
             <button type="button" class="btn sm q-all q-all-pass" id="q-all-pass" aria-pressed="false" title="Set every question to ${esc(ANSWERS[0].label)}; tap again to undo">${icon('check')} All ${esc(ANSWERS[0].label)}</button>
@@ -5111,7 +5144,7 @@ async function drawSheet(door) {
         <div class="q-list" id="questions"></div>
       </section>
 
-      <section class="block">
+      <section class="block" id="sj-photos">
         <div class="block-head"><h3>Photos &amp; videos <span class="muted" id="ph-n"></span></h3>
           <div class="row-btns">
             <label class="btn sm">${icon('camera')} Photo<input type="file" accept="image/*" capture="environment" id="ph-cam" hidden></label>
@@ -5122,7 +5155,7 @@ async function drawSheet(door) {
         <div class="photo-strip" id="photos"></div>
       </section>
 
-      <section class="block">
+      <section class="block" id="sj-defs">
         <div class="block-head"><h3>Defects &amp; remedial work <span class="muted" id="def-n"></span></h3>
           <button class="btn sm" id="add-defect">${icon('plus')} Add defect</button>
         </div>
@@ -5131,20 +5164,20 @@ async function drawSheet(door) {
         <div id="defects"></div>
       </section>
 
-      <section class="block">
+      <section class="block" id="sj-acts">
         <div class="block-head"><h3>Recommended actions <span class="muted" id="act-n"></span></h3>
           <button class="btn sm" id="add-action">${icon('plus')} Add action</button>
         </div>
         <div id="actions"></div>
       </section>
 
-      <section class="block" ${(door.signs || []).length ? '' : 'hidden'}>
+      <section class="block" id="sj-signs" ${(door.signs || []).length ? '' : 'hidden'}>
         <div class="block-head"><h3>Signs <span class="muted" id="sign-n"></span></h3></div>
         <div class="sign-add" id="sign-add"></div>
         <div id="signs"></div>
       </section>
 
-      <section class="block">
+      <section class="block" id="sj-mats">
         <div class="block-head"><h3>Materials</h3>
           <span class="row-btns"><button class="btn ghost sm" id="fill-mats" hidden>${icon('check')} From defects</button>
           <button class="btn sm" id="add-material">${icon('plus')} Add material</button></span>
@@ -5152,7 +5185,7 @@ async function drawSheet(door) {
         <div id="materials"></div>
       </section>
 
-      <label class="field"><span>Notes</span><textarea id="f-notes" data-k="notes" rows="3" placeholder="Anything else about this door">${esc(door.notes)}</textarea></label>
+      <label class="field" id="sj-dates"><span>Notes</span><textarea id="f-notes" data-k="notes" rows="3" placeholder="Anything else about this door">${esc(door.notes)}</textarea></label>
       <div class="grid2">
         <label class="field"><span>Inspected on</span><input type="date" id="f-on" data-k="inspectedOn" value="${esc(door.inspectedOn)}"></label>
         <label class="field"><span>Inspected by</span><input id="f-by" data-k="inspectedBy" value="${esc(door.inspectedBy)}" placeholder="Name"></label>
@@ -5160,7 +5193,7 @@ async function drawSheet(door) {
       </div>
       ${lists.gps !== false ? '<p class="gps-line" id="gps-line"></p>' : ''}
 
-      <section class="block">
+      <section class="block" id="sj-hist">
         <div class="block-head"><h3>History</h3>
           <button class="btn sm" id="new-insp">${icon('plus')} New inspection</button>
         </div>
@@ -5174,6 +5207,7 @@ async function drawSheet(door) {
       </div>
     </div>`;
 
+  wireSheetJump(el);
   // a due date shown but not yet stored (frequency set after this door was inspected)
   let current = freq && door.inspectedOn && !door.nextDue ? { ...door, nextDue: addMonths(door.inspectedOn, freq) } : door;
   let redrawDefects = null;

@@ -1354,3 +1354,11 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .biz-jump .chip[hidden] { display: none; }
 .def-edit .de-cost { flex-wrap: wrap; }
 .def-edit .de-cost > span { flex: 1 1 220px; }
+
+/* Pin jump bar: under the map image, then kept under the sheet title */
+.sheet-jump { position: sticky; top: var(--sheet-head-h, 64px); z-index: 1; display: flex; gap: 6px; overflow-x: auto; margin-inline: calc(-1 * max(16px, var(--safe-l))) calc(-1 * max(16px, var(--safe-r))); padding: 8px max(16px, var(--safe-r)) 8px max(16px, var(--safe-l)); background: var(--bg); border-bottom: 1px solid var(--line); scrollbar-width: none; }
+.sheet-jump::-webkit-scrollbar { display: none; }
+.sheet-jump .chip { flex: none; }
+.sheet-jump .chip[hidden] { display: none; }
+.sheet-jump .chip b:empty { display: none; }
+.sheet-jump .chip b { margin-left: 4px; font-variant-numeric: tabular-nums; }
