@@ -130,6 +130,11 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   label, live formulas with cached values; SUMMARY (table DocumentRegister) gets a row with J/K/L formulas to the new
   tab and the table ref grows; calcChain removed + fullCalcOnLoad. Saved as next REV; docs get wbAddedAt/wbFile.
   Tested on REV 30 (34): LibreOffice recalculation matches the stored values.
+- Bottom tabs (owner approved mock-up, 26 Nov 2026): Home · Schedule · Repairs · Business · Settings (`updateTabBar`,
+  TAB_OF); shown on top-level views only, hidden on a site, a drawing and when a pin is open. Schedule badge = overdue
+  groups. Home shortcuts: Last site (settings `lastSite`), New site, Overdue, Quote from report; Pricing Hub / Business /
+  Quotes cards moved to the Business tab (`bizhub`, PIN). Schedule (`renderSchedule`, `scheduleGroups`): door nextDue
+  grouped by site + drawing into overdue / next 30 days / upcoming. Repairs (`renderRepairsAll`) → site Repairs tab.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

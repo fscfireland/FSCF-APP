@@ -255,11 +255,15 @@ async function render() {
     else if (state.view === 'quotes') await renderQuotes();
     else if (state.view === 'pricing') await renderPricing();
     else if (state.view === 'business') await renderBusiness();
+    else if (state.view === 'schedule') await renderSchedule();
+    else if (state.view === 'repairsAll') await renderRepairsAll();
+    else if (state.view === 'bizhub') await renderBizHub();
     else if (state.view === 'quote') await renderQuoteDoc();
     else if (state.view === 'assistant') await renderAssistant();
   } else if (state.view === 'plan') {
     await refreshPins();
   }
+  updateTabBar();
   await renderSheet();
 }
 
@@ -293,6 +297,10 @@ async function renderProjects() {
   }
   live.sort((a, b) => b.sv.startedAt.localeCompare(a.sv.startedAt));
   const libCount = (await projectFiles(LIB)).length;
+  // shortcuts: the last site worked on, and how many sites / drawings are overdue
+  const ls = await db.get('settings', 'lastSite');
+  const lastSite = ls && projects.find((p) => p.id === ls.projectId) ? { ...ls, site: projects.find((p) => p.id === ls.projectId).site || 'Site' } : null;
+  const overdueN = (await scheduleGroups().catch(() => [])).filter((g) => g.cat === 'over').length;
   const liveN = {};
   for (const l of live) liveN[l.p.id] = (liveN[l.p.id] || 0) + 1;
   const liveHtml = live.length ? `<section class="live-list">
@@ -346,11 +354,14 @@ async function renderProjects() {
         if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} <span>Saved on this device · backed up ${days ? 'yesterday' : 'today'}${lists.autoBackup ? ' · automatic backup on' : ''}</span> <button class="link-btn" id="home-backup">Back up now</button></div>`;
         return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Back up everything to Google Drive.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
       })()}
+      <div class="quick-row" aria-label="Shortcuts">
+        <button type="button" class="quick-btn" id="qk-last" ${lastSite ? '' : 'disabled'}>${icon('plan')}<span>Last site</span>${lastSite ? `<small>${esc(lastSite.site)}</small>` : ''}</button>
+        <button type="button" class="quick-btn" id="qk-new">${icon('plus')}<span>New site</span></button>
+        <button type="button" class="quick-btn ${overdueN ? 'is-alert' : ''}" id="qk-over"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3L2 6M19 3l3 3"/></svg><span>Overdue</span>${overdueN ? `<b class="quick-n">${overdueN}</b>` : '<small>none</small>'}</button>
+        <button type="button" class="quick-btn" id="qk-quote">${icon('report')}<span>Quote from report</span></button>
+      </div>
       ${liveHtml}
       <button class="lib-card ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Ask about your sites, doors and reports, or have it update them for you</small></span>${icon('more')}</button>
-      <button class="lib-card" id="my-pricing">${icon('list')}<span><b>Pricing Hub</b><small>${priced() ? 'Price list, site prices, margin, quotes and invoices in one place' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
-      <button class="lib-card" id="my-business">${icon('sheet')}<span><b>Business</b><small>${priced() ? 'Overdue and paid invoices, year totals, customers, costs and margin' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
-      <button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>${priced() ? 'Same numbers, customers and prices as your Excel workbook' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
@@ -380,6 +391,14 @@ async function renderProjects() {
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'pricing' }); });
+  $('#qk-last')?.addEventListener('click', async () => {
+    const plan = lastSite?.planId && (await db.get('plans', lastSite.planId));
+    if (plan) go({ view: 'plan', projectId: lastSite.projectId, planId: plan.id });
+    else if (lastSite) go({ view: 'project', projectId: lastSite.projectId });
+  });
+  $('#qk-new')?.addEventListener('click', () => newProjectMenu());
+  $('#qk-over')?.addEventListener('click', () => { state.schedF = overdueN ? 'over' : 'all'; go({ view: 'schedule' }); });
+  $('#qk-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) quoteFromReport(null); });
   $('#my-business')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'business' }); });
   $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
@@ -1449,6 +1468,156 @@ async function bookArchives() {
   return (await db.all('settings')).filter((x) => x.kind === 'bookArchive').sort((a, b) => (b.importedAt || '').localeCompare(a.importedAt || ''));
 }
 
+// ---------- Bottom tabs (owner, 26 Nov 2026: mock-up approved) ----------
+// Home · Schedule · Repairs · Business · Settings, on the top-level screens.
+// Hidden on a site, on a drawing and while a pin is open, so field work keeps
+// the whole screen. Business asks for the owner PIN.
+const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'settings' };
+const TABS = [
+  ['home', 'Home', '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', { view: 'projects' }],
+  ['schedule', 'Schedule', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', { view: 'schedule' }],
+  ['repairs', 'Repairs', '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>', { view: 'repairsAll' }],
+  ['business', 'Business', '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>', { view: 'bizhub' }],
+  ['settings', 'Settings', '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/>', { view: 'settings' }],
+];
+function updateTabBar() {
+  let bar = document.getElementById('tabbar');
+  if (!bar) {
+    bar = document.createElement('nav');
+    bar.id = 'tabbar';
+    bar.className = 'tabbar';
+    bar.setAttribute('aria-label', 'Main');
+    bar.innerHTML = TABS.map(([id, label, path]) => `<button type="button" data-tab="${id}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg><span>${label}</span><b class="tab-pip" hidden></b></button>`).join('');
+    document.body.append(bar);
+    bar.querySelectorAll('button').forEach((b) => (b.onclick = () => {
+      const t = TABS.find((x) => x[0] === b.dataset.tab);
+      if (TAB_OF[state.view] === t[0] && state.view === t[3].view) { window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+      go({ ...t[3] });
+    }));
+  }
+  const tab = TAB_OF[state.view];
+  const show = !!tab && !state.doorId;
+  bar.hidden = !show;
+  document.body.classList.toggle('has-tabs', show);
+  bar.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.tab === tab));
+  if (show) refreshTabBadge();
+}
+async function refreshTabBadge() {
+  try {
+    const g = await scheduleGroups();
+    const n = g.filter((x) => x.cat === 'over').length;
+    const pip = document.querySelector('#tabbar [data-tab="schedule"] .tab-pip');
+    if (pip) { pip.hidden = !n; pip.textContent = n > 99 ? '99+' : String(n); }
+  } catch { /* the badge is a convenience */ }
+}
+
+// Doors due for inspection, from each door's "Next inspection due" (set on the
+// door, or from the site's inspection frequency). One group per site, drawing
+// and band: overdue / due in the next 30 days / upcoming.
+async function scheduleGroups() {
+  const [projects, plans, doors] = await Promise.all([db.all('projects'), db.all('plans'), db.all('doors')]);
+  const t = today();
+  const soon = addMonths(t, 1);
+  const pById = Object.fromEntries(projects.map((p) => [p.id, p]));
+  const plById = Object.fromEntries(plans.map((x) => [x.id, x]));
+  const groups = new Map();
+  for (const d of doors) {
+    if (!d.nextDue || !pById[d.projectId]) continue;
+    const cat = d.nextDue < t ? 'over' : d.nextDue <= soon ? 'soon' : 'later';
+    const key = `${d.projectId}|${d.planId || ''}|${cat}`;
+    const g = groups.get(key) || { key, cat, project: pById[d.projectId], plan: plById[d.planId] || null, doors: [] };
+    g.doors.push(d);
+    groups.set(key, g);
+  }
+  return [...groups.values()].map((g) => {
+    g.doors.sort((a, b) => a.nextDue.localeCompare(b.nextDue) || (a.pinNo || 0) - (b.pinNo || 0));
+    g.first = g.doors[0].nextDue;
+    g.days = Math.round((Date.parse(g.first + 'T12:00:00') - Date.parse(t + 'T12:00:00')) / 864e5);
+    return g;
+  }).sort((a, b) => a.first.localeCompare(b.first));
+}
+const topBar = (title, sub) => `<header class="bar"><div class="bar-title"><b>${esc(title)}</b><small>${esc(sub)}</small></div></header>`;
+
+async function renderSchedule() {
+  const groups = await scheduleGroups();
+  const f = state.schedF || 'all';
+  const n = (c) => groups.filter((g) => g.cat === c).length;
+  const fmtDays = (g) => (g.days < 0 ? `${-g.days} day${g.days === -1 ? '' : 's'} overdue` : g.days === 0 ? 'due today' : `in ${g.days} day${g.days === 1 ? '' : 's'}`);
+  const SEC = [['over', 'Overdue', 'sch-over'], ['soon', 'Due in the next 30 days', 'sch-soon'], ['later', 'Upcoming', 'sch-later']];
+  app.innerHTML = `${topBar('Inspection schedule', 'Overdue, due soon and upcoming')}
+    <main class="page sched">
+      <div class="chips sch-chips" role="group" aria-label="Show">${[['all', `All ${groups.length}`], ['over', `Overdue ${n('over')}`], ['soon', `Next 30 days ${n('soon')}`], ['later', `Upcoming ${n('later')}`]].map(([k, l]) => `<button class="chip ${f === k ? 'is-on' : ''}" data-f="${k}">${l}</button>`).join('')}</div>
+      ${groups.length ? SEC.filter(([c]) => f === 'all' || f === c).map(([c, label, cls]) => {
+        const list = groups.filter((g) => g.cat === c);
+        if (!list.length) return '';
+        return `<h2 class="sch-h ${cls}">${label} <span class="muted">${list.length}</span></h2>
+          <div class="sch-list">${list.map((g, i) => `<div class="sch-row ${cls}" data-key="${esc(g.key)}">
+            <div class="sch-main"><b>${esc(g.project.site || 'Site')}${g.plan ? ' · ' + esc(g.plan.name || 'Drawing') : ''}</b>
+              <small>${g.doors.length} door${g.doors.length === 1 ? '' : 's'} · due ${fmtDate(g.first)} · <span class="sch-when">${fmtDays(g)}</span></small>
+              <button type="button" class="link-btn sch-toggle">Show doors</button></div>
+            <button type="button" class="btn sm ${c === 'later' ? '' : 'primary'} sch-go">Inspect</button>
+            <div class="sch-doors" hidden>${g.doors.slice(0, 80).map((d) => `<button type="button" class="sch-door" data-door="${esc(d.id)}"><span>${esc(String(d.pinNo || '').padStart(3, '0'))} · ${esc(d.location || d.ref || '')}${d.doorType ? ' · ' + esc(d.doorType) : ''}</span><span>${fmtDate(d.nextDue)}</span></button>`).join('')}${g.doors.length > 80 ? `<p class="small muted">+ ${g.doors.length - 80} more</p>` : ''}</div>
+          </div>`).join('')}</div>`;
+      }).join('') : `<section class="panel"><p><b>Nothing due yet.</b></p><p class="small muted">Doors appear here once they have a "Next inspection due" date. Set an inspection frequency on a site (site details) and the date is worked out from each door's inspection date.</p></section>`}
+      ${groups.length ? `<div class="row-btns"><button class="btn" id="sch-cal">${icon('download')} Calendar file of these</button></div>` : ''}
+      <p class="small muted">Dates are each door's "Next inspection due", set on the door or from the site's inspection frequency. Inspect opens that drawing; tap a door to open it.</p>
+    </main>`;
+  $$('.sch-chips .chip').forEach((b) => (b.onclick = () => { state.schedF = b.dataset.f; mountedKey = null; render(); }));
+  $$('.sch-toggle').forEach((b) => (b.onclick = () => { const box = b.closest('.sch-row').querySelector('.sch-doors'); box.hidden = !box.hidden; b.textContent = box.hidden ? 'Show doors' : 'Hide doors'; }));
+  const byKey = Object.fromEntries(groups.map((g) => [g.key, g]));
+  $$('.sch-go').forEach((b) => (b.onclick = () => {
+    const g = byKey[b.closest('.sch-row').dataset.key];
+    if (g.plan) go({ view: 'plan', projectId: g.project.id, planId: g.plan.id });
+    else go({ view: 'project', projectId: g.project.id, tab: 'doors' });
+  }));
+  $$('.sch-door').forEach((b) => (b.onclick = () => {
+    const g = byKey[b.closest('.sch-row').dataset.key];
+    go(g.plan ? { view: 'plan', projectId: g.project.id, planId: g.plan.id, doorId: b.dataset.door } : { view: 'project', projectId: g.project.id, tab: 'doors', doorId: b.dataset.door });
+  }));
+  $('#sch-cal')?.addEventListener('click', async () => {
+    const sites = [];
+    const seen = new Set();
+    for (const g of groups) if (!seen.has(g.project.id)) { seen.add(g.project.id); sites.push({ project: g.project, doors: await db.projectDoors(g.project.id) }); }
+    const items = buildAgenda({ overdue: [], notDue: [], drafts: [] }, sites, today(), { days: 3650 });
+    if (!items.length) return toast('Nothing to add', 'error');
+    try { await saveIcs(items, `FSCF inspections due ${today()}`); } catch (err) { toast(err.message, 'error'); }
+  });
+}
+
+async function renderRepairsAll() {
+  const projects = await db.all('projects');
+  const rows = [];
+  for (const p of projects) {
+    const pr = projectProgress(await db.projectDoors(p.id));
+    if (pr.items) rows.push({ p, pr });
+  }
+  rows.sort((a, b) => (a.pr.done === a.pr.items) - (b.pr.done === b.pr.items) || (b.p.date || '').localeCompare(a.p.date || ''));
+  app.innerHTML = `${topBar('Repairs', 'Remedial work across all sites')}
+    <main class="page">
+      ${rows.length ? `<div class="doc-list">${rows.map(({ p, pr }) => `<button class="doc-row rep-site" data-id="${p.id}"><span class="q-main"><b>${esc(p.site || 'Site')}</b><small>${pr.doorsWith} door${pr.doorsWith === 1 ? '' : 's'} · ${pr.items} repair item${pr.items === 1 ? '' : 's'} · ${pr.done} done${pr.verified ? ` · ${pr.verified} checked` : ''}</small></span><span class="q-amt">${pr.done === pr.items ? '<small class="muted">All done</small>' : `<b>${pr.items - pr.done}</b><small class="muted">to do</small>`}</span></button>`).join('')}</div>`
+        : '<section class="panel"><p><b>No repairs yet.</b></p><p class="small muted">Defects and recommended actions recorded on doors appear here, site by site.</p></section>'}
+      <p class="small muted">Opens the site's Repairs tab: the repair items, repair photos and sign-off, kept separate from the inspection as before.</p>
+    </main>`;
+  $$('.rep-site').forEach((b) => (b.onclick = () => go({ view: 'project', projectId: b.dataset.id, tab: 'repairs' })));
+}
+
+async function renderBizHub() {
+  app.innerHTML = `${topBar('Business', priced() ? 'Owner only · never shown to the customer' : 'Owner only')}
+    <main class="page">
+      ${priced() ? `
+        <button class="lib-card" id="bh-business">${icon('sheet')}<span><b>Business</b><small>Overdue and paid invoices, customers, sites, reminders, statements</small></span>${icon('more')}</button>
+        <button class="lib-card" id="bh-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Make, send and add to your workbook</small></span>${icon('more')}</button>
+        <button class="lib-card" id="bh-pricing">${icon('list')}<span><b>Pricing Hub</b><small>Price list, site prices, margin and fail item costs</small></span>${icon('more')}</button>
+        <div class="row-btns"><button class="btn" id="bh-lock">${icon('shield')} Lock prices</button></div>`
+      : `<section class="panel bh-lock"><p><b>Owner only</b></p><p class="small muted">Enter your PIN to open the Business page, Quotes &amp; invoices and the Pricing Hub.</p><button class="btn primary" id="bh-unlock">${icon('shield')} Unlock</button></section>`}
+    </main>`;
+  $('#bh-unlock')?.addEventListener('click', () => unlockOwner());
+  $('#bh-business')?.addEventListener('click', () => go({ view: 'business' }));
+  $('#bh-quotes')?.addEventListener('click', () => go({ view: 'quotes' }));
+  $('#bh-pricing')?.addEventListener('click', () => go({ view: 'pricing' }));
+  $('#bh-lock')?.addEventListener('click', () => { libUnlocked = false; toast('Locked: prices and time hidden'); refresh(); });
+}
+
 // ---------- Business ----------
 // Owner-only overview of the business, worked out from the owner's own records
 // (workbook + app quotes and invoices, see business.js for every rule and its source).
@@ -2400,6 +2569,7 @@ async function loadDemo() {
 
 // ---------- Project screen ----------
 async function renderProject() {
+  if (state.projectId) rememberSite(state.projectId);
   const project = await db.get('projects', state.projectId);
   if (!project) return go({ view: 'projects' }, { replace: true });
   useScheme(project);
@@ -4262,7 +4432,15 @@ let placingLabel = '';
 let placingQueue = []; // the doors still to place after this one, in order
 let selectedPin = null;
 
+async function rememberSite(projectId, planId = '') {
+  try {
+    const cur = await db.get('settings', 'lastSite');
+    if (cur?.projectId === projectId && (cur.planId || '') === (planId || cur.planId || '')) return;
+    await db.put('settings', { id: 'lastSite', projectId, planId: planId || (cur?.projectId === projectId ? cur.planId || '' : '') });
+  } catch { /* a convenience only */ }
+}
 async function renderPlan() {
+  if (state.projectId) rememberSite(state.projectId, state.planId);
   const plan = await db.get('plans', state.planId);
   noteWeather(state.projectId);
   useScheme(await db.get('projects', state.projectId));
@@ -5208,7 +5386,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.50.2';
+const VERSION_TAG = 'app v0.51.0';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
