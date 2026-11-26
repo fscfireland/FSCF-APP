@@ -1416,6 +1416,7 @@ async function renderPricing() {
     ${bySite.length ? `<div class="doc-list">${bySite.map(({ p, m }) => `<button class="doc-row ph-sitem" data-id="${p.id}"><span class="q-main"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([m.qs.length ? `${m.qs.length} quote${m.qs.length === 1 ? '' : 's'} ${money(m.quoted)}` : '', m.invs.length ? `${m.invs.length} invoice${m.invs.length === 1 ? '' : 's'} ${money(m.invoiced)}` : '', m.paid ? `paid ${money(m.paid)}` : ''].filter(Boolean).join(' · ') || 'Nothing quoted yet')}</small>${m.unquoted ? `<small class="ps-warn">${m.unquoted} failed door${m.unquoted === 1 ? '' : 's'} not quoted yet</small>` : ''}</span><span class="q-amt">${m.owed ? `<b>${money(m.owed)}</b><small class="muted">owed</small>` : ''}</span></button>`).join('')}</div>` : '<p class="muted small">No site has quotes, invoices or failed doors yet.</p>'}
     <h2 class="h2">Prices</h2>
     <button class="lib-card" id="ph-list">${icon('list')}<span><b>Normal price list</b><small>${mats.length} products · used on every site · Settings › Products</small></span>${icon('more')}</button>
+    <button class="lib-card" id="ph-fails">${icon('list')}<span><b>Fail item costs</b><small>Products, prices and labour for each fail item</small></span>${icon('more')}</button>
     <button class="lib-card" id="ph-site">${icon('door')}<span><b>Site and collection prices</b><small>Give a site, or a collection on a site, its own prices</small></span>${icon('more')}</button>
     ${own.length ? `<div class="doc-list">${own.map(({ p, colls }) => `<button class="doc-row ph-own" data-id="${p.id}"><span class="q-main"><b>${esc(p.site || 'Untitled site')}</b><small>${esc([priceCount(p) ? `Whole site: ${priceCount(p)}` : '', ...colls.map(([c, v]) => `${collLabel(c)}: ${Object.keys(v).length}`)].filter(Boolean).join(' · '))}</small></span>${icon('more')}</button>`).join('')}</div>` : '<p class="muted small">No site has its own prices yet. Every site uses the normal price list.</p>'}
     <h2 class="h2">Margin</h2>
@@ -1434,6 +1435,7 @@ async function renderPricing() {
     </div>`;
   $('#ph-list').onclick = () => { state.allMats = true; openFolds.add('mats'); go({ view: 'settings' }); };
   $('#ph-site').onclick = () => pricesHome();
+  $('#ph-fails').onclick = () => { openFolds.add('defs'); go({ view: 'settings', focus: 's-defs' }); };
   $$('.ph-sitem').forEach((b) => (b.onclick = () => go({ view: 'project', projectId: b.dataset.id, tab: 'export' })));
   $$('.ph-own').forEach((b) => (b.onclick = async () => { const p = projects.find((x) => x.id === b.dataset.id); if (p) await editSitePrices(p, null); }));
   $('#ph-rule').onchange = (e) => saveLists({ pricingRule: e.target.value });
@@ -1607,6 +1609,7 @@ async function renderBizHub() {
       ${priced() ? `
         <button class="lib-card" id="bh-business">${icon('sheet')}<span><b>Business</b><small>Overdue and paid invoices, customers, sites, reminders, statements</small></span>${icon('more')}</button>
         <button class="lib-card" id="bh-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Make, send and add to your workbook</small></span>${icon('more')}</button>
+        <button class="lib-card" id="bh-fails">${icon('list')}<span><b>Fail item costs</b><small>Products, prices and labour for each fail item, per checklist</small></span>${icon('more')}</button>
         <button class="lib-card" id="bh-pricing">${icon('list')}<span><b>Pricing Hub</b><small>Price list, site prices, margin and fail item costs</small></span>${icon('more')}</button>
         <div class="row-btns"><button class="btn" id="bh-lock">${icon('shield')} Lock prices</button></div>`
       : `<section class="panel bh-lock"><p><b>Owner only</b></p><p class="small muted">Enter your PIN to open the Business page, Quotes &amp; invoices and the Pricing Hub.</p><button class="btn primary" id="bh-unlock">${icon('shield')} Unlock</button></section>`}
@@ -1615,6 +1618,7 @@ async function renderBizHub() {
   $('#bh-business')?.addEventListener('click', () => go({ view: 'business' }));
   $('#bh-quotes')?.addEventListener('click', () => go({ view: 'quotes' }));
   $('#bh-pricing')?.addEventListener('click', () => go({ view: 'pricing' }));
+  $('#bh-fails')?.addEventListener('click', () => { openFolds.add('defs'); go({ view: 'settings', focus: 's-defs' }); });
   $('#bh-lock')?.addEventListener('click', () => { libUnlocked = false; toast('Locked: prices and time hidden'); refresh(); });
 }
 
@@ -5386,7 +5390,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.51.0';
+const VERSION_TAG = 'app v0.51.1';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -7311,6 +7315,7 @@ async function renderSettings() {
     });
   };
   drawQs();
+  if (state.focus === 's-defs') setTimeout(() => $('#s-defs')?.closest('.panel')?.scrollIntoView({ block: 'start' }), 80);
   if (state.focus === 's-qs') setTimeout(() => $('#s-qs')?.closest('.panel')?.scrollIntoView({ block: 'start' }), 50);
   if (state.focus === 's-cats') setTimeout(() => { $('#s-cats')?.closest('.panel')?.scrollIntoView({ block: 'start' }); $('#s-cats')?.focus(); }, 50);
   $('#s-add-q').onclick = async () => {
@@ -7371,49 +7376,105 @@ async function renderSettings() {
       ? `<b>${c.own ? 'Cost when it fails' : 'Guessed from the wording (not set by you)'}:</b> ${esc(parts.join(' · '))} · <b>${euro(c.total)}</b>${c.labour ? '' : ' · <span class="ps-warn">no labour set</span>'}`
       : `<span class="ps-warn"><b>No cost set</b>: this fail item adds nothing to a quote yet.</span>` };
   };
+  // Cost of one fail item: products from the price list (tick, set quantity,
+  // and change their material / labour price here), new products typed in on
+  // the spot (they join the price list), and the labour for the repair itself.
   const setDefectCost = async (i) => {
     const d = kd()[i];
-    const all = mlist().filter((m) => m.name?.trim());
-    const cur = defectCostSummary(d, all).lines.filter((m) => !m.labourLine);
-    const curLab = defectCostSummary(d, all).lines.find((m) => m.labourLine)?.labour ?? (d.labour || '');
-    const cats = [...new Set(all.map((m) => matCat(m)))];
+    const all = (lists.materials || []).filter((m) => m.name?.trim());
+    const sum0 = defectCostSummary(d, all);
+    const cur = sum0.lines.filter((m) => !m.labourLine);
+    const curLab = sum0.lines.find((m) => m.labourLine)?.labour ?? (d.labour || '');
     const mine = defectCat(d);
-    cats.sort((a, b) => (b === mine) - (a === mine));
+    const cats = [...new Set(all.map((m) => matCat(m)))].sort((a, b) => (b === mine) - (a === mine));
+    const UNITS = ['each', 'length', 'pair', 'set', 'm', 'm²', 'tube', 'hour', 'job'];
+    const newRow = (k) => `<div class="np-row" data-k="${k}">
+        <label class="field np-name"><span>Product name</span><input name="nn${k}" placeholder="e.g. 100 mm stainless hinge, grade 13"></label>
+        <label class="field"><span>Material €</span><input name="nc${k}" type="number" inputmode="decimal" min="0" step="any" placeholder="0.00"></label>
+        <label class="field"><span>Labour €</span><input name="nl${k}" type="number" inputmode="decimal" min="0" step="any" placeholder="0.00"></label>
+        <label class="field"><span>Qty</span><input name="nq${k}" type="number" inputmode="decimal" min="0" step="any" value="1"></label>
+        <label class="field"><span>Per</span><select name="nu${k}">${UNITS.map((u) => `<option>${u}</option>`).join('')}</select></label>
+        <label class="field"><span>Category</span><select name="nk${k}">${MAT_CATEGORIES.map((c) => `<option ${c === (mine || 'Other') ? 'selected' : ''}>${c}</option>`).join('')}</select></label>
+      </div>`;
+    let newCount = 1;
     const r = await dialog({
       title: `Cost: ${d.label}`,
-      body: `<p class="small muted">What this fail item needs, from your price list, and the labour to put it right (your cost before margin). It is added to the door whenever this item fails, and priced into quotes with your margin.</p>
+      body: `<p class="small muted">What this fail item needs and what it costs you (before margin). Whenever it fails on a door these are added to the door and priced into quotes with your margin. Customers never see these costs.</p>
         <label class="field"><span>Labour € for this repair</span><input name="lab" type="number" inputmode="decimal" min="0" step="any" value="${esc(curLab || '')}" placeholder="0.00"></label>
+        <div class="ps-costs dc-total"><div><span>Materials</span><b id="dc-mat"></b></div><div><span>Labour</span><b id="dc-lab"></b></div><div class="ps-tot"><span>Cost when it fails</span><b id="dc-all"></b></div></div>
+        <h3 class="pp-h">Add a new product</h3>
+        <div id="np-rows">${newRow(0)}</div>
+        <button type="button" class="btn ghost sm" id="np-more">${icon('plus')} Another new product</button>
+        <h3 class="pp-h">From your price list</h3>
         <label class="field"><span>Find a product</span><input type="search" class="pp-find" placeholder="Type to filter, e.g. hinge"></label>
-        ${cats.map((g) => `<h3 class="pp-h" data-g="${esc(g)}">${esc(g)}</h3><div class="pp-list" data-g="${esc(g)}">
+        ${cats.map((g) => `<h3 class="pp-h pp-cat" data-g="${esc(g)}">${esc(g)}</h3><div class="pp-list" data-g="${esc(g)}">
           ${all.map((o, j) => [o, j]).filter(([o]) => matCat(o) === g).map(([o, j]) => { const have = cur.find((m) => m.name.trim().toLowerCase() === o.name.trim().toLowerCase());
-            return `<label class="pp-row" data-n="${esc(o.name.toLowerCase())}"><input type="checkbox" name="c${j}" ${have ? 'checked' : ''}><span><b>${esc(o.name)}</b><small>${o.cost ? euro(o.cost) : 'no price'}${o.labour ? ' + labour ' + euro(o.labour) : ''} ${esc(o.unit && o.unit !== 'each' ? 'per ' + o.unit : 'each')}</small></span>
-              <span class="stepper pp-step"><button type="button" class="pp-minus" aria-label="One fewer">−</button><input class="pp-qty" type="number" inputmode="decimal" min="0" step="any" name="q${j}" value="${esc(have ? have.qty : 1)}" aria-label="Quantity"><button type="button" class="pp-plus" aria-label="One more">+</button></span></label>`; }).join('')}</div>`).join('')}`,
+            return `<div class="pp-row dc-row" data-n="${esc(o.name.toLowerCase())}"><label class="dc-tick"><input type="checkbox" name="c${j}" ${have ? 'checked' : ''}><span><b>${esc(o.name)}</b><small>${esc(o.unit && o.unit !== 'each' ? 'per ' + o.unit : 'each')}</small></span></label>
+              <span class="stepper pp-step"><button type="button" class="pp-minus" aria-label="One fewer">−</button><input class="pp-qty" type="number" inputmode="decimal" min="0" step="any" name="q${j}" value="${esc(have ? have.qty : 1)}" aria-label="Quantity"><button type="button" class="pp-plus" aria-label="One more">+</button></span>
+              <span class="dc-prices"><label>Material €<input type="number" inputmode="decimal" min="0" step="any" name="mc${j}" value="${o.cost ? esc(o.cost) : ''}" placeholder="0.00"></label><label>Labour €<input type="number" inputmode="decimal" min="0" step="any" name="ml${j}" value="${o.labour ? esc(o.labour) : ''}" placeholder="0.00"></label></span></div>`; }).join('')}</div>`).join('')}
+        <p class="small muted">Changing a product's price here changes it in your price list (Settings › Products &amp; prices) for every door from now on. Doors already priced keep their prices.</p>`,
       buttons: [{ label: 'Cancel', value: false }, ...(d.costSet ? [{ label: 'Clear', value: 'clear' }] : []), { label: 'Save cost', value: true, kind: 'primary' }],
       onOpen: (form) => {
+        const total = () => {
+          const fd = new FormData(form);
+          let mat = 0; let lab = Number(fd.get('lab')) || 0;
+          all.forEach((o, j) => { if (fd.get('c' + j)) { const q = Number(fd.get('q' + j)) || 0; mat += q * (Number(fd.get('mc' + j)) || 0); lab += q * (Number(fd.get('ml' + j)) || 0); } });
+          for (let k = 0; k < newCount; k++) if ((fd.get('nn' + k) || '').trim()) { const q = Number(fd.get('nq' + k)) || 0; mat += q * (Number(fd.get('nc' + k)) || 0); lab += q * (Number(fd.get('nl' + k)) || 0); }
+          $('#dc-mat', form).textContent = euro(mat); $('#dc-lab', form).textContent = euro(lab); $('#dc-all', form).textContent = euro(mat + lab);
+        };
+        form.addEventListener('input', total);
+        form.addEventListener('change', total);
         $$('.pp-qty', form).forEach((q) => q.addEventListener('input', () => { q.closest('.pp-row').querySelector('input[type=checkbox]').checked = Number(q.value) > 0; }));
+        // typing a price ticks the product
+        $$('.dc-prices input', form).forEach((x) => x.addEventListener('input', () => { x.closest('.pp-row').querySelector('input[type=checkbox]').checked = true; }));
         $$('.pp-minus, .pp-plus', form).forEach((b) => b.addEventListener('click', (e) => {
           e.preventDefault();
           const row = b.closest('.pp-row'); const q = row.querySelector('.pp-qty'); const box = row.querySelector('input[type=checkbox]');
           const was = Number(q.value) || 0;
           const next = b.classList.contains('pp-plus') ? (box.checked ? was + 1 : Math.max(1, was)) : Math.max(0, was - 1);
-          q.value = next; box.checked = next > 0;
+          q.value = next; box.checked = next > 0; total();
         }));
         $('.pp-find', form).addEventListener('input', (e) => {
           const t = e.target.value.trim().toLowerCase();
           $$('.pp-row', form).forEach((row) => { row.hidden = !!t && !row.dataset.n.includes(t) && !row.querySelector('input[type=checkbox]').checked; });
-          $$('.pp-list', form).forEach((l) => { const any = $$('.pp-row', l).some((x) => !x.hidden); l.hidden = !any; $(`.pp-h[data-g="${CSS.escape(l.dataset.g)}"]`, form).hidden = !any; });
+          $$('.pp-list', form).forEach((l) => { const any = $$('.pp-row', l).some((x) => !x.hidden); l.hidden = !any; const h = $(`.pp-cat[data-g="${CSS.escape(l.dataset.g)}"]`, form); if (h) h.hidden = !any; });
         });
+        $('#np-more', form).addEventListener('click', () => { $('#np-rows', form).insertAdjacentHTML('beforeend', newRow(newCount++)); });
+        total();
       },
     });
     if (r.value === false || r.value == null) return;
     const list = [...kd()];
     if (r.value === 'clear') list[i] = { ...d, costSet: false, products: [], labour: 0 };
     else {
-      const products = all.map((o, j) => [o, j]).filter(([, j]) => r.data['c' + j] && Number(r.data['q' + j]) > 0).map(([o, j]) => ({ mid: o.id, name: o.name, qty: Number(r.data['q' + j]) }));
-      list[i] = { ...d, costSet: true, products, labour: Math.max(0, Number(r.data.lab) || 0) };
+      // 1. price changes on price-list products
+      let mats = [...(lists.materials || [])];
+      let changed = 0;
+      all.forEach((o, j) => {
+        const c = r.data['mc' + j] === '' ? 0 : Number(r.data['mc' + j]);
+        const l = r.data['ml' + j] === '' ? 0 : Number(r.data['ml' + j]);
+        if ((Number(o.cost) || 0) !== (c || 0) || (Number(o.labour) || 0) !== (l || 0)) {
+          mats = mats.map((m) => (m.id === o.id ? { ...m, cost: c || 0, labour: l || 0 } : m));
+          changed++;
+        }
+      });
+      // 2. new products join the price list
+      const linked = all.map((o, j) => [o, j]).filter(([, j]) => r.data['c' + j] && Number(r.data['q' + j]) > 0).map(([o, j]) => ({ mid: o.id, name: o.name, qty: Number(r.data['q' + j]) }));
+      let added = 0;
+      for (let k = 0; k < newCount; k++) {
+        const name = (r.data['nn' + k] || '').trim();
+        if (!name) continue;
+        const same = mats.find((m) => (m.name || '').trim().toLowerCase() === name.toLowerCase());
+        const item = same || { id: db.uid(), cat: r.data['nk' + k] || mine || 'Other', name, unit: r.data['nu' + k] || 'each', cost: Number(r.data['nc' + k]) || 0, labour: Number(r.data['nl' + k]) || 0 };
+        if (!same) { mats.push(item); added++; }
+        linked.push({ mid: item.id, name: item.name, qty: Number(r.data['nq' + k]) || 1 });
+      }
+      if (changed || added) await saveLists({ materials: mats });
+      list[i] = { ...d, costSet: true, products: linked, labour: Math.max(0, Number(r.data.lab) || 0) };
     }
     await saveKit({ defects: list });
     drawDefs();
+    drawMats?.();
     toast(r.value === 'clear' ? 'Cost cleared' : `Cost saved for "${d.label}"`);
   };
   const drawDefs = () => {
