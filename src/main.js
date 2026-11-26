@@ -38,6 +38,7 @@ import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript, saveFile, safeName } from './files.js';
 import { startVoice } from './voice.js';
 import { statementRows, statementPdf } from './statement.js';
+import { writeIntoWorkbook } from './bookwriter.js';
 import { buildAgenda, saveIcs, connectorStatus, CONNECT_HELP, connectorError, addToCalendar, gmailDraft, chaseEmail, listEmail, TASKS, CONNECTORS } from './agenda.js';
 import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, isDraftInv, archiveOf, compareBooks } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
@@ -783,8 +784,10 @@ async function renderQuotes() {
       <label class="field"><span>Selling price from cost + labour</span><select id="q-rule">
         <option value="x1.4" ${pricingRule() === 'x1.4' ? 'selected' : ''}>× 1.4 (as your pricing docs, e.g. PD-031)</option>
         <option value="margin40" ${pricingRule() === 'margin40' ? 'selected' : ''}>40% margin, ÷ 0.6 (as SERV PD MASTER)</option></select></label>
-      <label class="btn">${icon('upload')} Re-import workbook<input type="file" class="qb-import" accept=".xlsx,.xlsm" hidden></label>
+      <div class="row-btns"><label class="btn">${icon('upload')} Re-import workbook<input type="file" class="qb-import" accept=".xlsx,.xlsm" hidden></label>
+      <button class="btn" id="q-towb">${icon('sheet')} Add to the workbook</button></div>
     </section>` : ''}`;
+  $('#q-towb')?.addEventListener('click', () => addToWorkbook());
   $$('.qb-import').forEach((inp) => (inp.onchange = (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) importQuoteBook(f); }));
   $('#q-rule')?.addEventListener('change', (e) => saveLists({ pricingRule: e.target.value }));
   $$('.doc-row[data-id]').forEach((b) => (b.onclick = () => go({ view: 'quote', quoteId: b.dataset.id })));
@@ -1545,6 +1548,52 @@ async function statementFor(custId, ledger, book, conn) {
 }
 const monthName = (iso) => new Date(iso + 'T12:00:00').toLocaleDateString('en-IE', { month: 'long', year: 'numeric' });
 
+// Quotes and invoices made in the app → a new revision of the owner's workbook
+// (bookwriter.js). The owner's file is read, never changed.
+async function addToWorkbook() {
+  const book = await quoteBook();
+  const inBook = new Set((book?.register || []).map((r) => r.sheet));
+  const docs = (await db.all('quotes')).filter((d) => d.cust?.id && d.quote).sort((a, b) => (a.tab || 0) - (b.tab || 0));
+  const todo = docs.filter((d) => !inBook.has(tabName(d).slice(0, 31)));
+  if (!todo.length) return toast('Every quote and invoice made in the app is already in your workbook.');
+  const r = await dialog({
+    title: 'Add to the workbook',
+    body: `<p class="small">Pick your latest INVOICES AND QUOTES workbook. The ticked quotes and invoices are added as tabs (copied from your own latest tab of the same kind, so they keep your layout and logo) and as rows in the SUMMARY register. Your file is not changed: a new revision is saved for you.</p>
+      <label class="field"><span>Workbook (.xlsx)</span><input type="file" name="wbfile" accept=".xlsx,.xlsm" required></label>
+      ${book?.sourceName ? `<p class="small muted">Last imported: ${esc(book.sourceName)} (${fmtDate((book.importedAt || '').slice(0, 10))}). Pick that one or a newer one.</p>` : ''}
+      <div class="wb-add-list">${todo.map((d, i) => `<label class="pp-row"><input type="checkbox" name="d${i}" checked><span><b>${esc(tabName(d))}</b><small>${fmtDate(d.date)} · ${esc(Q_STATUSES[d.status] || d.status || '')} · ${money(totals(d).total)}${d.wbAddedAt ? ` · added to ${esc(d.wbFile || 'a workbook')} on ${fmtDate(d.wbAddedAt.slice(0, 10))}` : ''}</small></span></label>`).join('')}</div>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Make new revision', value: true, kind: 'primary' }],
+  });
+  if (r.value !== true) return;
+  const file = r.form.querySelector('input[name=wbfile]').files[0];
+  const picked = todo.filter((_, i) => r.data['d' + i]);
+  if (!file || !picked.length) return toast('Pick the workbook and at least one document', 'error');
+  const bz = busy('Reading your workbook…');
+  try {
+    const out = await writeIntoWorkbook(file, picked, book, bz.update);
+    bz.done();
+    await saveFile(out.name, out.blob);
+    const at = new Date().toISOString();
+    for (const a of out.added.filter((x) => x.row)) await db.put('quotes', { ...a.doc, wbAddedAt: at, wbFile: out.name });
+    const ok = out.added.filter((a) => a.row);
+    const skipped = out.added.filter((a) => a.skipped);
+    const again = await dialog({
+      title: 'New revision saved',
+      body: `<p><b>${esc(out.name)}</b> has ${ok.length} new tab${ok.length === 1 ? '' : 's'} and SUMMARY row${ok.length === 1 ? '' : 's'}:</p>
+        <ul class="small">${ok.map((a) => `<li>${esc(a.name)} (SUMMARY row ${a.row})</li>`).join('')}${skipped.map((a) => `<li class="muted">${esc(a.name)}: ${esc(a.skipped)}</li>`).join('')}</ul>
+        <p class="small">Open it in Excel and check it, then keep it as your latest revision (upload it to Drive in place of the old one). Excel recalculates every formula when it opens.</p>
+        <p class="small">Import this new revision into the app now, so the app and the workbook stay in step?</p>`,
+      buttons: [{ label: 'Not now', value: false }, { label: 'Import it', value: true, kind: 'primary' }],
+    });
+    if (again.value === true) await importQuoteBook(new File([out.blob], out.name, { type: out.blob.type }));
+    else refresh();
+  } catch (err) {
+    bz.done();
+    console.error(err);
+    await dialog({ title: 'Not added', body: `<p>${esc(err.message)}</p><p class="small muted">Your workbook was not changed.</p>` });
+  }
+}
+
 async function renderBusiness() {
   app.innerHTML = `
     <header class="bar">
@@ -1694,6 +1743,7 @@ async function renderBusiness() {
         <span class="biz-imp-btns"><button class="btn sm biz-arc-view" data-id="${esc(a.id)}">${arc?.id === a.id ? 'Viewing' : 'View'}</button><button class="btn sm biz-arc-diff" data-id="${esc(a.id)}">Changes since</button><button class="icon-btn sm biz-arc-del" data-id="${esc(a.id)}" aria-label="Delete this archive">${icon('trash')}</button></span></div>`).join('')}
     </div>
     <p class="small muted">Each new import keeps the one it replaces here, so you can look back at any month and see what changed.</p>
+    ${arc ? '' : `<div class="row-btns"><button class="btn" id="biz-towb">${icon('sheet')} Add app quotes &amp; invoices to the workbook</button></div>`}
     <div class="row-btns"><button class="btn primary" id="biz-xlsx">${icon('sheet')} Excel summary (${esc(label)})</button></div>
     <section class="panel biz-src"><p class="small"><b>Where these figures come from</b></p><ul class="small muted">
       <li>Invoices and quotes: ${esc(BIZ_SOURCES.book)}, plus those made in the app${book ? ` (workbook imported ${fmtDate(book.importedAt.slice(0, 10))})` : ''}.</li>
@@ -1800,6 +1850,7 @@ async function renderBusiness() {
     if (e) dialog({ title: `${e.ref}${e.part ? ' ' + e.part : ''}`, body: `<ul class="sheet-list small"><li>Workbook tab <b>${esc(e.id)}</b></li><li>${esc(e.custName || '')} (${esc(e.cust)})</li><li>${esc(e.site || '')}</li><li>Date ${fmtDate(e.date)} · due ${fmtDate(e.due)}${e.paidOn ? ` · paid ${fmtDate(e.paidOn)}` : ''}</li><li>Subtotal ${money(e.subtotal)} · total ${money(e.total)}</li><li>Status ${esc(Q_STATUSES[e.status] || e.status || 'not set')}</li>${e.cost ? `<li>Materials ${money(e.cost.materials)} · labour ${money(e.cost.labour)} (${esc(e.cost.from)})</li>` : ''}</ul>` });
   }));
   $('#biz-xlsx').onclick = async () => { const bz = busy('Making the Excel summary…'); try { await businessXlsx(s, label); } catch (err) { toast(err.message, 'error'); } bz.done(); };
+  $('#biz-towb')?.addEventListener('click', () => addToWorkbook());
   $('#biz-arc-back')?.addEventListener('click', () => { state.bizArchive = null; refresh(); });
   $$('.biz-arc-view').forEach((b) => (b.onclick = () => { state.bizArchive = state.bizArchive === b.dataset.id ? null : b.dataset.id; state.bizYear = null; refresh(); }));
   $$('.biz-arc-diff').forEach((b) => (b.onclick = async () => {
@@ -5152,7 +5203,7 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.49.1';
+const VERSION_TAG = 'app v0.50.0';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

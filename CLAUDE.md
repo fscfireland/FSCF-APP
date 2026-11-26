@@ -120,6 +120,16 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   counts copied from the section headings (MutationObserver ignores the bar's own changes, to avoid a loop).
 - End of service questions start on their fail answer (`failAnswer`, closeout.js; pass is Yes except 'doors wedged /
   held open' where pass is No); All pass / All fail buttons; options coloured by pass/fail.
+- Voice notes (`src/voice.js`): floating mic on the note box with the cursor; Claude `dictation` capability (Chrome on
+  Android / desktop; not in the Claude mobile apps). Manifest includes `dictation: {}`.
+- Statement of account (`src/statement.js`, Business › customer › Statement): layout of the owner's SOA tabs; every
+  unpaid sent invoice + invoices dated in the period; PDF or Gmail draft with the PDF attached (file argument).
+- Workbook writer (`src/bookwriter.js`, Business › Workbook imports and Quotes & invoices › Add to the workbook): edits
+  the owner's .xlsx package directly with JSZip (never rewrites it with SheetJS: that would lose his formatting). Each
+  app doc = copy of his latest same-kind tab without shared/array formulas (keeps styles + logo drawing), cells found by
+  label, live formulas with cached values; SUMMARY (table DocumentRegister) gets a row with J/K/L formulas to the new
+  tab and the table ref grows; calcChain removed + fullCalcOnLoad. Saved as next REV; docs get wbAddedAt/wbFile.
+  Tested on REV 30 (34): LibreOffice recalculation matches the stored values.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
