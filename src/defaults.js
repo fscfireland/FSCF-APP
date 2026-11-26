@@ -763,7 +763,7 @@ export const DEFAULT_TEMPLATES = {
     ],
   },
   fd29: {
-    base: 'fd', name: 'Fire doors – 29 point check (BS 8214:2016)', item: 'Door', report: '29 Point Fire Door Inspection Report',
+    base: 'fd', name: 'Fire doors – 29 point check (FSBO)', item: 'Door', report: '29 Point Fire Door Inspection Report',
     questions: tq('fd29', [
       ['Door leaf: sits against the door stop and is free from distortion', 'Door leaf damaged'],
       ['Door leaf: veneer / lipping glue still holding firmly', 'Door leaf damaged'],
