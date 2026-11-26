@@ -1240,3 +1240,17 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .def-art { font-size: 14px !important; }
 
 .rep-switch { padding: 6px 0; font-weight: 600; color: var(--ink); }
+
+/* Pricing Hub */
+.ph-stats { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 4px 0 18px; }
+@media (min-width: 700px) { .ph-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+.ph-stats > div { display: grid; gap: 2px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.ph-stats span, .ph-stats small { color: var(--ink-2); font-size: 13px; }
+.ph-stats b { font-size: 22px; }
+.ph-own { margin-bottom: 6px; }
+.sm-head { margin-top: 16px; }
+.sm-row { display: flex; align-items: center; gap: 8px; }
+.sm-row .sm-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; border: 0; background: none; padding: 0; text-align: left; font: inherit; color: inherit; }
+.sm-status { min-height: 40px; max-width: 46%; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 0 8px; font-size: 14px; }
+.ph-sitem .q-main small.ps-warn { display: block; }
+.ph-sitem { grid-template-columns: 1fr auto; }
