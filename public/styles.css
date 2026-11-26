@@ -1221,3 +1221,6 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .fs-btns { display: flex; }
 .fs-sec > .btn { justify-self: start; margin-top: 6px; }
 .rep-badge { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 6px; background: color-mix(in srgb, var(--st-repaired) 16%, transparent); color: var(--st-repaired); font-size: 11.5px; font-weight: 700; }
+
+.offline-note .link-btn { font-size: 13px; margin-left: 4px; }
+.warn-text { color: var(--st-noaccess); font-weight: 650; }

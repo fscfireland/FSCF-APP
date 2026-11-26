@@ -90,21 +90,41 @@ function splitBackup(data, limit) {
 // route isn't available here, so the caller can save a file instead.
 const DRIVE = 'Google Drive';
 const FOLDER = 'FSCF App Backups';
-export async function driveAvailable() {
+// Can this view reach Google Drive? { mcp } when it can, else { reason }
+export async function driveStatus() {
+  if (!window.claude?.use) return { reason: 'outside' };
+  let mcp = null;
   try {
-    const mcp = await window.claude?.use?.('mcp');
-    if (!mcp) return null;
-    const lt = await mcp.listTools();
-    if (!lt?.fileArgs || !lt.servers?.some((s) => s.server === DRIVE)) return null;
-    return mcp;
+    mcp = await window.claude.use('mcp');
   } catch {
-    return null;
+    /* not served */
   }
+  if (!mcp) return { reason: 'noview' };
+  let lt;
+  try {
+    lt = await mcp.listTools();
+  } catch (e) {
+    return { reason: e?.code || 'error' };
+  }
+  if (!lt?.servers?.some((x) => x.server === DRIVE && (x.tools?.length || x.authStatus === 'unknown'))) return { reason: 'notconnected' };
+  if (!lt.fileArgs) return { reason: 'nofiles' };
+  return { mcp };
+}
+export const DRIVE_REASONS = {
+  outside: 'This copy of the app is open outside Claude, so it cannot reach your Google Drive.',
+  noview: 'Google Drive cannot be reached from the app in this browser or Claude app. Open the app in the Claude app (or claude.ai in Chrome), signed in to your account.',
+  notconnected: 'Google Drive is not connected to your Claude account on this device. Connect it in Claude: Settings › Connectors › Google Drive, then reopen the app.',
+  nofiles: 'This version of the Claude app cannot send files to Drive yet. Update the Claude app from the Play Store, or open the app at claude.ai in Chrome.',
+  error: 'Google Drive did not answer. Check you have signal and try again.',
+};
+export async function driveAvailable() {
+  return (await driveStatus()).mcp || null;
 }
 
 export async function backupToDrive(projects, { library = false, folderId = '', onProgress = () => {} } = {}) {
-  const mcp = await driveAvailable();
-  if (!mcp) return null;
+  const st = await driveStatus();
+  if (!st.mcp) return { unavailable: st.reason };
+  const mcp = st.mcp;
   onProgress('Gathering your sites, drawings, photos and files…');
   const { data, videosLeftOut } = await collectBackup(projects, { library });
   const parts = splitBackup(data, 12 * 1048576);

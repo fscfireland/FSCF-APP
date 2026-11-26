@@ -29,7 +29,7 @@ import {
   collLabel, listCollections, activeCollection, plansIn, suggestName, copyCollection, renameCollection, deleteCollection,
   splitColl, joinColl, isFolderPick, inColl, listFolders, sectionLabel, renameFolder,
 } from './collections.js';
-import { backupProjects, restoreBackup, backupToDrive, driveError } from './backup.js';
+import { backupProjects, restoreBackup, backupToDrive, driveError, DRIVE_REASONS } from './backup.js';
 import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport.js';
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
@@ -298,7 +298,7 @@ async function renderProjects() {
         if (!projects.length) return `<div class="offline-note">${icon('check')} Saved on this device — works with no signal</div>`;
         const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
         const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
-        if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} Saved on this device · backed up ${days ? 'yesterday' : 'today'}</div>`;
+        if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} <span>Saved on this device · backed up ${days ? 'yesterday' : 'today'}${lists.autoBackup ? ' · automatic backup on' : ''}</span> <button class="link-btn" id="home-backup">Back up now</button></div>`;
         return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Back up everything to Google Drive.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
       })()}
       ${liveHtml}
@@ -6163,6 +6163,8 @@ async function renderSettings() {
           <button class="btn" id="s-backup" ${projects.length ? '' : 'disabled'}>Save backup file</button>
           <label class="btn">Restore from file(s)<input type="file" accept="application/json,.json" id="s-restore" multiple hidden></label>
         </div>
+        <label class="check-line"><input type="checkbox" id="s-autobk" ${lists.autoBackup ? 'checked' : ''}> Back up to Google Drive automatically, once a day</label>
+        <p class="muted small">Runs whenever the app is open on this device (it can't run while the app is closed). Turns on after your first Google Drive backup on this device.${lists.autoBackupIssue ? ` <b class="warn-text">Last automatic backup didn't run: ${esc(DRIVE_REASONS[lists.autoBackupIssue] || DRIVE_REASONS.error)}</b>` : ''}</p>
         <p class="muted small">Google Drive backups go in the <b>FSCF App Backups</b> folder: every site, drawing, pin, photo, file, quote and your settings. Big backups are split into parts; to restore, pick all the parts together. Videos over 50 MB stay on the phone.${lists.lastBackupAt ? ` Last backup: ${esc(new Date(lists.lastBackupAt).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' }))}.` : ''}</p>
       </section>
       <p class="muted small pad">FSCF Ireland app · data stays on this device until cloud sync is set up.</p>
@@ -6463,6 +6465,11 @@ async function renderSettings() {
     }
   };
   $('#s-backup-drive').onclick = () => backupEverythingToDrive(projects);
+  $('#s-autobk').onchange = async (e) => {
+    await saveLists({ autoBackup: e.target.checked });
+    if (e.target.checked && !lists.driveBackupFolder) toast('Tap "Back up everything to Google Drive" once to connect it; after that it backs up by itself each day.');
+    else toast(e.target.checked ? 'Automatic backup on' : 'Automatic backup off');
+  };
   drawFieldsEditor($('#s-fields'));
   $('#s-backup').onclick = async () => {
     const b = busy('Preparing backup…');
@@ -6648,26 +6655,61 @@ async function newProjectMenu() {
 
 // Back up every site and file to Google Drive. Returns false when Drive
 // isn't reachable from here (the caller then saves a file instead).
-async function backupEverythingToDrive(projects) {
-  const b = busy('Preparing backup…');
+let backingUp = false;
+async function backupEverythingToDrive(projects, { quiet = false } = {}) {
+  if (backingUp) return true;
+  backingUp = true;
+  const b = quiet ? { update() {}, done() {} } : busy('Preparing backup…');
+  if (quiet) toast('Backing up to Google Drive…');
   try {
     const r = await backupToDrive(projects, { library: true, folderId: lists.driveBackupFolder || '', onProgress: b.update });
     b.done();
-    if (!r) {
-      toast('Google Drive is not reachable from here, so the backup will be saved as a file. Choose Google Drive when asked where to save it.');
-      if (state.view === 'settings') $('#s-backup')?.click();
-      return false;
+    if (r?.unavailable) {
+      await saveLists({ autoBackupIssue: r.unavailable });
+      if (quiet) return true;
+      const ask = await dialog({
+        title: 'Google Drive not reachable here',
+        body: `<p>${esc(DRIVE_REASONS[r.unavailable] || DRIVE_REASONS.error)}</p><p class="small">You can still save a backup file now and choose Google Drive when your phone asks where to save it.</p>`,
+        buttons: [{ label: 'Not now', value: false }, { label: 'Save a backup file', value: true, kind: 'primary' }],
+      });
+      if (ask.value === true) {
+        const b2 = busy('Preparing backup…');
+        const { result } = await backupProjects(projects, { library: true });
+        b2.done();
+        if (result === 'saved') { await saveLists({ lastBackupAt: new Date().toISOString() }); toast('Backup file saved'); refresh(); }
+      }
+      return true;
     }
-    await saveLists({ lastBackupAt: new Date().toISOString(), driveBackupFolder: r.folderId });
-    toast(`Backed up to Google Drive › FSCF App Backups${r.parts > 1 ? ` (${r.parts} parts)` : ''}${r.videosLeftOut ? ` · ${r.videosLeftOut} large video(s) left on the phone` : ''}`);
+    const first = !lists.driveBackupFolder;
+    await saveLists({ lastBackupAt: new Date().toISOString(), driveBackupFolder: r.folderId, autoBackupIssue: '' });
+    toast(`Backed up to Google Drive › FSCF App Backups${r.parts > 1 ? ` (${r.parts} parts)` : ''}${r.videosLeftOut ? ` · ${r.videosLeftOut} large video(s) left on the device` : ''}`);
+    if (!quiet && first && lists.autoBackup === undefined) {
+      const ok = await confirmBox('Back up automatically?', 'Back up to the same Google Drive folder once a day whenever the app is open on this device. You can turn this off in Settings › Backup.', 'Yes, every day', false);
+      await saveLists({ autoBackup: !!ok });
+    }
     refresh();
     return true;
   } catch (e) {
     b.done();
     console.error(e);
-    toast(driveError(e), 'error');
+    if (quiet) await saveLists({ autoBackupIssue: 'error' });
+    else toast(driveError(e), 'error');
     return true;
+  } finally {
+    backingUp = false;
   }
+}
+
+// Automatic backup: once a day while the app is open and Drive can be reached
+async function autoBackupTick() {
+  if (!lists.autoBackup || !lists.driveBackupFolder || backingUp) return;
+  if (document.visibilityState !== 'visible' || $('.modal-wrap') || $('.busy') || document.body.classList.contains('sheet-open')) return;
+  const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
+  if (Date.now() - last < 22 * 3600e3) return;
+  const projects = await db.all('projects');
+  if (!projects.length) return;
+  await flushSave();
+  await backupEverythingToDrive(projects, { quiet: true });
 }
 
 // ---------- start ----------
@@ -6697,6 +6739,8 @@ async function start() {
     }).catch(() => {});
   }
 }
+setTimeout(() => autoBackupTick().catch(() => {}), 20000);
+setInterval(() => autoBackupTick().catch(() => {}), 15 * 60000);
 window.addEventListener('pagehide', flushSave);
 document.addEventListener('visibilitychange', () => document.visibilityState === 'hidden' && flushSave());
 start();
