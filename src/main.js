@@ -283,7 +283,7 @@ async function renderProjects() {
         return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Your projects are stored only on this device and in this browser. Save a backup to Google Drive or email.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
       })()}
       ${liveHtml}
-      ${priced() ? `<button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Same numbers, customers and prices as your Excel workbook</small></span>${icon('more')}</button>` : ''}
+      <button class="lib-card" id="my-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>${priced() ? 'Same numbers, customers and prices as your Excel workbook' : 'Owner only · tap and enter your PIN'}</small></span>${icon(priced() ? 'more' : 'shield')}</button>
       <button class="lib-card" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private to you${lists.libPin ? ' · PIN locked' : ''}</small></span>${icon(lists.libPin ? 'shield' : 'more')}</button>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
       <div class="home-tools">
@@ -311,7 +311,7 @@ async function renderProjects() {
     ${projects.length ? `<button class="fab" id="new-project">${icon('plus')} New project</button>` : ''}
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
-  $('#my-quotes')?.addEventListener('click', () => go({ view: 'quotes' }));
+  $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) go({ view: 'quotes' }); });
   $('#home-backup')?.addEventListener('click', async () => {
     const b = busy('Preparing backup…');
     try {
@@ -2744,11 +2744,11 @@ function renderExportTab(body, project, plans, allDoors) {
       })()}
       <button class="btn primary" id="xlsx">${icon('download')} Export Excel</button>
     </section>
-    ${priced() ? `<section class="panel">
+    ${`<section class="panel">
       <h2 class="h2">${icon('report')} Customer quote from this report</h2>
       <p>One line per failed door at its full price, numbered on from your workbook. The door-by-door breakdown goes in a pricing doc tab laid out like your SERV PDs, with the quote's lines linked to it, so changing a rate in Excel updates the quote.</p>
-      <button class="btn primary" id="rep-quote">${icon('report')} Make the quote</button>
-    </section>` : ''}
+      <button class="btn primary" id="rep-quote">${icon(priced() ? 'report' : 'shield')} Make the quote${priced() ? '' : ' (owner PIN)'}</button>
+    </section>`}
     <section class="panel">
       <h2 class="h2">${icon('shield')} Backup</h2>
       <p>Until cloud sync is switched on, this project is stored only on this phone. Save a backup file (includes plans and photos; videos are too large and stay on the phone) and keep it in Google Drive or email it to yourself.</p>
@@ -2812,7 +2812,7 @@ function renderExportTab(body, project, plans, allDoors) {
     toast(`${added} item${added === 1 ? '' : 's'} added on ${nDoors} door${nDoors === 1 ? '' : 's'}. Check the products and quantities on each door`);
     refresh();
   });
-  $('#rep-quote')?.addEventListener('click', () => quoteFromReport(project));
+  $('#rep-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner())) quoteFromReport(project); });
   $('#xlsx').onclick = async () => {
     const b = busy('Building Excel workbook…');
     try {
