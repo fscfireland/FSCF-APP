@@ -6165,7 +6165,7 @@ async function renderSettings() {
         </div>
         <label class="check-line"><input type="checkbox" id="s-autobk" ${lists.autoBackup ? 'checked' : ''}> Back up to Google Drive automatically, once a day</label>
         <p class="muted small">Runs whenever the app is open on this device (it can't run while the app is closed). Turns on after your first Google Drive backup on this device.${lists.autoBackupIssue ? ` <b class="warn-text">Last automatic backup didn't run: ${esc(DRIVE_REASONS[lists.autoBackupIssue] || DRIVE_REASONS.error)}</b>` : ''}</p>
-        <p class="muted small">Google Drive backups go in the <b>FSCF App Backups</b> folder: every site, drawing, pin, photo, file, quote and your settings. Big backups are split into parts; to restore, pick all the parts together. Videos over 50 MB stay on the phone.${lists.lastBackupAt ? ` Last backup: ${esc(new Date(lists.lastBackupAt).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' }))}.` : ''}</p>
+        <p class="muted small">Google Drive backups go in the <b>16 FSCF IRELAND APP BACKUPS</b> folder: every site, drawing, pin, photo, file, quote and your settings. Big backups are split into parts; to restore, pick all the parts together. Videos over 50 MB stay on the phone.${lists.lastBackupAt ? ` Last backup: ${esc(new Date(lists.lastBackupAt).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' }))}.` : ''}</p>
       </section>
       <p class="muted small pad">FSCF Ireland app · data stays on this device until cloud sync is set up.</p>
     </main>`;
@@ -6682,7 +6682,7 @@ async function backupEverythingToDrive(projects, { quiet = false } = {}) {
     }
     const first = !lists.driveBackupFolder;
     await saveLists({ lastBackupAt: new Date().toISOString(), driveBackupFolder: r.folderId, autoBackupIssue: '' });
-    toast(`Backed up to Google Drive › FSCF App Backups${r.parts > 1 ? ` (${r.parts} parts)` : ''}${r.videosLeftOut ? ` · ${r.videosLeftOut} large video(s) left on the device` : ''}`);
+    toast(`Backed up to Google Drive › 16 FSCF IRELAND APP BACKUPS${r.parts > 1 ? ` (${r.parts} parts)` : ''}${r.videosLeftOut ? ` · ${r.videosLeftOut} large video(s) left on the device` : ''}`);
     if (!quiet && first && lists.autoBackup === undefined) {
       const ok = await confirmBox('Back up automatically?', 'Back up to the same Google Drive folder once a day whenever the app is open on this device. You can turn this off in Settings › Backup.', 'Yes, every day', false);
       await saveLists({ autoBackup: !!ok });

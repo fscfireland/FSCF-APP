@@ -89,7 +89,9 @@ function splitBackup(data, limit) {
 // connector (only inside the Claude app / claude.ai). Returns null when that
 // route isn't available here, so the caller can save a file instead.
 const DRIVE = 'Google Drive';
-const FOLDER = 'FSCF App Backups';
+const FOLDER = '16 FSCF IRELAND APP BACKUPS';
+// the folder in FSCF Ireland's Google Drive that every device backs up to
+const DRIVE_FOLDER_ID = '1NOIIZ0iNsIFQB8zUYQeGTtOCWubN2w7H';
 // Can this view reach Google Drive? { mcp } when it can, else { reason }
 export async function driveStatus() {
   if (!window.claude?.use) return { reason: 'outside' };
@@ -136,7 +138,9 @@ export async function backupToDrive(projects, { library = false, folderId = '', 
     if (!id) throw new Error('Could not make the backup folder in Google Drive.');
     return id;
   };
-  let folder = folderId || (await newFolder());
+  // every phone and tablet backs up to the same Drive folder; a new one is
+  // made only if that folder has been deleted
+  let folder = DRIVE_FOLDER_ID || folderId || (await newFolder());
   let first = null;
   for (const [i, part] of parts.entries()) {
     const title = `FSCF_backup_${name}_${stamp}${parts.length > 1 ? `_part${i + 1}of${parts.length}` : ''}.json`;
