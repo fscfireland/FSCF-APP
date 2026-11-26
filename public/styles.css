@@ -1224,3 +1224,6 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 
 .offline-note .link-btn { font-size: 13px; margin-left: 4px; }
 .warn-text { color: var(--st-noaccess); font-weight: 650; }
+
+/* house style: typed text shows in capitals too (saved as typed) */
+input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-case) { text-transform: uppercase; }

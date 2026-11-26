@@ -12,6 +12,7 @@ import { PlanViewer } from './viewer.js';
 import { importDrawing, compressImage, thumbFromCanvas, loadPdfJs } from './files.js';
 import { TOOLS as AI_TOOLS, systemPrompt, makeRunner, activityText } from './assistant.js';
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx, exportProductionXlsx } from './export.js';
+import { startCaps } from './caps.js';
 import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
 import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
@@ -5768,7 +5769,7 @@ async function pickDefects(existing) {
         ${(kd() || []).map((d, i) => `
           <label class="pick ${have.has(d.label) ? 'is-had' : ''}">
             <input type="checkbox" name="d${i}" value="${i}" ${have.has(d.label) ? 'disabled' : ''}>
-            <span><b>${esc(d.label)}</b><small>${esc(d.remedial)}</small></span>
+            <span class="hc"><b>${esc(d.label)}</b><small>${esc(d.remedial)}</small></span>
           </label>`).join('')}
       </div>`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Add selected', value: true, kind: 'primary' }],
@@ -5915,7 +5916,7 @@ async function viewInspection(door, h, allPhotos, onDelete) {
           ${h.location ? `<dt>Location</dt><dd>${esc(h.location)}</dd>` : ''}
           ${h.doorType ? `<dt>Door type</dt><dd>${esc(h.doorType)}</dd>` : ''}
           <dt>Checklist</dt><dd>${answered.length ? `${answered.length} answered${fails.length ? `, failed: ${fails.map((c) => esc(c.text)).join('; ')}` : ', none failed'}` : 'Not answered'}</dd>
-          <dt>Defects</dt><dd>${(h.defects || []).length ? h.defects.map((x) => `<b>${esc(x.label)}</b>${x.remedial ? ' – ' + esc(x.remedial) : ''}`).join('<br>') : 'None'}</dd>
+          <dt>Defects</dt><dd class="hc">${(h.defects || []).length ? h.defects.map((x) => `<b>${esc(x.label)}</b>${x.remedial ? ' – ' + esc(x.remedial) : ''}`).join('<br>') : 'None'}</dd>
           <dt>Actions</dt><dd>${(h.actions || []).length ? h.actions.map(esc).join('<br>') : 'None'}</dd>
           ${h.notes ? `<dt>Notes</dt><dd>${esc(h.notes)}</dd>` : ''}
         </dl>
@@ -6720,6 +6721,7 @@ async function start() {
     app.innerHTML = `<main class="page"><section class="empty"><h1 class="h1">Storage unavailable</h1><p>This browser is blocking on-device storage (private browsing?). Open the app in a normal browser window.</p></section></main>`;
     return;
   }
+  startCaps(document.body);
   render();
   if ('serviceWorker' in navigator && location.protocol === 'https:' && !window.claude) {
     // When a new version has been published, offer a one-tap refresh
