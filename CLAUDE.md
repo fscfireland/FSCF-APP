@@ -101,7 +101,13 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   if the new file looks older, and shows what changed; Business › Workbook imports lists, views and compares them.
   Business figures take Date / Subtotal / Total from the SUMMARY register first. Customer names can be set by the owner
   (settings `bizNames`). Invoices with status WIP/PROC are "not sent yet": listed, but not counted as invoiced or owed
-  (the owner's SUMMARY keeps WIP separate). Customer panel lists each invoice with its work-type code (FDREM, CALLO…). Next step the owner wants:
+  (the owner's SUMMARY keeps WIP separate). Customer panel lists each invoice with its work-type code (FDREM, CALLO…).
+- Reminders (`src/agenda.js`, Business page): chase payment / send WIP invoice / inspection due (door nextDue, 90 days).
+  Out to Google Calendar (connector `Google Calendar`, tool `create_event`; fields read at run time with describeTool),
+  a .ics calendar file (no connector needed), and Gmail drafts (connector `Gmail`, `create_draft`; never sends).
+  Already-added items kept in settings `calSync`. Artifact manifest: Google Drive create_file, Google Calendar
+  create_event, Gmail create_draft, downloads. Google Tasks: no connector exists yet; the agenda list has stable ids
+  ready for it (TASKS in agenda.js). Next step the owner wants:
   customer portal / website login per customer (needs the Supabase online version).
 - Left for later (owner's choice): the rest of the BM TRADA paperwork – Scheme Procedures Acceptance (SPA 058,
   prescribed wording, client signature), Record of Maintenance Activities (RMA 058) and the RMA pack PDF,

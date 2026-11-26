@@ -36,6 +36,7 @@ import { readChecklistFile, guessDefect, downloadChecklist } from './checkimport
 import { readFieldwire, ratingToType } from './fieldwire.js';
 import { textDoors, readerEstimate, readerGrid } from './drawingtext.js';
 import { loadScript, saveFile, safeName } from './files.js';
+import { buildAgenda, saveIcs, connectorStatus, CONNECT_HELP, connectorError, addToCalendar, gmailDraft, chaseEmail, listEmail, TASKS, CONNECTORS } from './agenda.js';
 import { buildLedger, summarise, years as bizYears, businessXlsx, SOURCES as BIZ_SOURCES, isPaid, isDraftInv, archiveOf, compareBooks } from './business.js';
 // The drawing reader (Claude vision) is a separate file, loaded when first used
 const reader = async () => { await loadScript('reader.js'); return window.FSCFReader; };
@@ -1478,6 +1479,7 @@ function invRow(e, { late = false, paid = false } = {}) {
       <small>${esc(e.site || '')}${e.site ? ' · ' : ''}${fmtDate(e.date)}${paid ? (e.paidOn ? ` · paid ${fmtDate(e.paidOn)}` : ' · paid') : ` · due ${fmtDate(e.due)}`}</small>
       ${late ? `<small class="ps-warn">${e.late} day${e.late === 1 ? '' : 's'} overdue</small>` : ''}</span>
       <span class="q-amt"><b>${money(e.total)}</b></span></button>
+    ${late && !invRow.readOnly ? `<button class="btn sm biz-chase" data-id="${esc(e.id)}">${icon('upload')} Draft email</button>` : ''}
     <button class="btn sm ${paid ? '' : 'primary'} biz-pay" ${invRow.readOnly ? 'hidden' : ''} data-id="${esc(e.id)}" data-paid="${paid ? '0' : '1'}">${paid ? 'Mark unpaid' : 'Mark paid'}</button>
   </div>`;
 }
@@ -1505,9 +1507,16 @@ async function renderBusiness() {
   const ys = bizYears(ledger);
   // the year picked on this page, else this year (or the latest year with work)
   invRow.readOnly = !!arc;
+  // reminders: needs the sites' doors (next inspection due) and what is already in the calendar
+  const agendaSites = [];
+  if (!arc) for (const p of await db.all('projects')) agendaSites.push({ project: p, doors: await db.projectDoors(p.id) });
+  const calSync = (await db.get('settings', 'calSync'))?.items || {};
+  const conn = arc ? {} : await connectorStatus();
+  if (!body.isConnected) return;
   const yr = state.bizYear != null && (state.bizYear === '' || ys.includes(state.bizYear)) ? state.bizYear : ys.includes(today().slice(0, 4)) ? today().slice(0, 4) : (ys[0] || '');
   const s = summarise(ledger, yr, today());
   const label = yr || 'all years';
+  const agenda = arc ? [] : buildAgenda(summarise(ledger, '', today()), agendaSites, today());
   const needsReimport = !arc && book && !book.pds;
   const bars = yr ? s.months.map((m) => ({ v: m.invoiced, label: `${MONTHS[m.m]} ${yr} · ${m.n} invoice${m.n === 1 ? '' : 's'} · paid ${money(m.paid)}`, short: MONTHS[m.m].slice(0, 1) }))
     : s.byYear.map((y) => ({ v: y.invoiced, label: `${y.y} · ${y.n} invoices`, short: y.y.slice(2) }));
@@ -1587,6 +1596,24 @@ async function renderBusiness() {
     <h2 class="h2">Top sites</h2>
     <div class="doc-list">${s.siteRows.map((x) => `<div class="doc-row"><span class="q-main"><b>${esc(x.key)}</b><small>${esc(x.custName || '')} · ${x.n} invoice${x.n === 1 ? '' : 's'}</small></span><span class="q-amt"><b>${money(x.invoiced)}</b></span></div>`).join('') || '<p class="muted small">None.</p>'}</div>
 
+    ${arc ? '' : `<h2 class="h2" id="biz-rem-h">Reminders: calendar and email <span class="muted">${agenda.length}</span></h2>
+    <section class="panel biz-rem">
+      <p class="small">Invoices to chase, invoices not sent yet (WIP) and inspections due in the next 90 days, from your workbook and the doors' Next inspection due dates.</p>
+      <ul class="small biz-conn">
+        <li><b>Google Calendar:</b> ${conn.cal === 'ok' ? 'connected' : esc(typeof CONNECT_HELP[conn.cal] === 'function' ? CONNECT_HELP[conn.cal](CONNECTORS.CAL) : CONNECT_HELP[conn.cal] || 'status not known yet; it is checked when you send')}</li>
+        <li><b>Gmail:</b> ${conn.gmail === 'ok' ? 'connected (drafts only: nothing is sent without you)' : esc(typeof CONNECT_HELP[conn.gmail] === 'function' ? CONNECT_HELP[conn.gmail](CONNECTORS.GMAIL) : CONNECT_HELP[conn.gmail] || 'status not known yet; it is checked when you send')}</li>
+        <li><b>Google Tasks:</b> ${esc(TASKS.reason)}</li>
+      </ul>
+      <div class="biz-rem-tools"><button class="link-btn" id="rem-all">Tick all</button> · <button class="link-btn" id="rem-none">Untick all</button> · <button class="link-btn" id="rem-new">Tick only the ones not in the calendar yet</button></div>
+      <div class="biz-rem-list">${agenda.map((it, i) => { const sent = calSync[it.id]; return `<label class="biz-rem-row"><input type="checkbox" class="rem-tick" data-i="${i}" ${sent ? '' : 'checked'}>
+        <span><i class="biz-wt biz-k-${it.kind}">${it.kind === 'chase' ? 'CHASE' : it.kind === 'send' ? 'SEND' : 'INSPECT'}</i> <b>${fmtDate(it.date)}</b><small>${esc(it.title.replace(/^[A-Z ]+: /, ''))}${sent ? ` · in calendar since ${fmtDate((sent.at || '').slice(0, 10))}${sent.link ? '' : ''}` : ''}</small></span></label>`; }).join('') || '<p class="muted small">Nothing to remind you about right now.</p>'}</div>
+      <div class="row-btns">
+        <button class="btn primary" id="rem-cal">${icon('plus')} Add ticked to Google Calendar</button>
+        <button class="btn" id="rem-ics">${icon('download')} Calendar file (works on any phone)</button>
+        <button class="btn" id="rem-mail">${icon('upload')} Email me this list (Gmail draft)</button>
+      </div>
+      <p class="small muted">The calendar file opens in your Samsung or Google Calendar and adds the ticked items as all-day reminders at 9am. Gmail drafts wait in your Drafts folder: nothing is sent until you send it.</p>
+    </section>`}
     <h2 class="h2">Workbook imports <span class="muted">${arcs.length + (arc ? 0 : book ? 1 : 0)}</span></h2>
     <div class="doc-list">
       ${!arc && book ? `<div class="doc-row biz-imp"><span class="q-main"><b>${esc(book.sourceName || 'Workbook')}</b><small>Current · imported ${fmtDate((book.importedAt || '').slice(0, 10))} · ${book.register.length} tabs up to tab ${book.seq?.tab || 0}</small></span>
@@ -1605,6 +1632,59 @@ async function renderBusiness() {
       <li>Marking an invoice paid here does not change the Excel workbook. Update the SUMMARY register there too.</li>
     </ul></section>`;
 
+  const ticked = () => $$('.rem-tick').filter((c) => c.checked).map((c) => agenda[+c.dataset.i]);
+  $('#rem-all')?.addEventListener('click', () => $$('.rem-tick').forEach((c) => (c.checked = true)));
+  $('#rem-none')?.addEventListener('click', () => $$('.rem-tick').forEach((c) => (c.checked = false)));
+  $('#rem-new')?.addEventListener('click', () => $$('.rem-tick').forEach((c) => (c.checked = !calSync[agenda[+c.dataset.i].id])));
+  $('#rem-ics')?.addEventListener('click', async () => { const l = ticked(); if (!l.length) return toast('Tick at least one reminder', 'error'); try { await saveIcs(l, `FSCF reminders ${today()}`); } catch (err) { toast(err.message, 'error'); } });
+  $('#rem-cal')?.addEventListener('click', async () => {
+    const l = ticked();
+    if (!l.length) return toast('Tick at least one reminder', 'error');
+    if (!conn.mcp) return toast(CONNECT_HELP[conn.cal] || 'Google Calendar cannot be reached here. Use the calendar file instead.', 'error');
+    const again = l.filter((it) => calSync[it.id]);
+    if (again.length && !(await confirmBox('Some are in the calendar already', `${again.length} of the ticked reminders were added before. Add them again? (Untick them to skip.)`, 'Add again', false))) return;
+    const bz = busy('Adding to Google Calendar…');
+    const store = (await db.get('settings', 'calSync'))?.items || {};
+    let n = 0;
+    let fail = null;
+    for (const it of l) {
+      bz.update(`Adding ${n + 1} of ${l.length} to Google Calendar…`);
+      try { const r = await addToCalendar(conn.mcp, it); store[it.id] = { at: new Date().toISOString(), date: it.date, eventId: r.eventId, link: r.link }; n++; }
+      catch (err) { fail = err; break; }
+    }
+    await db.put('settings', { id: 'calSync', items: store });
+    bz.done();
+    if (fail) await dialog({ title: n ? `${n} added, then it stopped` : 'Not added', body: `<p>${esc(fail.code === 'schema' ? fail.message : connectorError(fail, CONNECTORS.CAL))}</p><p class="small muted">You can use "Calendar file" instead: it works without the connector.</p>` });
+    else toast(`${n} reminder${n === 1 ? '' : 's'} added to Google Calendar`);
+    refresh();
+  });
+  $('#rem-mail')?.addEventListener('click', async () => {
+    const l = ticked();
+    if (!l.length) return toast('Tick at least one reminder', 'error');
+    if (!conn.mcp) return toast(CONNECT_HELP[conn.gmail] || 'Gmail cannot be reached here.', 'error');
+    const bz = busy('Making a Gmail draft…');
+    try { const r = await gmailDraft(conn.mcp, { to: lists.ownerEmail ? [lists.ownerEmail] : [], ...listEmail(l, today()) }); bz.done(); await dialog({ title: 'Draft in Gmail', body: `<p>The to-do list is in your Gmail Drafts${lists.ownerEmail ? '' : ' (add yourself as the recipient)'}.</p>${r.link ? `<p><a href="${esc(r.link)}" target="_blank" rel="noopener">Open the draft</a></p>` : ''}` }); }
+    catch (err) { bz.done(); await dialog({ title: 'No draft made', body: `<p>${esc(connectorError(err, CONNECTORS.GMAIL))}</p>` }); }
+  });
+  $$('.biz-chase').forEach((b) => (b.onclick = async () => {
+    const e = ledger.find((x) => x.id === b.dataset.id);
+    if (!e) return;
+    if (!conn.mcp) return toast(CONNECT_HELP[conn.gmail] || 'Gmail cannot be reached here.', 'error');
+    const em = chaseEmail(e, book?.company || {});
+    const r0 = await dialog({
+      title: `Chase ${e.ref}${e.part ? ' ' + e.part : ''}`,
+      body: `<p class="small">Makes a draft in your Gmail. Nothing is sent: check it and send it from Gmail.</p>
+        <label class="field"><span>To</span><input name="to" value="${esc((e.emails || []).join(', '))}" placeholder="customer@example.ie"></label>
+        <label class="field"><span>Subject</span><input name="subject" value="${esc(em.subject)}"></label>
+        <label class="field"><span>Email</span><textarea name="body" rows="11">${esc(em.body)}</textarea></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Make Gmail draft', value: true, kind: 'primary' }],
+    });
+    if (r0.value !== true) return;
+    const to = String(r0.data.to || '').split(/[,;\s]+/).map((x) => x.trim()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+    const bz = busy('Making a Gmail draft…');
+    try { const r = await gmailDraft(conn.mcp, { to, subject: r0.data.subject, body: r0.data.body }); bz.done(); await dialog({ title: 'Draft in Gmail', body: `<p>The chase email for ${esc(e.ref)} is in your Gmail Drafts${to.length ? '' : ' (add the customer\'s address there)'}.</p>${r.link ? `<p><a href="${esc(r.link)}" target="_blank" rel="noopener">Open the draft</a></p>` : ''}` }); }
+    catch (err) { bz.done(); await dialog({ title: 'No draft made', body: `<p>${esc(connectorError(err, CONNECTORS.GMAIL))}</p>` }); }
+  }));
   $$('.biz-order .chip').forEach((b) => (b.onclick = () => { state.bizCustOrder = b.dataset.o; refresh(); }));
   $('#biz-wip-tile')?.addEventListener('click', () => { const f = $('#biz-wip-fold'); if (f) { f.open = true; f.scrollIntoView({ behavior: 'smooth', block: 'start' }); } });
   $$('.biz-years:not(.biz-order) .chip').forEach((b) => (b.onclick = () => { state.bizYear = b.dataset.y; refresh(); }));

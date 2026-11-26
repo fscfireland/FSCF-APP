@@ -1328,3 +1328,15 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .ph-stats > button.biz-wip { border-color: color-mix(in srgb, var(--st-noaccess) 60%, var(--line)); }
 .ph-stats b { white-space: nowrap; }
 @media (max-width: 480px) { .ph-stats > div b, .ph-stats > button b { font-size: 18px; } }
+/* Reminders: calendar and email */
+.biz-conn { margin: 6px 0 10px; padding-left: 18px; display: grid; gap: 3px; }
+.biz-rem-tools { font-size: 13px; margin-bottom: 6px; }
+.biz-rem-list { display: grid; gap: 0; max-height: 420px; overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.biz-rem-row { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 13.5px; cursor: pointer; }
+.biz-rem-row:last-child { border-bottom: 0; }
+.biz-rem-row input { width: 20px; height: 20px; margin-top: 1px; }
+.biz-rem-row small { display: block; color: var(--ink-2); font-size: 12.5px; }
+.biz-k-chase { background: color-mix(in srgb, var(--st-fail) 15%, var(--surface)); color: var(--st-fail); }
+.biz-k-send { background: color-mix(in srgb, var(--st-noaccess) 18%, var(--surface)); color: color-mix(in srgb, var(--st-noaccess) 75%, var(--ink)); }
+.biz-k-inspect { background: color-mix(in srgb, var(--st-repaired) 15%, var(--surface)); color: var(--st-repaired); }
+.biz-row .biz-chase { justify-self: end; }

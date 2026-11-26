@@ -19,6 +19,7 @@ import { loadSheetJS, saveFile } from './files.js';
 import { capsWorkbook } from './caps.js';
 
 const r2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+const emailsOf = (lines) => [...new Set((lines || []).join(' ').match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) || [])].map((x) => x.toLowerCase());
 const addDays = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
 const dayDiff = (a, b) => Math.round((Date.parse(b + 'T12:00:00') - Date.parse(a + 'T12:00:00')) / 864e5);
 export const SOURCES = {
@@ -59,7 +60,7 @@ export function buildLedger(book, appDocs, marks = {}, extra = {}, ownNames = {}
       src: 'wb', id: r.sheet, ref: r.kind === 'INV' ? r.inv : r.quote, kind: r.kind, part: r.part || '', quote: r.quote, inv: r.inv,
       cust: r.cust, site: (r.siteLines?.[0] || r.location || '').trim(), date: r.date || '', due: r.due || '', days: 30,
       subtotal: r2(sub), total: r2(r.total ?? sub), status: m.status || r.status || '', paidOn: m.paidOn || r.paidOn || '', workType: r.workType || '',
-      pd: '', cost: null, contact: (r.custLines?.[0] || '').trim(),
+      pd: '', cost: null, contact: (r.custLines?.[0] || '').trim(), emails: emailsOf([...(r.custLines || []), ...(r.siteLines || [])]),
     };
     out.set('wb|' + r.sheet, e); // each workbook tab once, even if two share a number
   }
@@ -70,7 +71,7 @@ export function buildLedger(book, appDocs, marks = {}, extra = {}, ownNames = {}
       src: 'app', id: d.id, ref: d.kind === 'INV' ? d.inv : d.quote, kind: d.kind === 'INV' ? 'INV' : 'Q', part: d.part || '', quote: d.quote, inv: d.inv,
       cust: d.cust?.id || '', site: (d.site?.lines?.[0] || '').trim(), date: d.date || '', due: '', days: Number(d.days) || 30,
       subtotal: r2(t.subtotal + t.preLims + t.fuel), total: t.total, status: d.status || '', paidOn: d.paidOn || '', workType: d.workType || '',
-      contact: (d.cust?.lines?.[0] || '').trim(), pd: d.pd || '', projectId: d.projectId || null, fromQuoteId: d.fromQuoteId || null,
+      contact: (d.cust?.lines?.[0] || '').trim(), emails: emailsOf([...(d.cust?.lines || []), ...(d.site?.lines || [])]), pd: d.pd || '', projectId: d.projectId || null, fromQuoteId: d.fromQuoteId || null,
       cost: d.matCost != null || d.labCost != null ? { materials: r2(d.matCost), labour: r2((d.labCost || 0) + (d.preLimsCost || 0)), from: d.pd || 'app quote' } : (extra[d.id] || null),
     };
     const k = keyOf(e.kind, e.quote, e.inv, e.part);
