@@ -1151,3 +1151,9 @@ button.kind-chip .ico { width: 12px; height: 12px; }
 .sp-copy select { width: 100%; min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; background: var(--surface); color: var(--ink); font: inherit; margin-bottom: 6px; }
 .type-note { display: block; margin-top: 4px; font-size: 12.5px; line-height: 1.35; }
 .type-note:empty { display: none; }
+
+/* repair view */
+.sheet.is-repair .sheet-head { background: color-mix(in srgb, var(--st-repaired) 10%, var(--bg)); }
+.rep-head { cursor: pointer; }
+.rep-map { cursor: pointer; }
+#rep-toggle.is-on { background: var(--st-repaired); border-color: var(--st-repaired); color: #fff; }

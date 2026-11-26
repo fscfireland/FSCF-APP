@@ -1219,9 +1219,20 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
     });
     const sameTablePage = doc.lastAutoTable.finalY > startY;
     y = Math.max(doc.lastAutoTable.finalY, sameTablePage ? startY + mapH : 0) + 7;
-    // completion report: the door's latest photos (up to 3)
+    // completion report: the repair notes and the door's repair photos (up to 6)
+    if (isReport && (d.repairNotes || '').trim()) {
+      if (y > A4.h - M - 16) { doc.addPage('a4', 'portrait'); y = M; }
+      font('bold', 9, C.ink);
+      text('Repair notes', M, y);
+      font('normal', 9, C.ink2);
+      const lines = doc.splitTextToSize(t(d.repairNotes.trim()), CW);
+      doc.text(lines, M, y + 5);
+      y += 5 + lines.length * 4 + 4;
+    }
     if (isReport && opts.photos !== false) {
-      const ph = (await db.doorPhotos(d.id)).filter((p) => photoInView(p, { ...d, _current: true })).slice(-3);
+      const all = (await db.doorPhotos(d.id)).filter((p) => p.stage === 'repair');
+      for (let row = 0; row < Math.min(2, Math.ceil(all.length / 3)); row++) {
+      const ph = all.slice(row * 3, row * 3 + 3);
       if (ph.length) {
         const cellW = (CW - 8) / 3;
         const cellH = cellW * 0.66;
@@ -1238,6 +1249,7 @@ export async function exportRemedialPdf(project, lists, opts = {}, onProgress = 
           doc.addImage(img.data, 'JPEG', x + (cellW - img.w * k) / 2, y + (cellH - img.h * k) / 2, img.w * k, img.h * k, undefined, 'FAST');
         }
         y += cellH + 7;
+      }
       }
     }
   }

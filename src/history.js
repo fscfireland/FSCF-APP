@@ -177,6 +177,7 @@ export async function logEvent(doorId, text) {
 // A photo's `inspection` is the inspection date it was taken under; untagged
 // photos belong to the current inspection.
 export function photoInView(photo, view) {
+  if (photo.stage === 'repair') return false; // repair photos belong to the repairs, not an inspection
   const tag = photo.inspection || '';
   if (view._current) return tag === '' || tag === (view.inspectedOn || '');
   return tag !== '' && tag === view.inspectedOn;
@@ -186,6 +187,6 @@ export function photoInView(photo, view) {
 export async function tagPhotosForSnapshot(doorId, date) {
   if (!date) return;
   for (const p of await db.doorPhotos(doorId)) {
-    if (!p.inspection) await db.put('photos', { ...p, inspection: date });
+    if (!p.inspection && p.stage !== 'repair') await db.put('photos', { ...p, inspection: date });
   }
 }

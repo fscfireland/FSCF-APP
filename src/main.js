@@ -2483,6 +2483,122 @@ async function refreshPlanFiles(project, plan) {
 }
 
 // ---------- Repairs: remedial works list for the repairer ----------
+const repPhotoCache = {};
+
+// One door's repairs: tick and verify each item, repair photos (kept apart
+// from the inspection photos) and repair notes. Opened from the Repairs tab,
+// or from a pin when the drawing is in Repairs mode.
+async function drawRepairSheet(door) {
+  const el = $('#sheet');
+  const project = await db.get('projects', door.projectId);
+  useScheme(project);
+  const plan = door.planId ? await db.get('plans', door.planId) : null;
+  let d = door;
+  const when = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
+  const save = async (patch, note) => {
+    d = await saveDoor({ ...(await db.get('doors', d.id)), ...patch }, note ? [note] : []);
+    delete repPhotoCache[project.id];
+  };
+  const draw = () => {
+    const p = remedialProgress(d);
+    const st = statusById[d.status || 'not_inspected'];
+    el.innerHTML = `
+      <div class="sheet-grip"></div>
+      <header class="sheet-head">
+        <span class="pin-badge ${st.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${st.color}">${d.pinNo ?? ''}</span>
+        <div class="sheet-title"><b>Repairs · ${esc(d.ref || 'Door ' + d.pinNo)}</b><small>${esc([d.location, plan?.name].filter(Boolean).join(' · '))} · ${p.done} of ${p.total} done${p.verified ? ` · ${p.verified} verified` : ''}</small></div>
+        <button class="icon-btn" id="rs-close" aria-label="Close">${icon('close')}</button>
+      </header>
+      <div class="sheet-body">
+        <div class="rep-bar"><i style="--w:${p.total ? (p.done / p.total) * 100 : 0}%"></i></div>
+        <section class="block">
+          <div class="block-head"><h3>Repair items</h3>${p.awaiting ? `<button class="btn sm" id="rs-verify-all">${icon('shield')} Verify all (${p.awaiting})</button>` : ''}</div>
+          ${p.total ? `<ul class="rep-items">${p.items.map((it) => {
+            const r = d.remedials?.[it.key];
+            return `<li><label class="rep-check ${r?.done ? 'is-done' : ''}"><input type="checkbox" class="rs-tick" data-key="${esc(it.key)}" ${r?.done ? 'checked' : ''}>
+              <span><b>${esc(it.text)}${it.qty ? ` (×${it.qty})` : ''}</b>${it.sub ? `<small>${esc(it.sub)}</small>` : ''}${r?.done ? `<small class="rep-by">Done by ${esc(r.by || 'unknown')} · ${esc(when(r.at))}</small>` : ''}${r?.verified ? `<small class="rep-ver">Verified by ${esc(r.vby || 'unknown')} · ${esc(when(r.vat))}</small>` : ''}</span></label>
+              ${r?.done ? `<label class="ver-check ${r.verified ? 'is-on' : ''}"><input type="checkbox" class="rs-ver" data-key="${esc(it.key)}" ${r.verified ? 'checked' : ''}>${icon('shield')} Verified</label>` : ''}</li>`;
+          }).join('')}</ul>` : '<p class="muted small">No repair items on this door.</p>'}
+        </section>
+        <section class="block">
+          <div class="block-head"><h3>Repair photos <span class="muted" id="rs-n"></span></h3>
+            <div class="row-btns">
+              <label class="btn sm primary">${icon('camera')} Photo<input type="file" accept="image/*" capture="environment" id="rs-cam" hidden></label>
+              <label class="btn sm">${icon('image')} Gallery<input type="file" accept="image/*" multiple id="rs-lib" hidden></label>
+            </div>
+          </div>
+          <div class="photo-strip" id="rs-photos"></div>
+          <p class="muted small">Kept apart from the inspection photos. They go in the repairs completion report, not the inspection report.</p>
+        </section>
+        <section class="block">
+          <label class="field"><span>Repair notes</span><textarea id="rs-notes" rows="3" placeholder="e.g. Closer replaced with Dorma TS83; frame packed at hinge side">${esc(d.repairNotes || '')}</textarea></label>
+        </section>
+        <div class="row-btns">
+          <button class="btn" id="rs-insp">${icon('door')} Inspection record</button>
+          ${p.complete && d.status !== 'repaired' && STATUSES.some((s) => s.id === 'repaired') ? `<button class="btn primary" id="rs-repaired">${icon('check')} Set status to ${esc(statusById.repaired.label)}</button>` : ''}
+        </div>
+      </div>`;
+    $('#rs-close').onclick = () => back();
+    $('#rs-insp').onclick = () => go({ ...state, repair: false }, { replace: true });
+    $$('.rs-tick', el).forEach((cb) => (cb.onchange = async () => {
+      const remedials = { ...((await db.get('doors', d.id)).remedials || {}) };
+      remedials[cb.dataset.key] = cb.checked ? { done: true, by: lists.inspector || project.remedialAck?.by || '', at: new Date().toISOString() } : { done: false, verified: false };
+      await save({ remedials });
+      draw();
+    }));
+    const verify = async (keys, on) => {
+      const remedials = { ...((await db.get('doors', d.id)).remedials || {}) };
+      let who = '';
+      if (on) {
+        who = await askVerifier(keys.map((k) => remedials[k]?.by).filter(Boolean));
+        if (!who) return draw();
+      }
+      for (const k of keys) {
+        if (!remedials[k]?.done) continue;
+        remedials[k] = on ? { ...remedials[k], verified: true, vby: who, vat: new Date().toISOString() } : { ...remedials[k], verified: false, vby: '', vat: '' };
+      }
+      await save({ remedials });
+      draw();
+    };
+    $$('.rs-ver', el).forEach((cb) => (cb.onchange = () => verify([cb.dataset.key], cb.checked)));
+    $('#rs-verify-all')?.addEventListener('click', () => verify(remedialItems(d).map((i) => i.key).filter((k) => d.remedials?.[k]?.done && !d.remedials?.[k]?.verified), true));
+    $('#rs-repaired')?.addEventListener('click', async () => { await save({ status: 'repaired' }); toast(`Door set to ${statusById.repaired.label}`); draw(); if (state.view === 'plan') refreshPins(); });
+    let nt = null;
+    $('#rs-notes').oninput = (e) => { clearTimeout(nt); const v = e.target.value; nt = setTimeout(() => save({ repairNotes: v }), 500); };
+    $('#rs-cam').onchange = (e) => { addRepairPhotos([...e.target.files]); e.target.value = ''; };
+    $('#rs-lib').onchange = (e) => { addRepairPhotos([...e.target.files]); e.target.value = ''; };
+    drawPhotos();
+  };
+  const drawPhotos = async () => {
+    const photos = (await db.doorPhotos(d.id)).filter((x) => x.stage === 'repair');
+    if (!$('#rs-photos')) return;
+    $('#rs-n').textContent = photos.length ? `(${photos.length})` : '';
+    $('#rs-photos').innerHTML = photos.length
+      ? photos.map((x) => `<button class="photo" data-id="${x.id}"><img alt="Repair photo" src="${objUrl(x.thumb)}"></button>`).join('')
+      : '<p class="muted small">No repair photos yet. Photograph each door after repair.</p>';
+    $$('#rs-photos .photo', el).forEach((b) => (b.onclick = () => openPhoto(photos.find((x) => x.id === b.dataset.id), drawPhotos)));
+  };
+  const addRepairPhotos = async (files) => {
+    if (!files.length) return;
+    const bz = busy('Saving…');
+    try {
+      for (const f of files) {
+        const { blob, thumb, width, height } = await compressImage(f, 1600, 0.8);
+        const gps = lists.gps !== false ? await getPosition({ timeout: 4000 }) : null;
+        await db.put('photos', { id: db.uid(), projectId: d.projectId, doorId: d.id, stage: 'repair', inspection: '', blob, thumb, width, height, ...(gps ? { gps } : {}) });
+      }
+      bz.done();
+      await logEvent(d.id, `Added ${files.length} repair photo${files.length > 1 ? 's' : ''}`);
+      delete repPhotoCache[project.id];
+      drawPhotos();
+    } catch (e) {
+      bz.done();
+      toast('Could not save: ' + e.message, 'error');
+    }
+  };
+  draw();
+}
+
 function renderRepairsTab(body, project, plans, doors) {
   const instructions = project.remedialText ?? lists.remedialText ?? DEFAULT_REMEDIAL_TEXT;
   const ack = project.remedialAck;
@@ -2498,6 +2614,16 @@ function renderRepairsTab(body, project, plans, doors) {
     all: ['All', () => true],
   };
   const shown = withWork.filter((FILTERS[show] || FILTERS.outstanding)[1]);
+  const repPhotoCount = repPhotoCache[project.id] || {};
+  if (!repPhotoCache[project.id]) {
+    // count each door's repair photos, then show them on the buttons
+    db.byIndex('photos', 'projectId', project.id).catch(() => []).then((ps) => {
+      const c = {};
+      for (const p of ps || []) if (p.stage === 'repair') c[p.doorId] = (c[p.doorId] || 0) + 1;
+      repPhotoCache[project.id] = c;
+      if (Object.keys(c).length && body.isConnected) renderRepairsTab(body, project, plans, doors);
+    });
+  }
   const when = (iso) => (iso ? new Date(iso).toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' }) : '');
   body.innerHTML = `
     <section class="panel rep-intro">
@@ -2558,7 +2684,9 @@ function renderRepairsTab(body, project, plans, doors) {
           }).join('')}
         </ul>
         <div class="row-btns">
-          <button class="btn ghost sm rep-open">Open door</button>
+          <button class="btn sm rep-open-r">${icon('camera')} Repair photos &amp; notes${repPhotoCount[d.id] ? ` (${repPhotoCount[d.id]})` : ''}</button>
+          ${d.planId ? `<button class="btn ghost sm rep-plan">${icon('plan')} On the drawing</button>` : ''}
+          <button class="btn ghost sm rep-open">Inspection record</button>
           ${p.awaiting ? `<button class="btn sm rep-verify-all">${icon('shield')} Verify all (${p.awaiting})</button>` : ''}
           ${p.complete && d.status !== 'repaired' && STATUSES.some((s) => s.id === 'repaired') ? `<button class="btn sm rep-repaired">${icon('check')} Set status to ${esc(statusById.repaired.label)}</button>` : ''}
         </div>
@@ -2628,7 +2756,16 @@ function renderRepairsTab(body, project, plans, doors) {
       const d = doors.find((x) => x.id === id);
       verify(remedialItems(d).map((i) => i.key).filter((k) => d.remedials?.[k]?.done && !d.remedials?.[k]?.verified), true);
     });
-    $('.rep-open', sec).onclick = () => go({ ...state, doorId: id });
+    $('.rep-open', sec).onclick = () => go({ ...state, doorId: id, repair: false });
+    const openRepair = () => go({ ...state, doorId: id, repair: true });
+    $('.rep-open-r', sec).onclick = openRepair;
+    $('.rep-head', sec).onclick = openRepair;
+    $('.rep-map', sec)?.addEventListener('click', openRepair);
+    $('.rep-plan', sec)?.addEventListener('click', () => {
+      const d = doors.find((x) => x.id === id);
+      go({ view: 'plan', projectId: project.id, planId: d.planId, repair: true });
+      setTimeout(() => { if (state.view === 'plan') go({ ...state, doorId: id }); }, 350); // closing the repairs leaves you on the drawing
+    });
     $('.rep-repaired', sec)?.addEventListener('click', async () => {
       const d = await db.get('doors', id);
       const saved = await saveDoor({ ...d, status: 'repaired' });
@@ -3372,6 +3509,7 @@ async function renderPlan() {
         <button class="icon-btn" id="zfit" aria-label="Fit to screen">${icon('fit')}</button>
       </div>
       <div class="plan-toolbar">
+        <button class="btn big ${state.repair ? 'is-on' : ''}" id="rep-toggle" aria-label="Repairs" aria-pressed="${state.repair ? 'true' : 'false'}">${icon('check')}<span class="tb-txt"> Repairs</span></button>
         <button class="btn big" id="sel-toggle" aria-label="Select">${icon('cursor')}<span class="tb-txt"> Select</span></button>
         <button class="btn big" id="mk-toggle" aria-label="Markup">${icon('pencil')}<span class="tb-txt"> Markup</span></button>
         <button class="btn primary big" id="add-door">${icon('pin')} Add ${esc(kitOf(planKind).item.toLowerCase())}</button>
@@ -3416,6 +3554,12 @@ async function renderPlan() {
   drawMarkups();
   $('#mk-toggle').onclick = () => setMarkup(true);
   $('#sel-toggle').onclick = () => setSelecting(true);
+  $('#rep-toggle').onclick = (e) => {
+    state.repair = !state.repair;
+    e.currentTarget.classList.toggle('is-on', !!state.repair);
+    e.currentTarget.setAttribute('aria-pressed', state.repair ? 'true' : 'false');
+    toast(state.repair ? 'Repairs mode: tap a pin to see and tick its repairs' : 'Inspection mode: tap a pin to open its inspection record');
+  };
   picked.clear();
   selecting = false;
   undoStack.length = 0;
@@ -4194,17 +4338,20 @@ async function renderSheet() {
     }
     return;
   }
-  if (sheetDoorId === state.doorId) return;
-  sheetDoorId = state.doorId;
+  const sheetKey = state.doorId + (state.repair ? '|r' : '');
+  if (sheetDoorId === sheetKey) return;
+  if (sheetDoorId) await flushSave();
+  sheetDoorId = sheetKey;
   const door = await db.get('doors', state.doorId);
   if (!door) {
     sheetDoorId = null;
     return back();
   }
   document.body.classList.add('sheet-open');
-  sheetRoot.innerHTML = `<div class="sheet-backdrop" id="sheet-bd"></div><section class="sheet" role="dialog" aria-label="Door record" id="sheet"></section>`;
+  sheetRoot.innerHTML = `<div class="sheet-backdrop" id="sheet-bd"></div><section class="sheet ${state.repair ? 'is-repair' : ''}" role="dialog" aria-label="${state.repair ? 'Repairs' : 'Door record'}" id="sheet"></section>`;
   $('#sheet-bd').onclick = () => back();
-  await drawSheet(door);
+  if (state.repair) await drawRepairSheet(door);
+  else await drawSheet(door);
   if (state.view === 'plan') refreshPins();
 }
 
