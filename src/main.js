@@ -1647,6 +1647,14 @@ async function editProject(existing) {
   const allProjects = await db.all('projects');
   const groupNames = [...new Set(allProjects.map((x) => x.group).filter(Boolean))].sort();
   const clientNames = [...new Set(allProjects.map((x) => x.client).filter(Boolean))].sort();
+  // every type of work: the saved list, plus each checklist (inspection type) by name
+  const wtNow = p.workType ?? (existing ? '' : 'Fire door inspection');
+  const workTypeOpts = [...new Set([...(lists.workTypes || DEFAULT_WORK_TYPES), ...kindIds().filter((k) => !['fd', 'dampers', 'alarm', 'emlight', 'ext'].includes(k)).map((k) => kitOf(k).name), ...(wtNow ? [wtNow] : []), ...(existing ? [''] : [])])];
+  setTimeout(() => {
+    const sel = $('#pf-type');
+    const other = $('#pf-type-other');
+    if (sel && other) sel.onchange = () => { other.hidden = sel.value !== '__other'; if (!other.hidden) other.focus(); };
+  }, 0);
   const r = await dialog({
     title: existing ? 'Project details' : 'New project',
     body: `
@@ -1654,10 +1662,10 @@ async function editProject(existing) {
       <label class="field"><span>Client</span><input name="client" id="pf-client" value="${esc(p.client)}" placeholder="e.g. HSE Estates" list="pf-clients"></label>
       <div class="grid2">
         <label class="field"><span>Group</span><input name="group" id="pf-group" value="${esc(p.group || '')}" placeholder="e.g. Cavan / Monaghan, or Block B" list="pf-groups" autocomplete="off"></label>
-        <label class="field"><span>Type of work</span><input name="workType" id="pf-type" value="${esc(p.workType ?? (existing ? '' : 'Fire door inspection'))}" placeholder="e.g. Fire damper check" list="pf-types" autocomplete="off"></label>
+        <label class="field"><span>Type of work</span><select name="workType" id="pf-type">${workTypeOpts.map((t) => `<option value="${esc(t)}" ${t === wtNow ? 'selected' : ''}>${esc(t || 'None')}</option>`).join('')}<option value="__other">Other – type your own…</option></select>
+          <input name="workTypeOther" id="pf-type-other" placeholder="e.g. Fire curtain check" autocomplete="off" hidden></label>
       </div>
       <datalist id="pf-groups">${groupNames.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
-      <datalist id="pf-types">${(lists.workTypes || DEFAULT_WORK_TYPES).map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
       <datalist id="pf-clients">${clientNames.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
       <label class="field"><span>Address</span><input name="address" id="pf-address" value="${esc(p.address)}" placeholder="Town, county / Eircode"></label>
       <div class="grid2">
@@ -1679,7 +1687,9 @@ async function editProject(existing) {
     buttons: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Create project', value: true, kind: 'primary' }],
   });
   if (r.value !== true) return null;
-  const { zones: zonesRaw, ...form } = r.data;
+  const { zones: zonesRaw, workTypeOther, ...form } = r.data;
+  if (form.workType === '__other') form.workType = (workTypeOther || '').trim();
+  r.data.workType = form.workType;
   form.frequency = Number(form.frequency) || 0;
   const rec = await db.put('projects', { ...p, ...form, zones: parseZones(zonesRaw), id: p.id || db.uid(), nextPin: p.nextPin || 1 });
   if (existing && form.frequency && form.frequency !== (Number(p.frequency) || 0)) await applyFrequency(rec);
@@ -3041,7 +3051,7 @@ function renderPlansTab(body, project, plans, doors, active) {
       if (r.value !== true) return;
       target = r.data.coll === '__new' ? joinColl((r.data.newfolder || '').trim(), (r.data.newname || '').trim() || suggestName(colls, !(r.data.newfolder || '').trim())) : r.data.coll;
     }
-    const kind = await pickKind('What is this drawing for?', kindForWork(project.workType));
+    const kind = await pickKind('What is this drawing for?', kindIds().find((k) => kitOf(k).name === project.workType) || kindForWork(project.workType));
     if (!kind) return;
     const bz = busy('Reading drawing…');
     try {
