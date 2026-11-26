@@ -8,12 +8,13 @@ import { pdfLines } from './files.js';
 const clean = (s) => String(s || '').replace(/\\([_#*&])/g, '$1').replace(/\s*\(@[^)]*\)\s*$/, '').replace(/\s+/g, ' ').trim();
 const BOILER = /^below are listed the remedial actions/i;
 
-// E30Sa → FD30S (EI 30-Sa); E60 → FD60 (EI 60)
+// E30Sa → E30Sa (FD30S); FD60 → E60 (FD60); E30Sa4 → E30Sa4 (FD30S)
 export function ratingToType(r) {
-  const m = /E?I?\s*(\d{2,3})\s*(S\s*a|Sa|S)?/i.exec(r || '');
+  const m = /(?:FD|EI?)?\s*(\d{2,3})\s*-?\s*(S\s*a\s*4|S\s*a|S)?/i.exec(r || '');
   if (!m) return '';
   const mins = m[1];
-  return m[2] ? `FD${mins}S (EI ${mins}-Sa)` : `FD${mins} (EI ${mins})`;
+  const s = (m[2] || '').replace(/\s+/g, '').toLowerCase();
+  return s === 'sa4' ? `E${mins}Sa4 (FD${mins}S)` : s ? `E${mins}Sa (FD${mins}S)` : `E${mins} (FD${mins})`;
 }
 
 export async function readFieldwire(file) {

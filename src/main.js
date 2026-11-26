@@ -4,7 +4,7 @@ import * as db from './db.js';
 import {
   STATUSES, statusById, DEFAULT_DOOR_TYPES, DEFAULT_DEFECTS, LEAF_CONFIGS, DEFAULT_ACTIONS, DEFAULT_QUESTIONS, DEFAULT_MATERIALS,
   ANSWERS, doorActions, materialsTotal, labourTotal, euro, questionsFor, drawDemoPlan, SCHEMES, DEFAULT_SCHEME, useScheme,
-  setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION,
+  setCustomSchemes, allSchemes, schemeById, OPTIONAL_STATUSES, statusesInUse, matLabel, zoneText, MATERIALS_VERSION, OLD_DOOR_TYPES, DOOR_TYPES_VERSION,
   DEFAULT_RISKS, NO_RISK, parseZones, zonesToText, DEFAULT_CATEGORIES, DEFAULT_WORK_TYPES, isInspected,
   DEFAULT_SIGNS, SIGN_FACES, signsNeeded, MAT_CATEGORIES, matCat, defectCat, QUESTION_DEFECT, defaultProductsFor, fillDefectProducts, uncostedFails, costAllFails, DEFAULT_KITS, KIND_IDS, kindForWork, DEFAULT_TEMPLATES,
 } from './defaults.js';
@@ -116,6 +116,19 @@ async function loadLists() {
     const merged = [...s.materials, ...DEFAULT_MATERIALS.filter((m) => !have.has(m.id))]
       .map((m) => ({ ...m, cat: matCat(m), cost: Number(m.cost) ? m.cost : sample[m.id] ?? m.cost }));
     await saveLists({ materials: merged, matVersion: MATERIALS_VERSION });
+  }
+  if ((s?.typesVersion || 1) < DOOR_TYPES_VERSION) {
+    const swap = (t) => OLD_DOOR_TYPES[t] || t;
+    const fix = (list) => {
+      const out = [...new Set((list || []).map(swap))];
+      for (const [i, t] of DEFAULT_DOOR_TYPES.entries()) if (!out.includes(t)) out.splice(Math.min(i, out.length), 0, t); // adds E30Sa4 / E60Sa4
+      return out;
+    };
+    const kits = Object.fromEntries(Object.entries(s?.kits || {}).map(([k, v]) => [k, v.doorTypes ? { ...v, doorTypes: v.doorTypes.map(swap) } : v]));
+    await saveLists({ ...(s?.doorTypes ? { doorTypes: fix(s.doorTypes) } : {}), ...(s?.kits ? { kits } : {}), typesVersion: DOOR_TYPES_VERSION });
+    for (const d of await db.all('doors')) {
+      if (OLD_DOOR_TYPES[d.doorType]) await db.put('doors', { ...d, doorType: OLD_DOOR_TYPES[d.doorType] });
+    }
   }
   if (s?.defects && (s.defVersion || 1) < 2) {
     const have = new Set(s.defects.map((d) => d.label));
@@ -1677,14 +1690,14 @@ async function loadDemo() {
     const thumb = await thumbFromCanvas(canvas);
     const plan = await db.put('plans', { id: db.uid(), projectId: project.id, name: 'Ground floor', blob, thumb, width: canvas.width, height: canvas.height, order: 0 });
     const demoDoors = [
-      { x: 0.15, y: 0.44, ref: 'GF-01', location: 'Bedroom 1', status: 'pass', doorType: 'FD30S (EI 30-Sa)' },
-      { x: 0.36, y: 0.44, ref: 'GF-02', location: 'Bedroom 2', status: 'fail', doorType: 'FD30S (EI 30-Sa)', defects: [0, 4] },
-      { x: 0.57, y: 0.44, ref: 'GF-03', location: 'Day room', status: 'fail', doorType: 'FD30S (EI 30-Sa)', defects: [3, 7, 18] },
-      { x: 0.73, y: 0.44, ref: 'GF-04', location: 'Store', status: 'no_access', doorType: 'FD30 (EI 30)' },
-      { x: 0.19, y: 0.56, ref: 'GF-05', location: 'Kitchen', status: 'repaired', doorType: 'FD60S (EI 60-Sa)' },
+      { x: 0.15, y: 0.44, ref: 'GF-01', location: 'Bedroom 1', status: 'pass', doorType: 'E30Sa (FD30S)' },
+      { x: 0.36, y: 0.44, ref: 'GF-02', location: 'Bedroom 2', status: 'fail', doorType: 'E30Sa (FD30S)', defects: [0, 4] },
+      { x: 0.57, y: 0.44, ref: 'GF-03', location: 'Day room', status: 'fail', doorType: 'E30Sa (FD30S)', defects: [3, 7, 18] },
+      { x: 0.73, y: 0.44, ref: 'GF-04', location: 'Store', status: 'no_access', doorType: 'E30 (FD30)' },
+      { x: 0.19, y: 0.56, ref: 'GF-05', location: 'Kitchen', status: 'repaired', doorType: 'E60Sa (FD60S)' },
       { x: 0.42, y: 0.56, ref: 'GF-06', location: 'Dining', status: 'not_inspected', doorType: '' },
       { x: 0.835, y: 0.44, ref: 'GF-08', location: 'Office', status: 'na', doorType: 'Non-rated' },
-      { x: 0.875, y: 0.56, ref: 'GF-07', location: 'Stair core', status: 'fail', doorType: 'FD60S (EI 60-Sa)', defects: [1, 9] },
+      { x: 0.875, y: 0.56, ref: 'GF-07', location: 'Stair core', status: 'fail', doorType: 'E60Sa (FD60S)', defects: [1, 9] },
     ];
     let n = 1;
     for (const d of demoDoors) {

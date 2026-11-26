@@ -343,17 +343,27 @@ export function questionsFor(d, questions) {
 // FD terms are what most clients still use; EI ratings are the
 // I.S. EN 13501-2 classifications (tested to I.S. EN 1634-1).
 // "S" / Sa = smoke control (I.S. EN 1634-3).
+// European classification first, the British FD rating in brackets
 export const DEFAULT_DOOR_TYPES = [
-  'FD30 (EI 30)',
-  'FD30S (EI 30-Sa)',
-  'FD60 (EI 60)',
-  'FD60S (EI 60-Sa)',
-  'FD90 (EI 90)',
-  'FD120 (EI 120)',
+  'E30 (FD30)',
+  'E30Sa (FD30S)',
+  'E30Sa4 (FD30S)',
+  'E60 (FD60)',
+  'E60Sa (FD60S)',
+  'E60Sa4 (FD60S)',
+  'E90 (FD90)',
+  'E120 (FD120)',
   'Notional fire door',
   'Non-rated',
   'Unknown – no evidence of rating',
 ];
+
+// Door types as written before (FD first) → the European-first names
+export const OLD_DOOR_TYPES = {
+  'FD30 (EI 30)': 'E30 (FD30)', 'FD30S (EI 30-Sa)': 'E30Sa (FD30S)', 'FD60 (EI 60)': 'E60 (FD60)',
+  'FD60S (EI 60-Sa)': 'E60Sa (FD60S)', 'FD90 (EI 90)': 'E90 (FD90)', 'FD120 (EI 120)': 'E120 (FD120)',
+};
+export const DOOR_TYPES_VERSION = 2;
 
 export const LEAF_CONFIGS = ['', 'Single leaf', 'Double leaf', 'Leaf and a half', 'Single with fanlight', 'Double with fanlight'];
 

@@ -88,7 +88,10 @@ export function matchListValue(value, list) {
   const norm = (s) => s.toLowerCase().replace(/[\s\-–()]/g, '');
   const exact = list.find((x) => norm(x) === norm(v));
   if (exact) return exact;
-  // "FD30" → "FD30 (EI 30)" rather than "FD30S (EI 30-Sa)"; "Single" → "Single leaf"
+  // "E30" → "E30 (FD30)" rather than "E30Sa (FD30S)"; "Single" → "Single leaf"
   const starts = list.filter((x) => norm(x).startsWith(norm(v))).sort((a, b) => norm(a).length - norm(b).length);
-  return starts[0] || v;
+  if (starts[0]) return starts[0];
+  // "FD30S" → "E30Sa (FD30S)": the rating in brackets
+  const inside = list.filter((x) => norm(x).includes(norm(v))).sort((a, b) => norm(a).length - norm(b).length);
+  return inside[0] || v;
 }
