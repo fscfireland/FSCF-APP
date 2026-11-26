@@ -40,6 +40,9 @@ traced back to a reference. Nothing should be the app's own opinion.
   - Safety, Health and Welfare at Work Act 2005
   - BS 8214:2016 and BS 8214:2026
   - TGD M, TGD B, the DHF best-practice guide, and the Fire Safety for Building Owners manual
+  - BM TRADA Q-Mark Fire Door Maintenance: SUIN 058 (Iss 1, 05/01/2026) with DCS 058 condition survey (Iss 2),
+    and the Accepted Repair Techniques (ART index Iss 10, every ART issued 01/01/2026) – `src/arts.js`
+  - GAI Specifier's Guide, Ironmongery for Fire and Escape Doors (section 8, maintenance)
 
 ### 2. Capitals house style
 Everything on screen, and in every PDF and Excel file, is in CAPITALS (`src/caps.js`),

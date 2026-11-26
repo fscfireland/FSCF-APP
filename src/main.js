@@ -13,6 +13,7 @@ import { importDrawing, compressImage, thumbFromCanvas, loadPdfJs } from './file
 import { TOOLS as AI_TOOLS, systemPrompt, makeRunner, activityText } from './assistant.js';
 import { exportProjectXlsx, exportRemedialXlsx, exportPricingXlsx, exportProductionXlsx } from './export.js';
 import { startCaps, setHeadTexts } from './caps.js';
+import { ARTS, suggestArt, artRemedial } from './arts.js';
 import { REPLACEMENTS, SUPPLY, FIELD_TYPES, DEFAULT_FIELD_SECTIONS, QMARK_SECTION, sectionsFor, ratingOf, swingOf, missingFor, readFwAttrs } from './fields.js';
 import { exportProjectPdf, exportRemedialPdf, loadJsPdf as loadJsPdfLib } from './report.js';
 import { readWorkbook, nextNumbers, totals, tabName, quotePdf, quoteXlsx, sellPrice, money, priceDoors, nextPd, pdName, pad3, WORK_TYPES, STATUSES as Q_STATUSES, VAT_RATES, isInspection, suggestCustomerId, readableTag } from './quotes.js';
@@ -209,6 +210,7 @@ function registerHeadTexts() {
     }
     for (const d of lists.defects || []) t.push(d.label, d.remedial);
     t.push(IRON_MAINT.label, IRON_MAINT.remedial);
+    for (const x of ARTS) for (const [id] of x.options) t.push(artRemedial(`${x.no}|${id}`));
     setHeadTexts(t);
   } catch (e) {
     console.warn(e);
@@ -4931,6 +4933,7 @@ async function drawSheet(door) {
         <div class="defect" data-i="${i}">
           <div class="defect-top"><b>${esc(d.label)}</b><button class="icon-btn sm def-del" aria-label="Remove defect">${icon('close')}</button></div>
           <div class="defect-fields ${linked.length ? 'no-qty' : ''}">
+            ${kitOf(kindNow).base === 'fd' ? `<label class="field def-art-f"><span>BM TRADA repair (ART)</span><select class="def-art" id="def-art-${i}">${artSelectHtml(d)}</select></label>` : ''}
             <label class="field"><span>Remedial work</span><textarea rows="2" class="def-rem" id="def-rem-${i}">${esc(d.remedial)}</textarea></label>
             ${linked.length ? '' : `<label class="field qty"><span>Qty</span><input type="number" inputmode="numeric" min="1" class="def-qty" id="def-qty-${i}" value="${esc(d.qty ?? 1)}"></label>`}
           </div>
@@ -4989,6 +4992,15 @@ async function drawSheet(door) {
         drawDefects();
         drawMaterials();
       };
+      $('.def-art', row)?.addEventListener('change', (e) => {
+        const v = e.target.value;
+        queue({ defects: current.defects.map((x, j) => {
+          if (j !== i) return x;
+          if (!v) return { ...x, art: '', remedial: x.remedialOrig ?? x.remedial };
+          return { ...x, art: v, remedialOrig: x.remedialOrig ?? x.remedial, remedial: artRemedial(v) };
+        }) });
+        drawDefects();
+      });
       $('.def-rem', row).oninput = (e) => {
         queue({ defects: current.defects.map((x, j) => (j === i ? { ...x, remedial: e.target.value } : x)) });
       };
@@ -6525,6 +6537,16 @@ async function renderSettings() {
       toast(err.message, 'error');
     }
   };
+}
+
+// BM TRADA ART picker for a defect: the suggested ART first, then every ART
+function artSelectHtml(d) {
+  const sug = suggestArt(d);
+  const list = [...ARTS.filter((a) => a.no === sug), ...ARTS.filter((a) => a.no !== sug)];
+  return `<option value="">Not chosen (keep the remedial as written)</option>` + list.map((a) => `<optgroup label="${a.no === sug ? 'Suggested: ' : ''}ART ${a.no} ${esc(a.title)} (rev ${a.rev})">${a.options.map(([id, text]) => {
+    const v = `${a.no}|${id}`;
+    return `<option value="${esc(v)}" ${d.art === v ? 'selected' : ''}>ART ${a.no}${id ? ` option ${id}` : ''}: ${esc(text)}</option>`;
+  }).join('')}</optgroup>`).join('');
 }
 
 // ---------- Settings › Fields ----------

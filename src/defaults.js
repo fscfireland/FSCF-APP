@@ -898,7 +898,7 @@ export const DEFAULT_TEMPLATES = {
   },
   // BM TRADA Q-Mark Fire Door Maintenance scheme: Fire Door Condition Survey,
   // DCS 058 Iss 2 (in SUIN 058 Survey & Maintenance Process, Iss 1, 05/01/2026).
-  // 23 survey points; repairs use the scheme's Accepted Repair Techniques (ART index Iss 5).
+  // 23 survey points; repairs use the scheme's Accepted Repair Techniques (ART index Iss 10, ARTs issued 01/01/2026).
   qmark: {
     base: 'fd', name: 'Fire doors – BM TRADA Q-Mark condition survey (DCS 058)', item: 'Door', report: 'Fire Door Condition Survey – BM TRADA Q-Mark Fire Door Maintenance Scheme (DCS 058)',
     questions: tq('qm', [
@@ -927,15 +927,15 @@ export const DEFAULT_TEMPLATES = {
       ['OTHER: signage acceptable (BM TRADA DCS 058 Iss 2)', 'Fire door signage missing'],
     ]),
     extraDefects: [
-      ['Lipping damaged or split', 'Repair lipping with a hardwood butt-jointed section (BM TRADA ART 01 Lipping repair; BM TRADA ART 15 Split lipping at hinge fixing)'],
-      ['Door leaf out of alignment', 'Realign the leaf (BM TRADA ART 06 Door leaf out of alignment)'],
-      ['Leaf thickness not consistent with rating', 'Report to the Responsible Person; outside the scheme, call in expertise (BM TRADA ART 23 Calling in expertise)'],
-      ['Frame material not consistent with rating', 'Report to the Responsible Person; outside the scheme, call in expertise (BM TRADA ART 23 Calling in expertise)'],
-      ['Architrave damaged or not sealed', 'Refit and seal the architrave (BM TRADA ART 16 Architrave re-fitting and sealing)'],
-      ['Architrave does not overlap frame joint', 'Refit the architrave to overlap the frame / wall joint (BM TRADA ART 16 Architrave re-fitting and sealing)'],
-      ['Intumescent seal size not correct', 'Replace with seals of the size given in the door manufacturer\'s evidence (BM TRADA ART 11 Damaged perimeter seals)'],
-      ['Hinges dropped or binding', 'Re-set or replace hinges (BM TRADA ART 08 Hinges dropped; BM TRADA ART 13 Hinge fixings are loose)'],
-      ['Glass damaged', 'Replace glass and glazing system like for like (BM TRADA ART 14 Damaged glazing and glass)'],
+      ['Lipping damaged or split', 'Repair lipping with a hardwood butt-jointed section (BM TRADA ART 01 Lipping repair, rev 12, issued 01/01/2026)'],
+      ['Door leaf out of alignment', 'Realign the leaf (BM TRADA ART 06 Door leaf out of alignment, rev 11, issued 01/01/2026)'],
+      ['Leaf thickness not consistent with rating', 'Report to the Responsible Person; outside the scheme, call in expertise (BM TRADA ART 23 Calling in expertise, rev 12, issued 01/01/2026)'],
+      ['Frame material not consistent with rating', 'Report to the Responsible Person; outside the scheme, call in expertise (BM TRADA ART 23 Calling in expertise, rev 12, issued 01/01/2026)'],
+      ['Architrave damaged or not sealed', 'Refit and seal the architrave (BM TRADA ART 16 Replacement or refitting architrave and sealing, rev 12, issued 01/01/2026)'],
+      ['Architrave does not overlap frame joint', 'Refit the architrave to overlap the frame / wall joint (BM TRADA ART 16 Replacement or refitting architrave and sealing, rev 12, issued 01/01/2026)'],
+      ['Intumescent seal size not correct', 'Replace with seals of the size given in the door manufacturer\'s evidence (BM TRADA ART 11 Damaged perimeter seals, rev 11, issued 01/01/2026)'],
+      ['Hinges dropped or binding', 'Re-set or replace hinges (BM TRADA ART 08 Hinges dropped or damaged, rev 12; ART 13 Hinge fixings are loose or missing, rev 11; issued 01/01/2026)'],
+      ['Glass damaged', 'Replace glass and glazing system like for like (BM TRADA ART 14 Damaged glazing and glass, rev 11, issued 01/01/2026)'],
     ],
   },
   // Final exits with panic hardware: users may not know the building (EN 1125).

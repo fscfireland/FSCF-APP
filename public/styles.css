@@ -1234,3 +1234,7 @@ input:not([type="date"]):not([type="number"]):not([type="password"]):not(.keep-c
 .iron-maint b { display: block; }
 .iron-maint small { display: block; color: var(--ink-2); font-size: 12.5px; margin-top: 2px; }
 .iron-maint:has(input:not(:checked)) { opacity: .6; border-left-color: var(--line); }
+
+/* BM TRADA ART picker on a defect */
+.defect-fields .def-art-f { grid-column: 1 / -1; }
+.def-art { font-size: 14px !important; }
