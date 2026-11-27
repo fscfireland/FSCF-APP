@@ -236,6 +236,16 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   "Have you cleaned your hands?" every 2 hours (settings `handAt`), and once when the visit's RAMS is signed. Refs: WHO hand
   hygiene 2009 + DoH NCG No. 30 IPC 2023; the categories and the 2-hour interval are (FSCF practice, source to be confirmed).
 - v0.55.2: Health & safety RAMS inspection samples have a Check type drop-down (every kit of that trade with questions; default 6 point). On a site the RAMS uses the check type of the first drawing picked for the visit.
+- Ladder checks (v0.56.0, owner said proceed 27 Nov 2026): `src/ladders.js` = FSCF Form 129 items 1–12 (text from the owner's
+  ladder check PDF, Drive 1tGTZN7nkOa6Gbyh6WpysYfY6vhbjKqNU), GA3 / Reg 119 notes, `ladderStatus` (ok / due / overdue / out /
+  retired / new), `ladderPdf` in his form's layout (sections 1–8 + notes, footer "Based on GA3 and FSCF Form 129… Not an
+  approved statutory form"). Records are settings rows so they merge per record across devices: `ladder-<uid>` (kind
+  'ladder': ref, type, make, material, duty, kept, interval default 7 days = FSCF practice from his form, retired) and
+  `lcheck-<uid>` (kind 'ladderCheck', answers + signature + fileId). Health & safety page: Ladder checks section on top (pill
+  per ladder), Add ladder → straight into the check; check dialog: all items must be answered, All pass, timber/stepladder-only
+  items start N/A; any Fail or fit ≠ Yes = failed → "TAKE THE LADDER OUT OF SERVICE NOW", not repairable → retired.
+  Can't delete a ladder with checks (5-year record, Reg 119(4)). PDF to My files › Ladder checks. Home H&S tile shows
+  "n ladder checks due / out of service". Next: tools list, stock list.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

@@ -96,7 +96,7 @@ const overflow = (p) => p.evaluate(() => {
       business: ['.biz-cust:not(.biz-site)|.biz-soa'],
       'site-plans': ['.coll-copy', '.site-cust'],
       customers: ['.cu-row', '#cu-new'],
-      'health-safety': ['.hs-tpl'],
+      'health-safety': ['.hs-tpl', '#lad-add'],
       'site-files': ['#file-newf'],
       'site-export': ['#pdf'],
     };

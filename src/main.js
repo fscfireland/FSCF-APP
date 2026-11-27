@@ -22,6 +22,7 @@ import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
 import { buildRams, ramsHtml, ramsPdf, WORKS, TRADES } from './rams.js';
+import { ITEMS as LAD_ITEMS, LADDER_TYPES, MATERIALS as LAD_MATERIALS, METHODS as LAD_METHODS, INTERVAL_DAYS, FORM_REF as LAD_REF, itemApplies, ladderStatus, STATUS_LABEL as LAD_STATUS, ladderPdf } from './ladders.js';
 import { markupPhoto, plainThumb } from './photomark.js';
 import { makeCode, allCustomers, customerLabel, emailList, gmailCompose, phoneList, telHref } from './customers.js';
 import { IRON_MAINT, DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
@@ -422,7 +423,7 @@ async function renderProjects() {
       ${liveHtml}
       <div class="tile-pair">
         <button class="lib-card tile ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Sites, doors, reports</small></span></button>
-        <button class="lib-card tile" id="my-hs">${icon('shield')}<span><b>Health &amp; safety</b><small>RAMS · signed visits</small></span></button>
+        <button class="lib-card tile" id="my-hs">${icon('shield')}<span><b>Health &amp; safety</b><small id="my-hs-sub">RAMS · ladder checks</small></span></button>
         <button class="lib-card tile" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private${lists.libPin ? ' · PIN' : ''}</small></span></button>
       </div>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -452,6 +453,12 @@ async function renderProjects() {
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#my-hs')?.addEventListener('click', () => go({ view: 'hs' }));
+  ladderData().then(({ ladders, checks }) => {
+    const due = ladders.filter((l) => ['due', 'overdue', 'new'].includes(ladderStatus(l, checks).st)).length;
+    const out = ladders.filter((l) => ladderStatus(l, checks).st === 'out').length;
+    const el = $('#my-hs-sub');
+    if (el && (due || out)) { el.textContent = [due && `${due} ladder check${due === 1 ? '' : 's'} due`, out && `${out} out of service`].filter(Boolean).join(' · '); el.classList.add('warn-text'); }
+  }).catch(() => {});
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'pricing' }); });
   $('#qk-cont')?.addEventListener('click', async () => {
@@ -1698,13 +1705,18 @@ async function renderBizHub() {
 // ---------- Health & safety: RAMS templates and every signed RAMS ----------
 async function renderHealthSafety() {
   const projects = await db.all('projects');
+  const { ladders, checks: lchecks } = await ladderData(true);
   const signed = projects.flatMap((p) => Object.values(p.rams || {}).map((r) => ({ ...r, p }))).sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
   app.innerHTML = `
     <header class="bar">
       <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
-      <div class="bar-title"><b>Health &amp; safety</b><small>RAMS for every visit · ladder checks, tools and stock next</small></div>
+      <div class="bar-title"><b>Health &amp; safety</b><small>Ladder checks · RAMS for every visit · tools and stock next</small></div>
     </header>
     <main class="page">
+      <h2 class="h2">Ladder checks <span class="muted">${ladders.filter((l) => !l.retired).length}</span></h2>
+      <div class="doc-list">${ladders.map((l) => { const st = ladderStatus(l, lchecks); return `<button type="button" class="doc-row lad-row" data-id="${esc(l.id)}"><span class="q-main"><b>${esc(l.ref)}</b><small>${esc([l.type === 'Other' ? l.typeOther : l.type, l.make].filter(Boolean).join(' · '))}${l.kept ? ` · ${esc(l.kept)}` : ''} · ${st.last ? `last ${esc(fmtDate(st.last.at.slice(0, 10)))}` : 'never checked'}${st.next && !['out', 'retired'].includes(st.st) ? ` · next ${esc(fmtDate(st.next))}` : ''}</small></span><span class="lad-pill lp-${st.st}">${esc(LAD_STATUS[st.st])}</span></button>`; }).join('') || '<p class="muted small">No ladders yet. Add each ladder once, then check it before use and at least every 7 days.</p>'}</div>
+      <button type="button" class="btn" id="lad-add">${icon('plus')} Add ladder</button>
+      <p class="small muted">Checklist and report from your FSCF Form 129 (HSA GA3), SHWW (General Application) Regs 2007, Reg 119. Records kept 5 years (Reg 119(4)). Re-check every 7 days is your own form's practice; Reg 119(1) says "suitable intervals".</p>
       <h2 class="h2">RAMS templates</h2>
       <p class="small muted">The generic part of every RAMS. Starting a visit fills in the site, customer, drawings and check, adds your notes, and asks for it to be read and signed.</p>
       ${Object.entries(TRADES).map(([t, tn]) => `<details class="ffold"><summary>${icon('shield')}<b>${esc(tn)}</b><span class="muted">${Object.keys(WORKS).length}</span></summary><div class="ffold-body"><div class="doc-list">${Object.entries(WORKS).map(([w, wn]) => `<button type="button" class="doc-row hs-tpl" data-t="${t}" data-w="${w}"><span class="q-main"><b>${esc(wn)}</b><small>${t === 'fd' ? 'From your own RAMS' : 'Industry standards in your format · review before first issue'}</small></span></button>`).join('')}</div></div></details>`).join('')}
@@ -1714,6 +1726,8 @@ async function renderHealthSafety() {
     </main>`;
   $('#back').onclick = back;
   $('#hs-next').onchange = (e) => saveLists({ ramsNext: Math.max(1, Number(e.target.value) || 22) });
+  $('#lad-add').onclick = async () => { const l = await editLadder(); if (l && (await ladderCheck(l)) !== undefined) {} renderHealthSafety(); };
+  $$('.lad-row').forEach((b) => (b.onclick = async () => { await ladderPanel(b.dataset.id); renderHealthSafety(); }));
   $$('.hs-tpl').forEach((b) => (b.onclick = async () => {
     // inspection samples: pick the check type (6-point, 29-point, BM TRADA DCS 058 …), as a drawing's type does on site
     const kits = b.dataset.w === 'insp' ? kindIds().filter((k) => tradeOf({ inspType: k }) === b.dataset.t && (kitOf(k).questions || []).some((q) => q.text?.trim())) : [];
@@ -1738,6 +1752,146 @@ async function renderHealthSafety() {
     if (f) openFile(f).catch((err) => toast(err.message, 'error'));
     else toast('The PDF for this RAMS is not on this device', 'error');
   }));
+}
+
+// ---------- Ladder checks (FSCF Form 129 / HSA GA3, Gen App Regs 2007 Reg 119): see ladders.js ----------
+async function ladderData(withRetired = false) {
+  const all = await db.all('settings');
+  const ladders = all.filter((x) => x.kind === 'ladder' && (withRetired || !x.retired)).sort((a, b) => !!a.retired - !!b.retired || String(a.ref).localeCompare(String(b.ref), undefined, { numeric: true }));
+  return { ladders, checks: all.filter((x) => x.kind === 'ladderCheck') };
+}
+async function editLadder(l0 = null) {
+  const l = l0 || { type: 'Stepladder', material: 'Aluminium', interval: INTERVAL_DAYS };
+  const r = await dialog({
+    title: l0 ? `Ladder ${l0.ref}` : 'Add ladder',
+    body: `<label class="field"><span>Ladder no. / identification marks</span><input name="ref" required value="${esc(l.ref || '')}" placeholder="e.g. WK2207B-3J" autocomplete="off"></label>
+      <div class="grid2">
+        <label class="field"><span>Type</span><select name="type">${LADDER_TYPES.map((t) => `<option ${t === l.type ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+        <label class="field"><span>If other: type</span><input name="typeOther" value="${esc(l.typeOther || '')}"></label>
+        <label class="field"><span>Make / model</span><input name="make" value="${esc(l.make || '')}" placeholder="e.g. Waku WK2207B-3J 3-step, handrail"></label>
+        <label class="field"><span>Material</span><select name="material">${LAD_MATERIALS.map((t) => `<option ${t === l.material ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>
+        <label class="field"><span>Duty rating / load class</span><input name="duty" value="${esc(l.duty || '')}" placeholder="e.g. EN 131 professional, 150 kg"></label>
+        <label class="field"><span>Kept at</span><input name="kept" value="${esc(l.kept || '')}" placeholder="e.g. Van"></label>
+      </div>
+      <label class="field"><span>Re-check every (days)</span><input name="interval" type="number" inputmode="numeric" min="1" value="${esc(l.interval || INTERVAL_DAYS)}"><small class="muted">7 days as your Form 129 (FSCF practice); Reg 119(1): "suitable intervals".</small></label>
+      ${l0 ? `<label class="check-line"><input type="checkbox" name="retired" ${l.retired ? 'checked' : ''}> Destroyed / no longer in use (records kept 5 years)</label>` : ''}`,
+    buttons: [...(l0 ? [{ label: 'Delete', value: 'del', kind: 'ghost danger-text' }] : []), { label: 'Cancel', value: false }, { label: l0 ? 'Save' : 'Add ladder', value: true, kind: 'primary' }],
+  });
+  if (r.value === 'del') {
+    const { checks } = await ladderData(true);
+    const n = checks.filter((c) => c.ladderId === l0.id).length;
+    if (n) { toast(`Ladder ${l0.ref} has ${n} check${n === 1 ? '' : 's'}, kept 5 years (Reg 119(4)). Tick "Destroyed / no longer in use" instead.`, 'error'); return null; }
+    if (await confirmBox('Delete ladder?', `Delete ladder ${esc(l0.ref)}? It has no checks.`)) await db.remove('settings', l0.id);
+    return null;
+  }
+  if (r.value !== true || !r.data.ref?.trim()) return null;
+  return db.put('settings', { ...l, id: l.id || 'ladder-' + db.uid(), kind: 'ladder', ref: r.data.ref.trim(), type: r.data.type, typeOther: r.data.typeOther || '', make: r.data.make || '', material: r.data.material, duty: r.data.duty || '', kept: r.data.kept || '', interval: Math.max(1, Number(r.data.interval) || INTERVAL_DAYS), retired: !!r.data.retired });
+}
+async function ladderPanel(id) {
+  for (;;) {
+    const { checks } = await ladderData(true);
+    const l = await db.get('settings', id);
+    if (!l) return;
+    const st = ladderStatus(l, checks);
+    const r = await dialog({
+      title: `Ladder ${l.ref}`,
+      body: `<p><span class="lad-pill lp-${st.st}">${esc(LAD_STATUS[st.st])}</span></p>
+        ${st.st === 'out' ? '<p class="warn-box"><b>Failed its last check: out of service.</b> Do not use it until it is repaired and passes a new check. If it cannot be repaired, arrange for it to be destroyed (FSCF Form 129).</p>' : ''}
+        <p class="small">${esc([l.type === 'Other' ? l.typeOther : l.type, l.make, l.material, l.duty, l.kept && 'kept at ' + l.kept].filter(Boolean).join(' · '))}</p>
+        <p class="small muted">${st.next && !['out', 'retired'].includes(st.st) ? `Next check by ${esc(fmtDate(st.next))} · ` : ''}every ${esc(l.interval || INTERVAL_DAYS)} days</p>
+        <h3 class="h3">Checks <span class="muted">${st.checks.length}</span></h3>
+        <div class="doc-list">${st.checks.map((c) => `<button type="button" class="doc-row lc-row" data-c="${esc(c.id)}"><span class="q-main"><b>${esc(fmtDate(c.at.slice(0, 10)))} · ${c.result === 'fail' ? 'FAILED' : 'Passed'}</b><small>${esc(c.inspector || '')}${c.defects ? ' · ' + esc(c.defects) : ''}</small></span>${icon('report')}</button>`).join('') || '<p class="muted small">No checks yet.</p>'}</div>`,
+      buttons: [{ label: 'Close', value: false }, { label: 'Edit', value: 'edit', kind: 'ghost' }, ...(l.retired ? [] : [{ label: 'Check now', value: 'check', kind: 'primary' }])],
+      onOpen: (f) => f.querySelectorAll('.lc-row').forEach((b) => (b.onclick = (e) => { e.preventDefault(); openLadderPdf(l, checks.find((c) => c.id === b.dataset.c)).catch((err) => toast(err.message, 'error')); })),
+    });
+    if (r.value === 'edit') await editLadder(l);
+    else if (r.value === 'check') await ladderCheck(l);
+    else return;
+  }
+}
+async function openLadderPdf(l, c) {
+  const f = c.fileId && (await db.get('files', c.fileId));
+  if (f) return openFile(f);
+  const bz = busy('Making the ladder check PDF…');
+  try { const blob = await ladderPdf(l, c); bz.done(); await saveFile(ladderFileName(l, c), blob); } catch (err) { bz.done(); throw err; }
+}
+const ladderFileName = (l, c) => `Ladder Check ${String(l.ref).replace(/[\\/:*?"<>|]/g, '-')} ${c.at.slice(0, 10)}.pdf`;
+async function ladderCheck(l) {
+  const { checks } = await ladderData(true);
+  const prev = ladderStatus(l, checks).last;
+  const day = (n) => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  let v = {
+    where: prev?.where || 'FSCF Ireland', whereOther: prev?.whereOther || '', forWho: prev?.forWho || 'FSCF Ireland', address: prev?.address || 'Copponagh, Bailieborough, Co. Cavan, A82 YK46', contact: '',
+    inspector: prev?.inspector || lists.inspector || 'Mark Crosby', position: prev?.position || 'Director', method: prev?.method || 'Visual', methodOther: '',
+    fit: 'Yes', used: 'Yes', reinspect: day(l.interval || INTERVAL_DAYS),
+  };
+  LAD_ITEMS.forEach((_, i) => { if (!itemApplies(i, l)) v['i' + i] = 'na'; });
+  const radio = (name, val, opts) => opts.map(([o, n]) => `<label class="lc-opt lc-${o}"><input type="radio" name="${name}" value="${esc(o)}" ${o === val ? 'checked' : ''}><span>${esc(n)}</span></label>`).join('');
+  for (;;) {
+    const r = await dialog({
+      title: `Ladder check: ${l.ref}`,
+      body: `<p class="small muted">${esc(LAD_REF)}. Answer every item.</p>
+        <h3 class="h3">1. Inspection details</h3>
+        <div class="lc-opts">${radio('where', v.where, [['FSCF Ireland', 'FSCF Ireland'], ['Other', 'Other']])}</div>
+        <label class="field"><span>If other: where</span><input name="whereOther" value="${esc(v.whereOther)}" placeholder="e.g. Home (pre-work check), site name"></label>
+        <div class="grid2">
+          <label class="field"><span>Carried out for</span><input name="forWho" value="${esc(v.forWho)}"></label>
+          <label class="field"><span>Client / site contact</span><input name="contact" value="${esc(v.contact)}"></label>
+        </div>
+        <label class="field"><span>Address where carried out</span><input name="address" value="${esc(v.address)}"></label>
+        <div class="grid2">
+          <label class="field"><span>Inspector</span><input name="inspector" value="${esc(v.inspector)}" required></label>
+          <label class="field"><span>Position</span><input name="position" value="${esc(v.position)}"></label>
+        </div>
+        <h3 class="h3">3. Inspection method</h3>
+        <div class="lc-opts">${radio('method', v.method, LAD_METHODS.map((m) => [m, m]))}</div>
+        <h3 class="h3 lc-head">4. Condition checklist <button type="button" class="btn sm" id="lc-allpass">All pass</button></h3>
+        ${LAD_ITEMS.map(([h, t], i) => `<div class="lc-item"><p><b>${i + 1}. ${esc(h)}:</b> ${esc(t)}</p><div class="lc-opts">${radio('i' + i, v['i' + i], [['pass', 'Pass'], ['fail', 'Fail'], ['na', 'N/A']])}</div><input name="n${i}" class="lc-note" value="${esc(v['n' + i] || '')}" placeholder="Comments / location of defect"></div>`).join('')}
+        <h3 class="h3">5. Visible damage or wear</h3>
+        <textarea name="damage" class="lc-note" rows="2" placeholder="None">${esc(v.damage || '')}</textarea>
+        <h3 class="h3">6. Fitness for use</h3>
+        <p class="small">Fit for continued use?</p><div class="lc-opts">${radio('fit', v.fit, [['Yes', 'Yes'], ['No', 'No'], ['Requires further assessment', 'Further assessment']])}</div>
+        <p class="small">Used in accordance with safety guidelines?</p><div class="lc-opts">${radio('used', v.used, [['Yes', 'Yes'], ['No', 'No'], ['Not applicable', 'N/A']])}</div>
+        <label class="field"><span>Additional details</span><input name="details" value="${esc(v.details || '')}" placeholder="None"></label>
+        <h3 class="h3">7. If it failed</h3>
+        <p class="small">Can it be repaired?</p><div class="lc-opts">${radio('repairable', v.repairable, [['Yes', 'Yes'], ['No', 'No: destroy it']])}</div>
+        <label class="field"><span>Corrective action taken</span><input name="corrective" value="${esc(v.corrective || '')}" placeholder="None"></label>
+        <label class="field"><span>Further action necessary</span><input name="further" value="${esc(v.further || '')}" placeholder="None"></label>
+        <label class="field"><span>Re-inspection date</span><input type="date" name="reinspect" value="${esc(v.reinspect)}"></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Sign and save', value: true, kind: 'primary' }],
+      onOpen: (f) => { f.querySelector('#lc-allpass').onclick = (e) => { e.preventDefault(); LAD_ITEMS.forEach((_, i) => { const cur = f.querySelector(`input[name=i${i}]:checked`); if (cur?.value !== 'na') f.querySelector(`input[name=i${i}][value=pass]`).checked = true; }); }; },
+    });
+    if (r.value !== true) return null;
+    v = { ...v, ...r.data };
+    const missing = LAD_ITEMS.map((_, i) => i).filter((i) => !v['i' + i]);
+    if (missing.length) { toast(`Answer item${missing.length === 1 ? '' : 's'} ${missing.map((i) => i + 1).join(', ')}`, 'error'); continue; }
+    const failed = LAD_ITEMS.some((_, i) => v['i' + i] === 'fail') || v.fit !== 'Yes';
+    if (LAD_ITEMS.some((_, i) => v['i' + i] === 'fail') && v.fit === 'Yes') { toast('An item failed, so it is not fit for continued use. Set "Fit for continued use" to No or Further assessment.', 'error'); continue; }
+    if (failed && !v.repairable) { toast('It failed: say whether it can be repaired', 'error'); continue; }
+    break;
+  }
+  const sig = await signaturePad({ title: 'Sign the ladder check', name: v.inspector, askName: false, saved: lists.signature });
+  if (!sig) return null;
+  const failed = LAD_ITEMS.some((_, i) => v['i' + i] === 'fail') || v.fit !== 'Yes';
+  const items = LAD_ITEMS.map((_, i) => ({ r: v['i' + i], note: (v['n' + i] || '').trim() }));
+  const defects = items.map((x, i) => (x.r === 'fail' ? `${LAD_ITEMS[i][0]}${x.note ? ': ' + x.note : ''}` : '')).filter(Boolean).join('; ');
+  const c = {
+    id: 'lcheck-' + db.uid(), kind: 'ladderCheck', ladderId: l.id, at: new Date().toISOString(),
+    where: v.where, whereOther: v.whereOther || '', forWho: v.forWho || '', address: v.address || '', contact: v.contact || '', inspector: v.inspector || '', position: v.position || '',
+    method: v.method, methodOther: v.methodOther || '', items, damage: (v.damage || '').trim(), fit: v.fit, used: v.used, details: v.details || '',
+    result: failed ? 'fail' : 'pass', repairable: failed ? v.repairable : '', defects, corrective: v.corrective || '', further: v.further || '',
+    reinspect: failed ? '' : v.reinspect, sig: { data: sig.data, w: sig.w, h: sig.h },
+  };
+  await db.put('settings', c);
+  if (failed && v.repairable === 'No') await db.put('settings', { ...l, retired: true });
+  try {
+    const blob = await ladderPdf(l, c);
+    const f = await addBlob(LIB, blob, ladderFileName(l, c), 'Ladder checks', { ladderCheckId: c.id });
+    await db.put('settings', { ...c, fileId: f.id });
+  } catch (err) { toast('Saved, but the PDF could not be made: ' + err.message, 'error'); }
+  if (failed) await dialog({ title: 'TAKE THE LADDER OUT OF SERVICE NOW', body: `<p>Ladder <b>${esc(l.ref)}</b> failed its check${defects ? ` (${esc(defects)})` : ''}.</p><p>${v.repairable === 'No' ? 'It cannot be repaired: arrange for it to be destroyed. It is marked as destroyed / no longer in use.' : 'Do not use it until it is repaired and passes a new check.'}</p><p class="small muted">(FSCF Form 129)</p>`, buttons: [{ label: 'OK', value: true, kind: 'primary' }] });
+  else toast(`Ladder ${l.ref} passed · next check by ${fmtDate(c.reinspect)} · PDF in My files › Ladder checks`);
+  return c;
 }
 
 // ---------- Customers ----------
@@ -5931,9 +6085,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.55.2';
+const VERSION_TAG = 'app v0.56.0';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Health & safety: RAMS inspection samples now let you pick the check type (6-point, 29-point, BS 8214, BM TRADA DCS 058, final exits)';
+const WHATS_NEW = 'Ladder checks on Health & safety: your Form 129 checklist, sign, PDF to My files › Ladder checks, weekly re-check, out of service on a fail';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

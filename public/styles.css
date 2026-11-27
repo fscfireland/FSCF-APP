@@ -316,7 +316,7 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: var(--safe
 .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr)); gap: 12px; }
 .field { display: grid; gap: 4px; }
 .field > span { font-size: 13px; font-weight: 600; color: var(--ink-2); }
-.field input, .field select, .field textarea, .def-edit input, .def-edit textarea {
+.field input, .field select, .field textarea, .def-edit input, .def-edit textarea, .lc-note {
   width: 100%; min-height: 44px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink);
   font-size: 16px; /* 16px stops iPhone zooming in on focus */
 }
@@ -1662,3 +1662,23 @@ a.lib-card { text-decoration: none; }
 .acc-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .acc-field > span:first-child { flex-basis: 100%; }
 .acc-field #f-acode { margin-top: 0; flex: 1 1 140px; max-width: 220px; }
+
+/* ladder checks (Health & safety) */
+.lad-pill { flex: none; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; white-space: nowrap; background: #e3f4e7; color: #1d6b34; }
+.lad-pill.lp-due, .lad-pill.lp-new { background: #fff1cc; color: #7a5600; }
+.lad-pill.lp-overdue, .lad-pill.lp-out { background: #ffd9de; color: #a3142a; }
+.lad-pill.lp-retired { background: #e6e7e9; color: #555; }
+.lad-row { align-items: center; }
+.lc-item { border-top: 1px solid var(--line); padding: 8px 0 6px; }
+.lc-item p { margin: 0 0 6px; font-size: 14px; }
+.lc-opts { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 6px; }
+.lc-opt { position: relative; }
+.lc-opt input { position: absolute; opacity: 0; pointer-events: none; }
+.lc-opt span { display: inline-block; padding: 6px 12px; border: 1px solid var(--line); border-radius: 999px; font-size: 13px; cursor: pointer; min-width: 44px; text-align: center; }
+.lc-opt input:checked + span { background: var(--brand, #23282d); border-color: var(--brand, #23282d); color: #fff; }
+.lc-opt.lc-pass input:checked + span { background: var(--st-pass, #1f8a3b); border-color: var(--st-pass, #1f8a3b); }
+.lc-opt.lc-fail input:checked + span { background: var(--st-fail, #cc2a1f); border-color: var(--st-fail, #cc2a1f); }
+.lc-opt input:focus-visible + span { outline: 2px solid var(--accent, #c2672c); }
+.lc-note { width: 100%; }
+.lc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.warn-box { background: #ffd9de; color: #7a0f20; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
