@@ -1,0 +1,206 @@
+<title>FSCF Safety, Tools and Stock</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800&family=Inter:wght@400;500;600&display=swap">
+<style>
+/* Layout: one phone-width column in the app's own look; the chips at the top jump between the screens of the mock-up. */
+:root {
+  --bg: #f3f5f7; --surface: #ffffff; --surface-2: #e9edf1; --line: #d9dee3; --ink: #1d2227; --ink-2: #56616b;
+  --brand: #23282d; --brand-ink: #ffffff; --copper: #b65a22; --pass: #2e8540; --fail: #cc2a1f; --warn: #c27a00;
+  --f-head: 'Archivo', system-ui, sans-serif; --f-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #121619; --surface: #1b2126; --surface-2: #252d34; --line: #323c45; --ink: #e8ecef; --ink-2: #a2adb7;
+  --brand: #c96f35; --copper: #d9843f; --pass: #4caf63; --fail: #e5554b; --warn: #e0a030; color-scheme: dark; } }
+:root[data-theme="dark"] { --bg: #121619; --surface: #1b2126; --surface-2: #252d34; --line: #323c45; --ink: #e8ecef; --ink-2: #a2adb7;
+  --brand: #c96f35; --copper: #d9843f; --pass: #4caf63; --fail: #e5554b; --warn: #e0a030; color-scheme: dark; }
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font: 400 14.5px/1.45 var(--f-body); text-transform: uppercase; }
+.keep { text-transform: none; }
+.wrap { max-width: 460px; margin: 0 auto; padding-block: 10px 40px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); display: grid; gap: 12px; }
+button, input, select, textarea { font: inherit; color: inherit; text-transform: inherit; }
+h1, h2, h3 { font-family: var(--f-head); margin: 0; text-wrap: balance; letter-spacing: .01em; }
+h1 { font-size: 20px; } h2 { font-size: 16px; } h3 { font-size: 14px; }
+small, .muted { color: var(--ink-2); }
+.nav { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 5; display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 6px 0; background: var(--bg); }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+.nav button { flex: none; min-height: 38px; padding: 0 12px; border-radius: 19px; border: 1px solid var(--line); background: var(--surface); font-size: 12px; font-weight: 600; cursor: pointer; }
+.nav button[aria-pressed="true"] { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.note { font-size: 12px; color: var(--ink-2); text-align: center; margin: 0; }
+.screen { background: var(--bg); border: 1px solid var(--line); border-radius: 18px; overflow: hidden; }
+.top { display: flex; align-items: center; gap: 10px; padding: 12px 14px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.top b { font-family: var(--f-head); font-size: 15px; display: block; }
+.top small { font-size: 11px; }
+.back { border: 0; background: none; font-size: 20px; cursor: pointer; padding: 0 4px; }
+.body { padding: 14px; display: grid; gap: 12px; grid-template-columns: minmax(0, 1fr); }
+.card, .field, .list { min-width: 0; }
+.field select, .field input, .field textarea { width: 100%; min-width: 0; text-overflow: ellipsis; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; display: grid; gap: 8px; }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tile { display: grid; justify-items: center; gap: 4px; padding: 12px 4px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: 11.5px; font-weight: 700; cursor: pointer; text-align: center; }
+.tile svg { width: 24px; height: 24px; stroke: var(--copper); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tile small { font-size: 10px; font-weight: 500; }
+.tile.new { outline: 2px dashed var(--copper); outline-offset: 2px; }
+.ghost { opacity: .45; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+.row > :first-child { min-width: 0; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 14px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-weight: 600; cursor: pointer; }
+.btn.primary { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.btn.block { width: 100%; }
+.pill { flex: none; padding: 2px 9px; border-radius: 10px; font-size: 11px; font-weight: 700; color: var(--c); background: color-mix(in srgb, var(--c) 14%, transparent); }
+.list { display: grid; border: 1px solid var(--line); border-radius: 14px; overflow: hidden; background: var(--surface); }
+.list > * + * { border-top: 1px solid var(--line); }
+.li { display: flex; align-items: center; gap: 10px; padding: 11px 14px; border: 0; background: none; text-align: left; width: 100%; cursor: pointer; }
+.li > div { flex: 1; min-width: 0; }
+.field { display: grid; gap: 4px; }
+.field span { font-size: 11.5px; font-weight: 600; color: var(--ink-2); letter-spacing: .03em; }
+.field input, .field select, .field textarea { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.field textarea { min-height: 70px; text-transform: none; }
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.seg button { min-height: 52px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); font-size: 12px; font-weight: 700; cursor: pointer; padding: 4px; }
+.seg button[aria-pressed="true"] { border-color: var(--copper); box-shadow: inset 0 0 0 2px var(--copper); }
+.crumb { font-size: 12px; color: var(--copper); font-weight: 700; }
+.ref { font-size: 11px; color: var(--ink-2); text-transform: none; }
+.sec { display: grid; gap: 4px; padding: 8px 0; border-top: 1px dashed var(--line); }
+.sec:first-child { border-top: 0; }
+.chk { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-top: 1px solid var(--line); }
+.pf { display: flex; gap: 4px; }
+.pf button { min-width: 44px; min-height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 11px; font-weight: 700; cursor: pointer; }
+.pf button[aria-pressed="true"].p { background: var(--pass); border-color: var(--pass); color: #fff; }
+.pf button[aria-pressed="true"].f { background: var(--fail); border-color: var(--fail); color: #fff; }
+.sig { height: 90px; border: 1px dashed var(--ink-2); border-radius: 10px; display: grid; place-items: center; color: var(--ink-2); font-size: 12px; background: var(--surface); cursor: pointer; }
+.sig.done { border-style: solid; color: var(--ink); font-family: cursive; text-transform: none; font-size: 22px; }
+.toast { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--pass) 14%, transparent); font-size: 13px; font-weight: 600; }
+.warnbox { padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--warn) 16%, transparent); font-size: 12.5px; }
+.qty { display: flex; align-items: center; gap: 6px; }
+.qty button { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); font-size: 18px; cursor: pointer; }
+.qty b { min-width: 28px; text-align: center; font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 3px solid var(--copper); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <nav class="nav" id="nav" aria-label="Mock-up screens"></nav>
+  <p class="note">Mock-up with example data · tap around · nothing is saved</p>
+  <div id="view"></div>
+</div>
+
+<script>
+const ICON = {
+  shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  tools: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/>',
+  box: '<path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10"/>',
+  play: '<path d="M7 4l12 8-12 8z"/>', plus: '<path d="M12 5v14M5 12h14"/>', file: '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/>',
+};
+const ico = (k) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICON[k]}</svg>`;
+const SCREENS = [['home', 'Home'], ['service', 'Start service'], ['rams', 'RAMS'], ['hs', 'Health & safety'], ['ladder', 'Ladder check'], ['tools', 'Tools'], ['stock', 'Stock']];
+let cur = 'home';
+let ramsType = 'insp';
+let signed = false;
+let lad = { 1: 'p', 2: 'p', 3: 'p', 4: '', 5: '' };
+const stock = [['Intumescent + smoke seal 15 × 4 mm (2.1 m)', 'Seals', 14, 10], ['Grade 13 stainless hinges (pair)', 'Hinges', 3, 6], ['Overhead closer EN 1154 size 2–4', 'Closers', 2, 2], ['Fire-rated acrylic sealant 310 ml', 'Fire stopping', 9, 6], ['Hardwood lipping 10 × 44 mm (2.4 m)', 'Timber', 12, 8]];
+const TYPES = {
+  insp: { name: 'Inspection RAMS', base: 'FSCF-RAMS-21 (Dunboyne Health Centre, Rev 0)', scope: '6-point visual and functional condition inspection of the fire doorsets. Inspection and reporting only; no remedial works under this RAMS.', method: ['Fire register checked for noted faults', 'Closing action from various angles', 'Gaps 2–4 mm with a calibrated gap gauge', 'Seals present, continuous, undamaged', 'Signage both sides', 'Ironmongery present, secure, operational'] },
+  rem: { name: 'Remedial repair RAMS', base: 'Your master remedial RAMS (to be confirmed: St Eunan\'s Feb 2026, IBTS ARD-002 or 35 Glenview Rev 2)', scope: 'Remedial repairs to existing fire doorsets as listed on the repair sheet for this drawing, to the BM TRADA Accepted Repair Techniques where they apply.', method: ['Repair items taken from the drawing\'s repair sheet', 'Each repair to its ART / manufacturer\'s instructions', 'Door tested: closes and latches from any angle', 'Before / after photos per door'] },
+  inst: { name: 'Install RAMS', base: 'CVL-001-REM-001 Rev 2 (Civil Registration, Lombard St)', scope: 'Removal of existing doorsets and installation of new certified fire doorsets within the manufacturer\'s field of application.', method: ['Products checked against the certification before attending', 'Old leaf and frame removed in sections with extraction', 'Frame fixed and sealed to the assessment', 'Leaf hung, gaps 3 mm sides/top, closer set, tested'] },
+};
+const nav = () => { document.getElementById('nav').innerHTML = SCREENS.map(([k, l]) => `<button data-s="${k}" aria-pressed="${cur === k}">${l}</button>`).join(''); };
+const frame = (title, sub, body, back = 'home') => `<div class="screen"><div class="top">${cur !== 'home' ? `<button class="back" data-s="${back}" aria-label="Back">‹</button>` : ''}<div><b>${title}</b><small>${sub}</small></div></div><div class="body">${body}</div></div>`;
+
+const views = {
+  home: () => frame('FSCF Ireland', 'Rev 0.55 · Home', `
+    <div class="tiles ghost"><div class="tile">${ico('play')}Continue<small>003 · Day room</small></div><div class="tile">${ico('plus')}New site</div><div class="tile">${ico('file')}Quote from report</div></div>
+    <div class="card ghost" style="grid-template-columns:repeat(3,1fr);text-align:center;font-size:11px"><span><b>0</b><br>Overdue</span><span><b>2</b><br>Due this week</span><span><b>15</b><br>Repairs open</span></div>
+    <p class="crumb">New: one small row under Ask Claude / My files</p>
+    <div class="tiles">
+      <button class="tile new" data-s="hs">${ico('shield')}Health &amp; safety<small>RAMS · ladder checks</small></button>
+      <button class="tile new" data-s="tools">${ico('tools')}Tools<small>42 items · 1 check due</small></button>
+      <button class="tile new" data-s="stock">${ico('box')}Stock<small>2 low</small></button>
+    </div>
+    <p class="small muted" style="margin:0">Nothing else on Home moves. The bottom tabs stay as they are.</p>`),
+
+  service: () => frame('Start service', 'Navan Hospital › Fire door inspections › November 2026', `
+    <p class="crumb keep">Ground floor · Navan Hospital (HSE North East, HSNE-001)</p>
+    <div class="card"><h3>Before you start: RAMS for this service</h3>
+      <p class="small muted" style="margin:0">Picked from the kind of work. It is made from your generic RAMS, with this site, drawing and customer filled in.</p>
+      <div class="row"><div><b>Inspection RAMS</b><br><small>Made from FSCF-RAMS-21 · not signed yet</small></div><span class="pill" style="--c:var(--warn)">To sign</span></div>
+      <button class="btn primary block" data-s="rams">Open and sign the RAMS</button>
+      <button class="btn block">Skip for now</button>
+    </div>
+    <div class="card ghost"><h3>End of service questions</h3><small>unchanged</small></div>`, 'home'),
+
+  rams: () => {
+    const t = TYPES[ramsType];
+    return frame(t.name, 'FSCF-RAMS-24 · Rev 0 · 27 Nov 2026', `
+      <div class="seg">${[['insp', 'Inspection'], ['rem', 'Remedial repair'], ['inst', 'Install']].map(([k, l]) => `<button data-t="${k}" aria-pressed="${ramsType === k}">${l}</button>`).join('')}</div>
+      <label class="field"><span>For</span><select><option>Navan Hospital › Fire door inspections › November 2026 › Ground floor</option><option>Navan Hospital › whole collection (all drawings)</option><option>Navan Hospital › Fire door inspections › December 2026</option></select></label>
+      <div class="card">
+        <div class="sec"><b>Filled in from the app</b>
+          <small class="keep">Site: Navan Hospital, Navan, Co. Meath · Customer: HSE North East (HSNE-001), Shane Rooney · Drawing: Ground floor · Collection: Fire door inspections › November 2026 · Doors: 42 pins · Nearest A&amp;E: (from site details)</small></div>
+        <div class="sec"><b>Generic part (does not change between sites)</b>
+          <small class="keep">${t.scope}</small>
+          <ul style="margin:4px 0 0 18px;padding:0;font-size:12.5px" class="keep">${t.method.map((m) => `<li>${m}</li>`).join('')}</ul>
+          <span class="ref">Source: ${t.base}. Legislation: SHWW Act 2005, Gen App Regs 2007–2020, Construction Regs 2013, Fire Services Acts 1981 &amp; 2003, EN 1634-1, EN 13501-2, BS 8214:2026. Risk 5×5 matrix as in your RAMS.</span></div>
+        <div class="sec"><b>Site-specific notes</b><textarea class="keep" placeholder="e.g. Sign in at main reception; boiler house keys from the porter" style="min-height:60px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"></textarea></div>
+        <div class="sec"><b>Project / drawing notes</b><textarea class="keep" placeholder="e.g. Ward 3 only before 10am" style="min-height:60px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--surface)"></textarea></div>
+      </div>
+      <div class="card"><b>Sign-off</b><small class="keep">We confirm we have read, understood and agree to comply with this RAMS. (as in your RAMS, section 12)</small>
+        <button class="sig ${signed ? 'done' : ''}" data-sign="1">${signed ? 'Mark Crosby' : 'Tap to sign · Mark Crosby, Director / DipFD'}</button>
+        <button class="btn block">+ Add operative to sign</button>
+      </div>
+      ${signed ? '<div class="toast">Signed. PDF saved in this site\'s Files › RAMS, named NAVAN HOSPITAL – NOVEMBER 2026 – GROUND FLOOR – INSPECTION RAMS.</div>' : ''}
+      <button class="btn primary block">Save PDF</button>`, 'service');
+  },
+
+  hs: () => frame('Health & safety', 'RAMS, ladder checks and your safety documents', `
+    <h2>RAMS templates</h2>
+    <div class="list">${Object.entries(TYPES).map(([k, t]) => `<button class="li" data-t2="${k}"><div><b>${t.name}</b><br><small class="keep">Generic · from ${t.base.split(' (')[0]}</small></div><span class="pill" style="--c:var(--copper)">Edit</span></button>`).join('')}</div>
+    <h2>Signed RAMS</h2>
+    <div class="list"><div class="li"><div><b>Navan Hospital – Nov 2026 – Ground floor</b><br><small>Inspection · signed 27 Nov 2026</small></div></div><div class="li"><div><b>Dunboyne HC – Zone 5</b><br><small>Inspection · signed 17 Nov 2026</small></div></div></div>
+    <h2>Ladder checks</h2>
+    <div class="list"><button class="li" data-s="ladder"><div><b>Waku WK2207B-3J stepladder</b><br><small>Last check 17 Nov 2026 · next 23 Nov 2026</small></div><span class="pill" style="--c:var(--fail)">Overdue</span></button></div>
+    <button class="btn block" data-s="ladder">+ New ladder check</button>
+    <h2>Other</h2>
+    <div class="list"><div class="li"><div><b>Safety statement</b><br><small>Your file from Drive</small></div></div><div class="li"><div><b>Insurance, Safe Pass, training records</b><br><small>Your files</small></div></div></div>`),
+
+  ladder: () => {
+    const items = ['Rivets & fastenings: all in place and secure; no corrosion, cracking or movement', 'Stiles: free from distortion, damage, sharp edges, flaws, cracks and defects', 'Rungs / steps: all in place and secure; free from distortion, damage and sharp edges', 'Anti-slip feet: top and bottom feet in place, secure and free from damage', 'Hinges, brackets / spreaders (stepladders): secure, undamaged, lock fully'];
+    const failed = Object.values(lad).includes('f');
+    return frame('Ladder check', 'Waku WK2207B-3J · FSCF Form 129', `
+      <div class="card"><small class="keep">Inspector: Mark Crosby, Director · Date: 27/11/2026 · Re-inspection: 04/12/2026 (weekly)</small></div>
+      <div class="card">${items.map((t, i) => { const [h, r] = t.split(': '); return `<div class="chk"><span class="keep"><b>${h.toUpperCase()}:</b> ${r}</span><span class="pf"><button class="p" data-l="${i + 1}" data-v="p" aria-pressed="${lad[i + 1] === 'p'}">Pass</button><button class="f" data-l="${i + 1}" data-v="f" aria-pressed="${lad[i + 1] === 'f'}">Fail</button></span></div>`; }).join('')}
+        <span class="ref">Checklist from FSCF Form 129 and HSA GA3; SHWW (General Application) Regs 2007, Reg 119. 12 items in the real form.</span></div>
+      ${failed ? '<div class="warnbox"><b>FAILED: take the ladder out of service now.</b> If it can\'t be repaired, arrange for it to be destroyed. (Form 129)</div>' : ''}
+      <button class="sig ${signed ? 'done' : ''}" data-sign="1">${signed ? 'Mark Crosby' : 'Tap to sign'}</button>
+      <button class="btn primary block">Save ladder check PDF</button>
+      <p class="small muted" style="margin:0">Kept 5 years (Reg 119(4)). The ladder shows "Overdue" on Health &amp; safety and Tools when its weekly check is late.</p>`, 'hs');
+  },
+
+  tools: () => frame('Tools', '42 items · in the van and the store', `
+    <label class="field"><span>Search</span><input placeholder="e.g. drill, gauge, ladder"></label>
+    <div class="list">
+      <button class="li" data-s="ladder"><div><b>Waku WK2207B-3J stepladder</b><br><small>Access · Van · ID WK2207B-3J</small></div><span class="pill" style="--c:var(--fail)">Check due</span></button>
+      <div class="li"><div><b>Calibrated gap gauge</b><br><small>Inspection · Bag · calibration due Mar 2027</small></div><span class="pill" style="--c:var(--pass)">OK</span></div>
+      <div class="li"><div><b>Makita cordless drill DHP485</b><br><small>Power tools · Van · PAT 12 Sep 2026</small></div><span class="pill" style="--c:var(--pass)">OK</span></div>
+      <div class="li"><div><b>HEPA vacuum (H13)</b><br><small>Dust control · Store</small></div><span class="pill" style="--c:var(--pass)">OK</span></div>
+      <div class="li"><div><b>110V transformer + RCD</b><br><small>Power · Van · PAT 12 Sep 2026</small></div><span class="pill" style="--c:var(--pass)">OK</span></div>
+    </div>
+    <button class="btn primary block">+ Add tool</button>
+    <p class="small muted" style="margin:0">Each tool: name, make / model, serial or ID, category, where it is kept, check type (ladder, PAT, calibration) and next check date. Tools listed in a RAMS ("Plant &amp; equipment") can be picked from here.</p>`),
+
+  stock: () => frame('Stock', 'Van and store · 2 below minimum', `
+    <div class="warnbox">2 items below your minimum: hinges, closers</div>
+    <div class="list">${stock.map(([n, c, q, min], i) => `<div class="li"><div><b>${n}</b><br><small>${c} · min ${min}</small></div><span class="qty"><button data-q="${i}" data-d="-1" aria-label="One less">−</button><b style="color:${q < min ? 'var(--fail)' : 'inherit'}">${q}</b><button data-q="${i}" data-d="1" aria-label="One more">+</button></span></div>`).join('')}</div>
+    <button class="btn primary block">+ Add stock item</button>
+    <p class="small muted" style="margin:0">Items come from your price list (Settings › Products), so names match quotes. Using a product on a repair can take it off stock (optional).</p>`),
+};
+function draw() { nav(); document.getElementById('view').innerHTML = views[cur](); }
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('button'); if (!b) return;
+  if (b.dataset.s) { cur = b.dataset.s; signed = false; draw(); window.scrollTo(0, 0); return; }
+  if (b.dataset.t) { ramsType = b.dataset.t; draw(); return; }
+  if (b.dataset.t2) { ramsType = b.dataset.t2; cur = 'rams'; signed = false; draw(); return; }
+  if (b.dataset.sign) { signed = true; draw(); return; }
+  if (b.dataset.l) { lad[b.dataset.l] = b.dataset.v; draw(); return; }
+  if (b.dataset.q) { const s = stock[+b.dataset.q]; s[2] = Math.max(0, s[2] + +b.dataset.d); draw(); }
+});
+draw();
+</script>

@@ -201,6 +201,16 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   opens a new Gmail message (`gmailCompose`, mail.google.com ?view=cm), plus "Email all". Phone (landline) and Mobile are
   separate boxes (`splitPhones`: 08x / +353 8 = mobile); older combined phones are split when shown. Each number is a tel:
   link (`telHref`, 00353 → +353) that also copies the number, as tel: links may not open from inside the Claude app.
+- Health & safety, Tools, Stock (27 Nov 2026, mock-up only, awaiting owner's go-ahead): `mockups/safety-tools-stock.html`,
+  published at https://claude.ai/artifact/JbTieRFr4NN9kmsQDpFW5r. Home gets one small row of 3 tiles (H&S, Tools, Stock);
+  nothing else moves. RAMS: 3 generic templates made from the owner's own RAMS — Inspection = FSCF-RAMS-21 Dunboyne
+  (Drive 1XqBwylRrogKMAOFRStbT0qXDkgZlvnpN), Install = CVL-001-REM-001 Rev 2 Lombard St (Drive 1Z0uhSqBJI279dIOus2oXUKRFGDtpzjwO),
+  Remedial = master to be confirmed by the owner (candidates: St Eunan's Feb 2026, IBTS ARD-002, 35 Glenview Rev 2);
+  same structure (scope, legislation, roles, 5×5 risk register, method, PPE, training, plant, emergency, sign-off).
+  Generated per site › collection › section › drawing with customer and site filled in, plus site-specific and
+  project notes; signed; PDF to the site's Files › RAMS. Offered when a service starts. Ladder checks = FSCF Form 129 /
+  HSA GA3, SHWW Gen App Regs 2007 Reg 119 (Drive 1tGTZN7nkOa6Gbyh6WpysYfY6vhbjKqNU), weekly re-inspection, 5-year
+  record. Tools list (check type, next check) and stock list (from the price list, minimum levels).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
