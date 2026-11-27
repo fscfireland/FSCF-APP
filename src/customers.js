@@ -168,3 +168,20 @@ export function splitPhones(list = []) {
   const all = list.map((x) => String(x || '').trim()).filter(Boolean);
   return { phone: all.filter((x) => !isMobile(x)).join(', '), mobile: all.filter(isMobile).join(', ') };
 }
+
+// Merge the customer lists of two devices: the newer copy of each customer wins, and the
+// archive of previous details is the union of both, so no version is lost on either side.
+export function mergeCustomers(mine = [], theirs = []) {
+  const by = new Map(mine.map((c) => [c.code.toUpperCase(), c]));
+  for (const t of theirs) {
+    const k = t.code.toUpperCase();
+    const m = by.get(k);
+    if (!m) { by.set(k, t); continue; }
+    const newer = (t.updatedAt || '') > (m.updatedAt || '') ? t : m;
+    const hist = [...(m.history || []), ...(t.history || [])];
+    const seen = new Set();
+    const history = hist.filter((h) => { const key = h.at + JSON.stringify(h.before); if (seen.has(key)) return false; seen.add(key); return true; }).sort((a, b) => a.at.localeCompare(b.at));
+    by.set(k, { ...newer, history });
+  }
+  return [...by.values()];
+}

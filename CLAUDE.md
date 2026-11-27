@@ -77,6 +77,14 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - The owner's Drive top-level folders are numbered (01 COMPANY & ADMIN … 16). New top-level
   folders take the next number.
 
+## Several devices (owner, 27 Nov 2026) – must hold for the Supabase online version
+- The owner will use the app on his **laptop, tablet and phone**. Everything must **merge across devices, never
+  overwrite**: per record the newer `updatedAt` wins (db.js stamps every record; deletes are tombstones, read with
+  `db.getRaw`); customers merge by code with their archive (`history`) joined (`mergeCustomers` in customers.js);
+  settings merge key by key (`mergeSetting` in backup.js: maps like bizMarks/bizNames joined, lists joined). Use the same
+  rules for Supabase sync. Until then, Settings › Restore from file merges a backup into the device the same way
+  (a device with no sites of its own takes the backup's settings). Backup works even with no sites (customers only).
+
 ## Working style
 - **Before every publish run the full screen check** `tests/screen-check.cjs` (every page + main pop-ups, Galaxy S9+ and
   Tab S4, light and dark, with the demo site and a copy of the owner's workbook). Fix everything it prints. Then look at

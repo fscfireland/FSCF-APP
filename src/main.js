@@ -5654,9 +5654,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.5';
+const VERSION_TAG = 'app v0.54.6';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'customer emails from your Gmail (tap to write in Gmail); phone and mobile in separate boxes; Update details keeps old details';
+const WHATS_NEW = 'customer emails (tap to write in Gmail), phone and mobile boxes, archive of old details; restoring a backup now merges with this device';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -7399,8 +7399,8 @@ async function renderSettings() {
         <h2 class="h2">Backup &amp; restore</h2>
         <p class="muted small">${projects.length} project(s) on this phone${est ? ` · using ${(est.usage / 1048576).toFixed(1)} MB` : ''}</p>
         <div class="row-btns">
-          <button class="btn primary" id="s-backup-drive" ${projects.length ? '' : 'disabled'}>${icon('cloud')} Back up everything to Google Drive</button>
-          <button class="btn" id="s-backup" ${projects.length ? '' : 'disabled'}>Save backup file</button>
+          <button class="btn primary" id="s-backup-drive">${icon('cloud')} Back up everything to Google Drive</button>
+          <button class="btn" id="s-backup">Save backup file</button>
           <label class="btn">Restore from file(s)<input type="file" accept="application/json,.json" id="s-restore" multiple hidden></label>
         </div>
         <label class="check-line"><input type="checkbox" id="s-autobk" ${lists.autoBackup ? 'checked' : ''}> Back up to Google Drive automatically, once a day</label>
@@ -7849,7 +7849,7 @@ async function renderSettings() {
       for (const f of fs) n += await restoreBackup(f);
       await loadLists();
       b.done();
-      toast(`Restored ${n} project(s)`);
+      toast(`Backup merged: ${n} site(s) added or updated. Anything newer on this device was kept, and customers and their archives were joined.`);
       refresh();
     } catch (err) {
       b.done();
@@ -8074,7 +8074,7 @@ async function autoBackupTick() {
   const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
   if (Date.now() - last < 22 * 3600e3) return;
   const projects = await db.all('projects');
-  if (!projects.length) return;
+  if (!projects.length && !(lists.customers || []).length) return; // nothing of the owner's here yet
   await flushSave();
   await backupEverythingToDrive(projects, { quiet: true });
 }

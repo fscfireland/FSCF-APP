@@ -95,6 +95,13 @@ export async function remove(store, id) {
   await wrap(s.put(tomb));
 }
 
+// Raw read, deletion markers included (used when merging a backup or another device)
+export async function getRaw(store, id) {
+  if (id == null || id === '') return null;
+  const s = await tx(store);
+  return (await wrap(s.get(id))) || null;
+}
+
 // Raw write used by backup/restore (keeps timestamps as given)
 export async function putRaw(store, rec) {
   const s = await tx(store, 'readwrite');

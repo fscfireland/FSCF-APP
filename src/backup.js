@@ -3,6 +3,7 @@
 // included, so the file can be large.
 
 import * as db from './db.js';
+import { mergeCustomers } from './customers.js';
 import { blobToBase64, base64ToBlob, saveFile, safeName } from './files.js';
 
 const FORMAT = 'fscf-doors-backup';
@@ -177,20 +178,44 @@ export function driveError(e) {
   return 'Google Drive backup failed: ' + (e?.message || 'unknown error');
 }
 
+// Restoring merges the backup into what is already on this device (owner, 27 Nov 2026):
+// for each record the newer copy wins (a newer deletion here stays deleted), nothing
+// newer on this device is overwritten, and settings are merged key by key.
 export async function restoreBackup(file) {
   const data = JSON.parse(await file.text());
   if (data.format !== FORMAT) throw new Error('This file is not an FSCF Ireland app backup.');
   let n = 0;
-  for (const store of ['projects', 'plans', 'doors', 'photos', 'files']) {
-    for (const r of data[store] || []) {
-      await db.putRaw(store, deserialise(r));
+  // a device with no sites of its own yet takes the backup's settings (its own are only defaults)
+  const fresh = !(await db.all('projects')).some((p) => !p.demo);
+  const newer = (a, b) => (a?.updatedAt || '') > (b?.updatedAt || '');
+  for (const store of ['projects', 'plans', 'doors', 'photos', 'files', 'quotes']) {
+    for (const r0 of data[store] || []) {
+      const here = await db.getRaw(store, r0.id);
+      if (here && !newer(r0, here)) continue; // this device has the same or a newer copy
+      await db.putRaw(store, deserialise(r0));
       if (store === 'projects') n++;
     }
   }
-  for (const q of data.quotes || []) if (!(await db.get('quotes', q.id))) await db.putRaw('quotes', q);
   for (const s of data.settings || []) {
-    const existing = await db.get('settings', s.id);
-    if (!existing) await db.putRaw('settings', s);
+    const here = await db.getRaw('settings', s.id);
+    if (!here) { await db.putRaw('settings', s); continue; }
+    await db.putRaw('settings', mergeSetting(here, s, fresh));
   }
   return n;
+}
+
+// Two copies of one settings record: maps are joined, the customer list is merged
+// customer by customer, and for anything else the newer copy wins.
+export function mergeSetting(here, there, preferThere = false) {
+  const win = preferThere || (there.updatedAt || '') > (here.updatedAt || '') ? there : here;
+  const lose = win === here ? there : here;
+  const out = { ...lose, ...win };
+  if (here.id === 'lists') {
+    out.customers = mergeCustomers(here.customers || [], there.customers || []);
+    out.gmailContacts = { ...(lose.gmailContacts || {}), ...(win.gmailContacts || {}) };
+    for (const k of ['libFolders', 'workTypes', 'categories']) if (here[k] || there[k]) out[k] = [...new Set([...(win[k] || []), ...(lose[k] || [])])];
+  }
+  for (const k of ['marks', 'names']) if (here[k] || there[k]) out[k] = { ...(lose[k] || {}), ...(win[k] || {}) }; // bizMarks / bizNames
+  out.updatedAt = win.updatedAt;
+  return out;
 }
