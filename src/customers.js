@@ -117,7 +117,8 @@ export function allCustomers(own = [], book = null, names = {}, gmail = {}) {
     const code = c.id.toUpperCase();
     const s = splitLines(c.lines);
     const f = found[code] || { emails: [], phones: [], notes: [] };
-    const fromBook = { name: s.name, role: s.role, company: names[c.id] || s.company, address: s.address, email: f.emails.join(', '), phone: f.phones.join(', ') };
+    const ph = splitPhones(f.phones);
+    const fromBook = { name: s.name, role: s.role, company: names[c.id] || s.company, address: s.address, email: f.emails.join(', '), phone: ph.phone, mobile: ph.mobile };
     const note = f.notes.length ? `From your workbook: ${[...new Set(f.notes)].join('; ')}` : '';
     if (have.has(code)) {
       // an app copy keeps what the owner typed; empty boxes are filled from the workbook
@@ -127,6 +128,12 @@ export function allCustomers(own = [], book = null, names = {}, gmail = {}) {
       continue;
     }
     out.push({ code, ...fromBook, notes: note, source: 'workbook', bookSites: (c.sites || []).length });
+  }
+  // landlines and mobiles in their own boxes (older copies kept both in Phone)
+  for (const c of out) {
+    if (c.mobile || !c.phone) continue;
+    const ph = splitPhones(String(c.phone).split(/\s*[,;/|]\s*/));
+    if (ph.mobile) { c.phone = ph.phone; c.mobile = ph.mobile; }
   }
   // emails found in the owner's sent Gmail: added to workbook customers, and to app copies with no email yet
   for (const c of out) {
@@ -150,3 +157,14 @@ export const customerLabel = (c) => [c.code, c.company || c.name, c.company && c
 export const emailList = (v) => String(v || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
 // Opens a new message in Gmail (the Gmail app on Android) to these addresses
 export const gmailCompose = (to) => `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent([].concat(to).join(','))}`;
+
+// Irish mobiles start 08 (083, 085, 086, 087, 089), or +353 8 / 00353 8; everything else is a landline
+export const isMobile = (n) => {
+  let d = String(n || '').replace(/[^\d+]/g, '');
+  d = d.replace(/^(\+|00)353/, '0').replace(/^00?(?=8)/, '0');
+  return /^08\d{7,8}$/.test(d);
+};
+export function splitPhones(list = []) {
+  const all = list.map((x) => String(x || '').trim()).filter(Boolean);
+  return { phone: all.filter((x) => !isMobile(x)).join(', '), mobile: all.filter(isMobile).join(', ') };
+}

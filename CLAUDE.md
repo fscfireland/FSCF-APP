@@ -190,7 +190,8 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   `define __GMAIL_CONTACTS__`; on first open the app copies them to settings `lists.gmailContacts` so they stay on the
   device even when later builds don't have the file. Merged into each customer's email (several per customer, comma
   separated; app copies with an email of their own are left alone). Each email in the customer dialog is a link that
-  opens a new Gmail message (`gmailCompose`, mail.google.com ?view=cm), plus "Email all".
+  opens a new Gmail message (`gmailCompose`, mail.google.com ?view=cm), plus "Email all". Phone (landline) and Mobile are
+  separate boxes (`splitPhones`: 08x / +353 8 = mobile); older combined phones are split when shown.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

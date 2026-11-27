@@ -1697,7 +1697,7 @@ async function customerList() {
   return allCustomers(lists.customers || [], book, names, lists.gmailContacts || {});
 }
 // the details kept for a customer, and how each is named in the archive
-const CUST_FIELDS = [['name', 'Contact name'], ['company', 'Company'], ['code', 'Customer code'], ['role', 'Role'], ['phone', 'Phone'], ['email', 'Email'], ['address', 'Address'], ['notes', 'Notes']];
+const CUST_FIELDS = [['name', 'Contact name'], ['company', 'Company'], ['code', 'Customer code'], ['role', 'Role'], ['phone', 'Phone'], ['mobile', 'Mobile'], ['email', 'Email'], ['address', 'Address'], ['notes', 'Notes']];
 async function editCustomer(existing, { name: name0 = '', company: company0 = '' } = {}) {
   const all = await customerList();
   const c = existing || { code: '', name: name0, company: company0, role: '', email: '', phone: '', address: '', notes: '' };
@@ -1711,9 +1711,10 @@ async function editCustomer(existing, { name: name0 = '', company: company0 = ''
       <label class="field"><span>Company they work for</span><input name="company" id="cu-company" value="${esc(c.company || '')}" placeholder="e.g. Cheshire Ireland" autocomplete="off"></label>
       <label class="field"><span>Customer code</span><input name="code" id="cu-code" value="${esc(c.code || '')}" autocomplete="off" required>
         <small class="muted">Made from the company name, like the codes in your workbook (CHES-001). Change it if you like.</small></label>
+      <label class="field"><span>Role</span><input name="role" value="${esc(c.role || '')}" placeholder="e.g. Facilities manager" autocomplete="off"></label>
       <div class="grid2">
-        <label class="field"><span>Role</span><input name="role" value="${esc(c.role || '')}" placeholder="e.g. Facilities manager" autocomplete="off"></label>
-        <label class="field"><span>Phone</span><input name="phone" type="tel" value="${esc(c.phone || '')}" autocomplete="off"></label>
+        <label class="field"><span>Phone (landline)</span><input name="phone" type="tel" value="${esc(c.phone || '')}" placeholder="e.g. 042 969 8498" autocomplete="off"></label>
+        <label class="field"><span>Mobile</span><input name="mobile" type="tel" value="${esc(c.mobile || '')}" placeholder="e.g. 087 123 4567" autocomplete="off"></label>
       </div>
       <label class="field"><span>Email (several allowed, separated by commas)</span><input name="email" type="text" inputmode="email" value="${esc(c.email || '')}" autocomplete="off"><small class="muted">Used for the customer portal sign-in when it goes live.${c.gmailFound ? ` ${c.gmailFound} found in your sent Gmail.` : ''}</small></label>
       ${emailList(c.email).length ? `<div class="cu-mails">${emailList(c.email).map((m) => `<a class="cu-mail" href="${esc(gmailCompose(m))}" target="_blank" rel="noopener">${icon('mail')}<span>${esc(m)}</span></a>`).join('')}${emailList(c.email).length > 1 ? `<a class="cu-mail cu-mail-all" href="${esc(gmailCompose(emailList(c.email)))}" target="_blank" rel="noopener">${icon('mail')}<span>Email all ${emailList(c.email).length}</span></a>` : ''}</div>` : ''}
@@ -1752,7 +1753,7 @@ async function editCustomer(existing, { name: name0 = '', company: company0 = ''
   const code = (r.data.code || '').trim().toUpperCase().replace(/\s+/g, '-');
   if (!code) return null;
   if (all.some((x) => x.code !== existing?.code && x.code === code)) { toast(`Code ${code} is already used by another customer`, 'error'); return null; }
-  const rec = { code, name: r.data.name.trim(), company: r.data.company.trim(), role: r.data.role.trim(), email: r.data.email.trim(), phone: r.data.phone.trim(), address: r.data.address.trim(), notes: r.data.notes.trim(), source: 'app', updatedAt: new Date().toISOString(), history: existing?.history || [] };
+  const rec = { code, name: r.data.name.trim(), company: r.data.company.trim(), role: r.data.role.trim(), email: r.data.email.trim(), phone: r.data.phone.trim(), mobile: r.data.mobile.trim(), address: r.data.address.trim(), notes: r.data.notes.trim(), source: 'app', updatedAt: new Date().toISOString(), history: existing?.history || [] };
   if (existing) {
     const changed = CUST_FIELDS.map(([f]) => f).filter((f) => (existing[f] || '') !== (rec[f] || ''));
     if (!changed.length) { toast('Nothing changed'); return null; }
@@ -5653,9 +5654,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.4';
+const VERSION_TAG = 'app v0.54.5';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'customer emails from your Gmail: tap one to write to them in Gmail; Update details keeps old details';
+const WHATS_NEW = 'customer emails from your Gmail (tap to write in Gmail); phone and mobile in separate boxes; Update details keeps old details';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
