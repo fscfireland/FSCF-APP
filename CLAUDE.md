@@ -167,6 +167,15 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   pass/fail tiles, reports to open, doors with defects + references, no prices. Owner: overview, activity log (sign-ins,
   sites/doors viewed, downloads; customer drop-down), customers & access (invite, sites per customer, access on/off).
   Owner approved the mock-up ("that would be perfect"). Needs the Supabase online version: owner to create the account.
+- v0.54.0 (27 Nov 2026): Home shortcuts are Continue (last pin opened, settings `lastSite.doorId`, set in drawSheet) ·
+  New site · Quote from report; Last site and Overdue removed (owner). Today strip = three counts only (overdue, due in 7
+  days, repair items open), taps to Schedule (go with `schedF`) / Repairs. Backup warning is one line; daily backup turns on
+  after the first Drive backup. Customer list (`src/customers.js`, view `customers`, Business tab card, not behind the PIN):
+  app customers in settings `lists.customers` + every workbook customer (lines split into name / role / company / address);
+  new customer code = company abbreviation like the workbook (CHES, STMAR, HSEMW, SIF…) + next free -NNN; editable. Site
+  details: Customer drop-down (+ New customer…) and "share on the customer portal" tick (`customerCode`, `portalShare`);
+  line at the top of the site's Plans tab. Business tab: Customer portal card opens the mock-up (not live). Files / My files:
+  folders are open/close sections like collections, New folder, Add inside a folder; My files has a Technical guidance folder.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

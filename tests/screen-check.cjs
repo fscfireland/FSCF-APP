@@ -69,6 +69,7 @@ const overflow = (p) => p.evaluate(() => {
       ['schedule', { view: 'schedule' }],
       ['repairs-all', { view: 'repairsAll' }],
       ['bizhub', { view: 'bizhub' }],
+      ['customers', { view: 'customers' }],
       ['business', { view: 'business' }],
       ['quotes', { view: 'quotes' }],
       ['pricing', { view: 'pricing' }],
@@ -90,7 +91,9 @@ const overflow = (p) => p.evaluate(() => {
       pin: ['#add-defect', '#sh-copyfrom', '#sh-kind', '#sh-copyto'],
       'defect-list': ['.def-cost, [data-act="cost"], button:has-text("Set cost")'],
       business: ['.biz-cust:not(.biz-site)|.biz-soa'],
-      'site-plans': ['.coll-copy'],
+      'site-plans': ['.coll-copy', '.site-cust'],
+      customers: ['.cu-row', '#cu-new'],
+      'site-files': ['#file-newf'],
       'site-export': ['#pdf'],
     };
     for (const scheme of ['light', 'dark']) {

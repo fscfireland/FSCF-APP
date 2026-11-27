@@ -6,7 +6,7 @@ import * as db from './db.js';
 import { compressImage, pdfThumb, saveFile } from './files.js';
 
 export const LIB = 'library'; // projectId of the private 'My files' library
-export const DEFAULT_LIB_FOLDERS = ['General', 'Certificates', 'Product data', 'Templates', 'RAMS', 'Reports', 'Other'];
+export const DEFAULT_LIB_FOLDERS = ['General', 'Technical guidance', 'Certificates', 'Product data', 'Templates', 'RAMS', 'Reports', 'Other'];
 export const DEFAULT_FILE_FOLDERS = ['Certificates', 'O&M manuals', 'Reports', 'Drawings', 'Quotes & orders', 'Photos', 'Other'];
 
 export function fileFolders(project, files = []) {

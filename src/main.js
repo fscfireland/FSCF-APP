@@ -22,6 +22,7 @@ import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
 import { markupPhoto, plainThumb } from './photomark.js';
+import { makeCode, allCustomers, customerLabel } from './customers.js';
 import { IRON_MAINT, DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
@@ -157,6 +158,10 @@ async function loadLists() {
     const add = DEFAULT_DEFECTS.filter((d) => !have.has(d.label));
     await saveLists({ defects: [...s.defects, ...add], defVersion: 2 });
   }
+  // My files: a Technical guidance folder (owner, 27 Nov 2026), added once to a saved folder list
+  if (lists.libFolders?.length && !lists.tgdFolder1 && !lists.libFolders.some((x) => /technical guidance/i.test(x))) {
+    await saveLists({ libFolders: [lists.libFolders[0], 'Technical guidance', ...lists.libFolders.slice(1)], tgdFolder1: true });
+  }
   if (!lists.defSweep1) {
     // every fail item already recorded on a door, or named by a checklist question, joins its defect list
     try {
@@ -288,6 +293,7 @@ async function render() {
     else if (state.view === 'bizhub') await renderBizHub();
     else if (state.view === 'quote') await renderQuoteDoc();
     else if (state.view === 'assistant') await renderAssistant();
+    else if (state.view === 'customers') await renderCustomers();
   } else if (state.view === 'plan') {
     await refreshPins();
   }
@@ -328,7 +334,18 @@ async function renderProjects() {
   // shortcuts: the last site worked on, and how many sites / drawings are overdue
   const ls = await db.get('settings', 'lastSite');
   const lastSite = ls && projects.find((p) => p.id === ls.projectId) ? { ...ls, site: projects.find((p) => p.id === ls.projectId).site || 'Site' } : null;
-  const overdueN = (await scheduleGroups().catch(() => [])).filter((g) => g.cat === 'over').length;
+  // Continue: the last pin (or drawing) worked on
+  const lastDoor = lastSite?.doorId ? allDoors.find((d) => d.id === lastSite.doorId && d.projectId === lastSite.projectId) : null;
+  const contLabel = lastDoor ? `${String(lastDoor.pinNo || '').padStart(3, '0')}${lastDoor.location ? ' · ' + lastDoor.location : ''}` : lastSite ? lastSite.site : '';
+  // Today: counts only (never a list), so it stays one line however many doors there are
+  const t0 = today();
+  const wk = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
+  const liveIds = new Set(projects.map((p) => p.id));
+  const dated = allDoors.filter((d) => d.nextDue && liveIds.has(d.projectId));
+  const nOver = dated.filter((d) => d.nextDue < t0).length;
+  const nWeek = dated.filter((d) => d.nextDue >= t0 && d.nextDue <= wk).length;
+  let nRep = 0;
+  for (const p of projects) { const pr = projectProgress(allDoors.filter((d) => d.projectId === p.id)); nRep += Math.max(0, (pr.items || 0) - (pr.done || 0)); }
   const liveN = {};
   for (const l of live) liveN[l.p.id] = (liveN[l.p.id] || 0) + 1;
   const liveHtml = live.length ? `<section class="live-list">
@@ -379,13 +396,17 @@ async function renderProjects() {
         const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
         const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
         if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} <span>Saved on this device · backed up ${days ? 'yesterday' : 'today'}${lists.autoBackup ? ' · automatic backup on' : ''}</span> <button class="link-btn" id="home-backup">Back up now</button></div>`;
-        return `<div class="backup-warn">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>Only on this device. Back up to Google Drive.</small></span><button class="btn sm primary" id="home-backup">Back up now</button></div>`;
+        return `<div class="backup-warn bk-line">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>${lists.autoBackup ? 'Daily backup is on: it runs while the app is open' : 'Back up once: daily backup then runs by itself'}</small></span><button class="btn sm primary" id="home-backup">Back up</button></div>`;
       })()}
       <div class="quick-row" aria-label="Shortcuts">
-        <button type="button" class="quick-btn" id="qk-last" ${lastSite ? '' : 'disabled'}>${icon('plan')}<span>Last site</span>${lastSite ? `<small>${esc(lastSite.site)}</small>` : ''}</button>
+        <button type="button" class="quick-btn qk-cont" id="qk-cont" ${lastSite ? '' : 'disabled'}><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4l12 8-12 8z"/></svg><span>Continue</span><small>${esc(contLabel || 'nothing yet')}</small></button>
         <button type="button" class="quick-btn" id="qk-new">${icon('plus')}<span>New site</span></button>
-        <button type="button" class="quick-btn ${overdueN ? 'is-alert' : ''}" id="qk-over"><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="13" r="8"/><path d="M12 9v4l2 2M5 3L2 6M19 3l3 3"/></svg><span>Overdue</span>${overdueN ? `<b class="quick-n">${overdueN}</b>` : '<small>none</small>'}</button>
         <button type="button" class="quick-btn" id="qk-quote">${icon('report')}<span>Quote from report</span></button>
+      </div>
+      <div class="today-strip" role="group" aria-label="Today">
+        <button type="button" class="today-n ${nOver ? 'is-alert' : ''}" id="td-over"><b>${nOver}</b><small>Overdue</small></button>
+        <button type="button" class="today-n" id="td-week"><b>${nWeek}</b><small>Due this week</small></button>
+        <button type="button" class="today-n" id="td-rep"><b>${nRep}</b><small>Repairs open</small></button>
       </div>
       ${liveHtml}
       <div class="tile-pair">
@@ -420,13 +441,16 @@ async function renderProjects() {
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'pricing' }); });
-  $('#qk-last')?.addEventListener('click', async () => {
-    const plan = lastSite?.planId && (await db.get('plans', lastSite.planId));
-    if (plan) go({ view: 'plan', projectId: lastSite.projectId, planId: plan.id });
+  $('#qk-cont')?.addEventListener('click', async () => {
+    const planId = lastDoor?.planId || lastSite?.planId;
+    const plan = planId && (await db.get('plans', planId));
+    if (plan) go({ view: 'plan', projectId: lastSite.projectId, planId: plan.id, ...(lastDoor ? { doorId: lastDoor.id } : {}) });
     else if (lastSite) go({ view: 'project', projectId: lastSite.projectId });
   });
+  $('#td-over')?.addEventListener('click', () => go({ view: 'schedule', schedF: 'over' }));
+  $('#td-week')?.addEventListener('click', () => go({ view: 'schedule', schedF: 'soon' }));
+  $('#td-rep')?.addEventListener('click', () => go({ view: 'repairsAll' }));
   $('#qk-new')?.addEventListener('click', () => newProjectMenu());
-  $('#qk-over')?.addEventListener('click', () => { state.schedF = overdueN ? 'over' : 'all'; go({ view: 'schedule' }); });
   $('#qk-quote')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) quoteFromReport(null); });
   $('#my-business')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'business' }); });
   $('#my-quotes')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'quotes' }); });
@@ -1504,7 +1528,7 @@ async function bookArchives() {
 // Hidden on a site, on a drawing and while a pin is open, so field work keeps
 // the whole screen. Business asks for the owner PIN.
 // Settings itself is the cog at the top of Home; the last tab is the defect list (owner, 26 Nov 2026)
-const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'defects' };
+const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', customers: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'defects' };
 const TABS = [
   ['home', 'Home', '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', { view: 'projects' }],
   ['schedule', 'Schedule', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', { view: 'schedule' }],
@@ -1636,8 +1660,11 @@ async function renderRepairsAll() {
 }
 
 async function renderBizHub() {
+  const nCust = (await customerList()).length;
   app.innerHTML = `${topBar('Business', priced() ? 'Owner only · never shown to the customer' : 'Owner only')}
     <main class="page">
+      <button class="lib-card" id="bh-customers">${icon('list')}<span><b>Customers</b><small>${nCust} customer${nCust === 1 ? '' : 's'} · codes, contacts, sites</small></span>${icon('more')}</button>
+      <a class="lib-card" id="bh-portal" href="https://claude.ai/artifact/U56NaRn8HZGxCxJA9M8zuo" target="_blank" rel="noopener">${icon('shield')}<span><b>Customer portal</b><small>Not live yet · opens the mock-up</small></span>${icon('more')}</a>
       ${priced() ? `
         <button class="lib-card" id="bh-business">${icon('sheet')}<span><b>Business</b><small>Invoices, customers, reminders</small></span>${icon('more')}</button>
         <button class="lib-card" id="bh-quotes">${icon('report')}<span><b>Quotes &amp; invoices</b><small>Make, send, add to workbook</small></span>${icon('more')}</button>
@@ -1646,11 +1673,88 @@ async function renderBizHub() {
       : `<section class="panel bh-lock"><p><b>Owner only</b></p><p class="small muted">Enter your PIN to open the Business page, Quotes &amp; invoices and the Pricing Hub.</p><button class="btn primary" id="bh-unlock">${icon('shield')} Unlock</button></section>`}
     </main>`;
   $('#bh-unlock')?.addEventListener('click', () => unlockOwner());
+  $('#bh-customers')?.addEventListener('click', () => go({ view: 'customers' }));
   $('#bh-business')?.addEventListener('click', () => go({ view: 'business' }));
   $('#bh-quotes')?.addEventListener('click', () => go({ view: 'quotes' }));
   $('#bh-pricing')?.addEventListener('click', () => go({ view: 'pricing' }));
   $('#bh-fails')?.addEventListener('click', () => { openFolds.add('defs'); go({ view: 'settings', focus: 's-defs' }); });
   $('#bh-lock')?.addEventListener('click', () => { libUnlocked = false; toast('Locked: prices and time hidden'); refresh(); });
+}
+
+// ---------- Customers ----------
+// Customers typed into the app (settings lists.customers) plus every customer in the
+// owner's workbook. A new customer gets a code made like the workbook's (customers.js).
+async function customerList() {
+  const book = await quoteBook().catch(() => null);
+  const names = (await db.get('settings', 'bizNames').catch(() => null))?.names || {};
+  return allCustomers(lists.customers || [], book, names);
+}
+async function editCustomer(existing, { name: name0 = '', company: company0 = '' } = {}) {
+  const all = await customerList();
+  const c = existing || { code: '', name: name0, company: company0, role: '', email: '', phone: '', address: '', notes: '' };
+  const projects = await db.all('projects');
+  const sites = existing ? projects.filter((x) => (x.customerCode || '').toUpperCase() === c.code) : [];
+  let codeTouched = !!existing;
+  const r = await dialog({
+    title: existing ? `Customer ${c.code}` : 'New customer',
+    body: `
+      <label class="field"><span>Contact name</span><input name="name" id="cu-name" value="${esc(c.name || '')}" placeholder="e.g. Majella Grainger" autocomplete="off"></label>
+      <label class="field"><span>Company they work for</span><input name="company" id="cu-company" value="${esc(c.company || '')}" placeholder="e.g. Cheshire Ireland" autocomplete="off"></label>
+      <label class="field"><span>Customer code</span><input name="code" id="cu-code" value="${esc(c.code || '')}" autocomplete="off" required>
+        <small class="muted">Made from the company name, like the codes in your workbook (CHES-001). Change it if you like.</small></label>
+      <div class="grid2">
+        <label class="field"><span>Role</span><input name="role" value="${esc(c.role || '')}" placeholder="e.g. Facilities manager" autocomplete="off"></label>
+        <label class="field"><span>Phone</span><input name="phone" type="tel" value="${esc(c.phone || '')}" autocomplete="off"></label>
+      </div>
+      <label class="field"><span>Email</span><input name="email" type="email" value="${esc(c.email || '')}" autocomplete="off"><small class="muted">Used for the customer portal sign-in when it goes live.</small></label>
+      <label class="field"><span>Address</span><input name="address" value="${esc(c.address || '')}" autocomplete="off"></label>
+      <label class="field"><span>Notes</span><textarea name="notes" rows="2">${esc(c.notes || '')}</textarea></label>
+      ${existing ? `<p class="small muted">${c.source === 'workbook' ? 'From your workbook. Saving keeps your changes in the app (the workbook is not changed). ' : ''}Sites: ${sites.length ? sites.map((x) => esc(x.site || 'Site')).join(', ') : 'none yet (pick this customer in a site\'s details)'}.</p>` : ''}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Add customer', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      const code = $('#cu-code', form);
+      const taken = all.filter((x) => x !== existing).map((x) => x.code);
+      const fill = () => { if (!codeTouched) code.value = (($('#cu-company', form).value + $('#cu-name', form).value).trim()) ? makeCode($('#cu-company', form).value, $('#cu-name', form).value, taken) : ''; };
+      code.addEventListener('input', () => { codeTouched = true; });
+      $('#cu-company', form).addEventListener('input', fill);
+      $('#cu-name', form).addEventListener('input', fill);
+      fill();
+    },
+  });
+  if (r.value !== true) return null;
+  const code = (r.data.code || '').trim().toUpperCase().replace(/\s+/g, '-');
+  if (!code) return null;
+  if (all.some((x) => x !== existing && x.code === code)) { toast(`Code ${code} is already used by another customer`, 'error'); return null; }
+  const rec = { code, name: r.data.name.trim(), company: r.data.company.trim(), role: r.data.role.trim(), email: r.data.email.trim(), phone: r.data.phone.trim(), address: r.data.address.trim(), notes: r.data.notes.trim(), source: 'app', updatedAt: new Date().toISOString() };
+  const own = (lists.customers || []).filter((x) => x.code !== (existing?.code || code));
+  await saveLists({ customers: [...own, rec] });
+  // a renamed code follows on the sites that used it
+  if (existing && existing.code !== code) for (const x of sites) await db.put('projects', { ...x, customerCode: code });
+  toast(existing ? `Saved ${code}` : `Customer ${code} added`);
+  return rec;
+}
+async function renderCustomers() {
+  const all = await customerList();
+  const projects = await db.all('projects');
+  const sitesOf = (code) => projects.filter((x) => (x.customerCode || '').toUpperCase() === code);
+  const q = (state.custQ || '').toLowerCase();
+  const shown = all.filter((c) => !q || [c.code, c.name, c.company, c.email, c.role].join(' ').toLowerCase().includes(q));
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>Customers</b><small>${all.length} · from your workbook and the app</small></div>
+    </header>
+    <main class="page">
+      <div class="row-btns import-row"><button class="btn primary sm" id="cu-new">${icon('plus')} New customer</button></div>
+      <label class="search">${icon('search')}<input id="cu-q" type="search" placeholder="Search name, company or code…" value="${esc(state.custQ || '')}" autocomplete="off"></label>
+      <div class="doc-list">${shown.map((c, i) => { const n = sitesOf(c.code).length; return `<button type="button" class="doc-row cu-row" data-i="${i}"><span class="q-main"><span class="cu-code">${esc(c.code)}</span><b>${esc(c.company || c.name || c.code)}</b><small>${esc([c.company ? c.name : '', c.role].filter(Boolean).join(' · ') || '—')}${n ? ` · ${n} site${n === 1 ? '' : 's'} in the app` : ''}</small></span></button>`; }).join('') || '<p class="muted small">No customers match.</p>'}</div>
+      <p class="small muted">Tap a customer to add their email and phone, or change their details. Customers from your workbook come in automatically each time you import it; your changes here are kept.</p>
+    </main>`;
+  $('#back').onclick = back;
+  $('#cu-new').onclick = async () => { if (await editCustomer(null)) refresh(); };
+  const qi = $('#cu-q');
+  qi.oninput = () => { state.custQ = qi.value; const pos = qi.selectionStart; renderCustomers().then(() => { const n = $('#cu-q'); n.focus(); n.setSelectionRange(pos, pos); }); };
+  $$('.cu-row').forEach((b) => (b.onclick = async () => { if (await editCustomer(shown[+b.dataset.i])) refresh(); }));
 }
 
 // ---------- Business ----------
@@ -2544,6 +2648,17 @@ async function editProject(existing) {
     const other = $('#pf-type-other');
     if (sel && other) sel.onchange = () => { other.hidden = sel.value !== '__other'; if (!other.hidden) other.focus(); };
   }, 0);
+  const custs = await customerList();
+  const curCust = (p.customerCode || '').toUpperCase();
+  setTimeout(() => {
+    const cs = $('#pf-cust');
+    if (cs) cs.onchange = async () => {
+      if (cs.value !== '__new') return;
+      const rec = await editCustomer(null, { company: $('#pf-client')?.value || '' });
+      if (rec) { cs.insertAdjacentHTML('afterbegin', `<option value="${esc(rec.code)}">${esc(customerLabel(rec))}</option>`); cs.value = rec.code; if ($('#pf-client') && !$('#pf-client').value) $('#pf-client').value = rec.company || rec.name; }
+      else cs.value = curCust;
+    };
+  }, 0);
   const r = await dialog({
     title: existing ? 'Project details' : 'New project',
     body: `
@@ -2555,6 +2670,8 @@ async function editProject(existing) {
           <input name="workTypeOther" id="pf-type-other" placeholder="e.g. Fire curtain check" autocomplete="off" hidden></label>
       </div>
       <datalist id="pf-groups">${groupNames.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
+      <label class="field"><span>Customer</span><select name="customerCode" id="pf-cust"><option value="">Not set</option>${custs.map((c) => `<option value="${esc(c.code)}" ${c.code === curCust ? 'selected' : ''}>${esc(customerLabel(c))}</option>`).join('')}<option value="__new">+ New customer…</option></select></label>
+      <label class="check-line"><input type="checkbox" name="portalShare" ${p.portalShare ? 'checked' : ''}> <span>Share this site with the customer on the customer portal (not live yet)</span></label>
       <datalist id="pf-clients">${clientNames.map((g) => `<option value="${esc(g)}"></option>`).join('')}</datalist>
       <label class="field"><span>Address</span><input name="address" id="pf-address" value="${esc(p.address)}" placeholder="Town, county / Eircode"></label>
       <div class="grid2">
@@ -2577,6 +2694,8 @@ async function editProject(existing) {
   });
   if (r.value !== true) return null;
   const { zones: zonesRaw, workTypeOther, ...form } = r.data;
+  if (form.customerCode === '__new') form.customerCode = curCust;
+  form.portalShare = !!r.data.portalShare;
   if (form.workType === '__other') form.workType = (workTypeOther || '').trim();
   r.data.workType = form.workType;
   form.frequency = Number(form.frequency) || 0;
@@ -2666,7 +2785,12 @@ async function renderProject() {
   $('#proj-edit').onclick = () => editProject(project);
   $$('.tab').forEach((t) => (t.onclick = () => go({ ...state, tab: t.dataset.tab }, { replace: true })));
   const body = $('#tab-body');
-  if (tab === 'plans') return renderPlansTab(body, project, allPlans, allDoors, coll);
+  if (tab === 'plans') {
+    custCache = await customerList().catch(() => []);
+    renderPlansTab(body, project, allPlans, allDoors, coll);
+    $$('[data-edit-site]', body).forEach((b) => (b.onclick = () => editProject(project)));
+    return;
+  }
   if (tab === 'files') return renderFilesTab(body, project, files, { plans: allPlans });
   // Doors and Export work on one collection at a time (or all)
   body.innerHTML = '<div id="coll-bar"></div><div id="tab-inner"></div>';
@@ -3067,13 +3191,15 @@ function fillThumbs(root, files) {
   }
 }
 
+// folders opened on the Files tab / My files (kept while the app is open)
+const openFileFolders = new Set();
 // ctx: { lib, plans, rerender }
 function renderFilesTab(body, project, files, ctx = {}) {
   const lib = !!ctx.lib;
   const plans = ctx.plans || [];
   const rerender = ctx.rerender || (() => renderProject());
   const folders = fileFolders(project, files);
-  const f = state.fileF || '';
+  const f = ''; // folders are sections now (no folder filter)
   const a = lib ? '' : state.fileA || '';
   const q = (state.fq || '').toLowerCase();
   const shown = files.filter((x) => (!f || x.folder === f) && attachMatches(x, a, plans) && (!q || [x.name, x.folder, x.notes, attachText(x, plans)].join(' ').toLowerCase().includes(q)));
@@ -3083,11 +3209,8 @@ function renderFilesTab(body, project, files, ctx = {}) {
     ${lib ? `<p class="lib-note">${icon('shield')}<span>Private to you. Files here never go into reports or to clients. Tap a file and choose <b>Send to a project</b> to put it on a drawing or collection.</span></p>` : ''}
     <div class="row-btns import-row">
       <label class="btn primary sm">${icon('upload')} Add files<input type="file" id="file-add" multiple hidden></label>
-      <button class="btn ghost sm" id="file-folders">${icon('folder')} Folders</button>
-    </div>
-    <div class="chips" role="group" aria-label="Folders">
-      <button class="chip ${!f ? 'is-on' : ''}" data-ff="">All <b>${files.length}</b></button>
-      ${folders.map((n) => `<button class="chip ${f === n ? 'is-on' : ''}" data-ff="${esc(n)}">${esc(n)} <b>${count(n)}</b></button>`).join('')}
+      <button class="btn sm" id="file-newf">${icon('plus')} New folder</button>
+      <button class="btn ghost sm" id="file-folders">${icon('pencil')} Rename / order</button>
     </div>
     ${!lib && (anyAttached || a) && plans.length ? `<label class="coll-bar">${icon('plan')}<span>Attached to</span>
       <select id="file-attach"><option value="">Anything</option>${attachOptions(plans, a)}</select></label>` : ''}
@@ -3095,12 +3218,50 @@ function renderFilesTab(body, project, files, ctx = {}) {
     ${files.length ? '' : lib
       ? `<div class="empty-files">${icon('folder')}<p><b>Your own files</b><br>Templates, product data sheets, certificates you reuse, anything you want on hand. Send any of them to a project's drawing or collection when you need it there.</p></div>`
       : `<div class="empty-files">${icon('folder')}<p><b>Keep the project's documents here</b><br>Fire door certificates, O&amp;M manuals, fire cert drawings, quotes, previous reports. They're saved on this phone and open with no signal.</p></div>`}
-    <div class="file-list">${shown.map((x) => fileRowHtml(x, { showFolder: !f, plans })).join('')}</div>
+    ${q || a ? `<div class="file-list">${shown.map((x) => fileRowHtml(x, { showFolder: true, plans })).join('')}</div>`
+      : files.length || folders.length ? folders.map((n) => { const inF = shown.filter((x) => x.folder === n); return `<details class="ffold" data-f="${esc(n)}" ${openFileFolders.has((lib ? 'L:' : project.id + ':') + n) ? 'open' : ''}>
+        <summary>${icon('folder')}<b>${esc(n)}</b><span class="muted">${inF.length}</span></summary>
+        <div class="ffold-body">
+          <div class="file-list">${inF.map((x) => fileRowHtml(x, { showFolder: false, plans })).join('') || '<p class="muted small pad">Empty folder.</p>'}</div>
+          <label class="btn ghost sm ffold-add">${icon('upload')} Add to ${esc(n)}<input type="file" multiple hidden data-folder="${esc(n)}"></label>
+        </div></details>`; }).join('') : ''}
     ${files.length && !shown.length ? '<p class="muted pad">No files match.</p>' : ''}
   `;
   fillThumbs(body, shown);
   const again = () => renderFilesTab(body, project, files, ctx);
-  $$('.chip', body).forEach((c) => (c.onclick = () => { state.fileF = c.dataset.ff; again(); }));
+  const fkey = (n) => (lib ? 'L:' : project.id + ':') + n;
+  $$('.ffold', body).forEach((d) => d.addEventListener('toggle', () => { if (d.open) openFileFolders.add(fkey(d.dataset.f)); else openFileFolders.delete(fkey(d.dataset.f)); }));
+  // add straight into a folder
+  $$('.ffold-add input', body).forEach((inp) => (inp.onchange = async (e) => {
+    const list = [...e.target.files];
+    e.target.value = '';
+    if (!list.length) return;
+    const b = busy('Saving files…');
+    try {
+      const added = await addFiles(project, list, inp.dataset.folder, (m) => b.update(m), {});
+      b.done();
+      openFileFolders.add(fkey(inp.dataset.folder));
+      toast(`${added.length} file${added.length > 1 ? 's' : ''} added to ${inp.dataset.folder}`);
+    } catch (err) { b.done(); toast('Could not save: ' + err.message, 'error'); }
+    rerender();
+  }));
+  $('#file-newf').onclick = async () => {
+    const r = await dialog({
+      title: 'New folder',
+      body: `<label class="field"><span>Folder name</span><input name="name" required placeholder="e.g. Technical guidance" autocomplete="off"></label>`,
+      buttons: [{ label: 'Cancel', value: false }, { label: 'Make folder', value: true, kind: 'primary' }],
+    });
+    const name = r.value === true ? (r.data.name || '').trim() : '';
+    if (!name) return;
+    const cur = fileFolders(project);
+    if (cur.some((x) => x.toLowerCase() === name.toLowerCase())) return toast(`There is already a folder called ${name}`);
+    const next = [...cur, name];
+    if (lib) await saveLists({ libFolders: next });
+    else await db.put('projects', { ...(await db.get('projects', project.id)), fileFolders: next });
+    openFileFolders.add(fkey(name));
+    toast(`Folder ${name} made. Tap a file and change its folder to move it in.`);
+    rerender();
+  };
   $('#file-attach')?.addEventListener('change', (e) => { state.fileA = e.target.value; again(); });
   const qi = $('#file-q');
   if (qi) qi.oninput = () => {
@@ -3837,6 +3998,13 @@ async function pickCollection(project, coll) {
   refresh();
 }
 
+// "Customer · shared with" line at the top of a site (tap to change it in the site details)
+let custCache = [];
+function siteCustLine(project) {
+  const c = custCache.find((x) => x.code === (project.customerCode || '').toUpperCase());
+  if (!c) return `<button type="button" class="site-cust is-empty" data-edit-site>${icon('list')} <span>No customer set for this site · tap to pick one</span></button>`;
+  return `<button type="button" class="site-cust" data-edit-site>${icon('list')} <span><span><b>${esc(c.code)}</b> · ${esc(c.company || c.name)}${c.company && c.name ? ' · ' + esc(c.name) : ''}</span><small>Shared with: ${project.portalShare ? esc(c.name || c.company) + (c.email ? '' : ' (add their email)') : 'nobody'} · portal not live yet</small></span></button>`;
+}
 function renderPlansTab(body, project, plans, doors, active) {
   const n = {};
   for (const d of doors) n[d.planId] = (n[d.planId] || 0) + 1;
@@ -3876,6 +4044,7 @@ function renderPlansTab(body, project, plans, doors, active) {
       </section>`;
   };
   body.innerHTML = `
+    ${siteCustLine(project)}
     ${colls.filter((c) => !splitColl(c).folder).map(group).join('')}
     ${listFolders(colls).map((f) => {
       const inF = colls.filter((c) => splitColl(c).folder === f);
@@ -4495,11 +4664,14 @@ let placingLabel = '';
 let placingQueue = []; // the doors still to place after this one, in order
 let selectedPin = null;
 
-async function rememberSite(projectId, planId = '') {
+async function rememberSite(projectId, planId = '', doorId = '') {
   try {
     const cur = await db.get('settings', 'lastSite');
-    if (cur?.projectId === projectId && (cur.planId || '') === (planId || cur.planId || '')) return;
-    await db.put('settings', { id: 'lastSite', projectId, planId: planId || (cur?.projectId === projectId ? cur.planId || '' : '') });
+    const same = cur?.projectId === projectId;
+    const plan = planId || (same ? cur.planId || '' : '');
+    const door = doorId || (same && (cur.planId || '') === plan ? cur.doorId || '' : '');
+    if (same && (cur.planId || '') === plan && (cur.doorId || '') === door) return;
+    await db.put('settings', { id: 'lastSite', projectId, planId: plan, doorId: door });
   } catch { /* a convenience only */ }
 }
 async function renderPlan() {
@@ -5449,14 +5621,15 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.53.5';
+const VERSION_TAG = 'app v0.54.0';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'every screen checked: Settings, Ask Claude, Repairs, Export and Set cost now fit the phone';
+const WHATS_NEW = 'Continue button, Today counts, customer list with codes, folders in Files';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
 async function drawSheet(door) {
   const el = $('#sheet');
+  rememberSite(door.projectId, door.planId || '', door.id); // for Continue on Home
   const plan = await db.get('plans', door.planId);
   kindNow = kindOfDoor(door, plan);
   const K = kitOf(kindNow);

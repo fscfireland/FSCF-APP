@@ -1558,3 +1558,38 @@ body.sheet-open .tabbar { display: none; }
 .ai-suggest .chip { max-width: 100%; }
 .pp-row:not(.dc-row) { grid-template-columns: auto minmax(0, 1fr) auto; }
 .dc-row .pp-step { justify-self: end; }
+
+/* ---------- Home: one-line backup, Continue, Today counts (owner, 27 Nov 2026) ---------- */
+.backup-warn.bk-line { grid-template-columns: auto minmax(0, 1fr) auto; padding: 8px 10px; gap: 8px; }
+.backup-warn.bk-line .btn { grid-column: auto; width: auto; min-height: 36px; }
+.backup-warn.bk-line b { font-size: 13px; }
+.backup-warn.bk-line small { font-size: 11.5px; line-height: 1.3; }
+.quick-row { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.quick-btn.qk-cont { color: var(--brand-ink); background: var(--brand); border-color: var(--brand); }
+.quick-btn.qk-cont small { color: inherit; opacity: .8; }
+.quick-btn.qk-cont:disabled { background: var(--surface); color: var(--ink); border-color: var(--line); }
+.today-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; margin: -4px 0 14px; border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); border-radius: var(--radius); background: var(--surface); overflow: hidden; }
+.today-n { display: grid; justify-items: center; gap: 1px; padding: 8px 4px; border: 0; background: none; color: var(--ink); font: inherit; cursor: pointer; }
+.today-n + .today-n { border-left: 1px solid var(--line); }
+.today-n b { font: 700 20px/1 var(--font-head); font-variant-numeric: tabular-nums; }
+.today-n small { font-size: 10.5px; font-weight: 600; color: var(--ink-2); }
+.today-n.is-alert b { color: var(--st-fail); }
+/* Customers */
+.cu-code { justify-self: start; width: max-content; align-self: center; padding: 2px 7px; border-radius: 7px; background: var(--surface-2); font: 700 11.5px var(--font); letter-spacing: .02em; min-width: 76px; text-align: center; }
+.doc-row.cu-row { grid-template-columns: minmax(0, 1fr); }
+.site-cust { display: flex; align-items: center; gap: 10px; width: 100%; margin: 0 0 12px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); border-radius: var(--radius); background: var(--surface); color: var(--ink); font: inherit; font-size: 13.5px; text-align: left; cursor: pointer; }
+.site-cust > .ico { flex: none; width: 20px; height: 20px; color: var(--accent); }
+.site-cust > span { min-width: 0; display: grid; gap: 2px; }
+.site-cust small { color: var(--ink-2); font-size: 12px; }
+.site-cust.is-empty { color: var(--ink-2); border-style: dashed; }
+a.lib-card { text-decoration: none; }
+/* Files: folders as sections, like collections */
+.ffold { border: 1px solid color-mix(in srgb, var(--line) 70%, transparent); border-radius: var(--radius); background: var(--surface); margin-bottom: 8px; }
+.ffold > summary { display: flex; align-items: center; gap: 10px; min-height: 50px; padding: 0 12px; cursor: pointer; list-style: none; }
+.ffold > summary::-webkit-details-marker { display: none; }
+.ffold > summary .ico { flex: none; width: 20px; height: 20px; color: var(--accent); }
+.ffold > summary b { flex: 1; min-width: 0; }
+.ffold > summary::after { content: ''; flex: none; width: 8px; height: 8px; border-right: 2px solid var(--ink-2); border-bottom: 2px solid var(--ink-2); transform: rotate(45deg); margin: -4px 2px 0 0; transition: transform .15s; }
+.ffold[open] > summary::after { transform: rotate(-135deg); margin-top: 4px; }
+.ffold-body { display: grid; gap: 8px; padding: 0 10px 10px; }
+.ffold-add { justify-self: start; }
