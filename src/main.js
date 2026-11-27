@@ -21,6 +21,7 @@ import { parseDoorFile, downloadTemplate, matchListValue } from './importer.js';
 import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
+import { buildRams, ramsHtml, ramsPdf, WORKS, TRADES } from './rams.js';
 import { markupPhoto, plainThumb } from './photomark.js';
 import { makeCode, allCustomers, customerLabel, emailList, gmailCompose, phoneList, telHref } from './customers.js';
 import { IRON_MAINT, DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
@@ -298,6 +299,7 @@ async function render() {
     else if (state.view === 'quote') await renderQuoteDoc();
     else if (state.view === 'assistant') await renderAssistant();
     else if (state.view === 'customers') await renderCustomers();
+    else if (state.view === 'hs') await renderHealthSafety();
   } else if (state.view === 'plan') {
     await refreshPins();
   }
@@ -307,6 +309,7 @@ async function render() {
 
 // ---------- Projects list ----------
 async function renderProjects() {
+  setTimeout(() => checkOldVisits().catch(() => {}), 1200);
   const projects = (await db.all('projects')).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.updatedAt.localeCompare(a.updatedAt));
   const allDoors = await db.all('doors');
   const allPlans = await db.all('plans');
@@ -418,6 +421,7 @@ async function renderProjects() {
       ${liveHtml}
       <div class="tile-pair">
         <button class="lib-card tile ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Sites, doors, reports</small></span></button>
+        <button class="lib-card tile" id="my-hs">${icon('shield')}<span><b>Health &amp; safety</b><small>RAMS · signed visits</small></span></button>
         <button class="lib-card tile" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private${lists.libPin ? ' · PIN' : ''}</small></span></button>
       </div>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -446,6 +450,7 @@ async function renderProjects() {
     <!-- "New site" is in the shortcuts at the top of Home (owner: one button, not two) -->
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
+  $('#my-hs')?.addEventListener('click', () => go({ view: 'hs' }));
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'pricing' }); });
   $('#qk-cont')?.addEventListener('click', async () => {
@@ -1535,7 +1540,7 @@ async function bookArchives() {
 // Hidden on a site, on a drawing and while a pin is open, so field work keeps
 // the whole screen. Business asks for the owner PIN.
 // Settings itself is the cog at the top of Home; the last tab is the defect list (owner, 26 Nov 2026)
-const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', customers: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'defects' };
+const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', hs: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', customers: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'defects' };
 const TABS = [
   ['home', 'Home', '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', { view: 'projects' }],
   ['schedule', 'Schedule', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', { view: 'schedule' }],
@@ -1686,6 +1691,41 @@ async function renderBizHub() {
   $('#bh-pricing')?.addEventListener('click', () => go({ view: 'pricing' }));
   $('#bh-fails')?.addEventListener('click', () => { openFolds.add('defs'); go({ view: 'settings', focus: 's-defs' }); });
   $('#bh-lock')?.addEventListener('click', () => { libUnlocked = false; toast('Locked: prices and time hidden'); refresh(); });
+}
+
+// ---------- Health & safety: RAMS templates and every signed RAMS ----------
+async function renderHealthSafety() {
+  const projects = await db.all('projects');
+  const signed = projects.flatMap((p) => Object.values(p.rams || {}).map((r) => ({ ...r, p }))).sort((a, b) => (b.startedAt || '').localeCompare(a.startedAt || ''));
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>Health &amp; safety</b><small>RAMS for every visit · ladder checks, tools and stock next</small></div>
+    </header>
+    <main class="page">
+      <h2 class="h2">RAMS templates</h2>
+      <p class="small muted">The generic part of every RAMS. Starting a visit fills in the site, customer, drawings and check, adds your notes, and asks for it to be read and signed.</p>
+      ${Object.entries(TRADES).map(([t, tn]) => `<details class="ffold"><summary>${icon('shield')}<b>${esc(tn)}</b><span class="muted">${Object.keys(WORKS).length}</span></summary><div class="ffold-body"><div class="doc-list">${Object.entries(WORKS).map(([w, wn]) => `<button type="button" class="doc-row hs-tpl" data-t="${t}" data-w="${w}"><span class="q-main"><b>${esc(wn)}</b><small>${t === 'fd' ? 'From your own RAMS' : 'Industry standards in your format · review before first issue'}</small></span></button>`).join('')}</div></div></details>`).join('')}
+      <label class="field"><span>Next RAMS number</span><input id="hs-next" type="number" inputmode="numeric" min="1" value="${esc(lists.ramsNext || 22)}"><small class="muted">Your last numbered RAMS in Drive is FSCF-RAMS-21 (Dunboyne). Change this if you've issued others since.</small></label>
+      <h2 class="h2">Signed RAMS <span class="muted">${signed.length}</span></h2>
+      <div class="doc-list">${signed.map((r, i) => `<button type="button" class="doc-row hs-signed" data-i="${i}"><span class="q-main"><b>${esc(r.ref)} · ${esc(r.p.site || 'Site')}</b><small>${esc(WORKS[r.work] || '')} · ${esc(fmtDate((r.startedAt || '').slice(0, 10)))} · signed by ${esc(r.signers.map((x) => x.name).join(', '))}</small></span></button>`).join('') || '<p class="muted small">None yet. Start a visit on a drawing to make and sign the first one.</p>'}</div>
+    </main>`;
+  $('#back').onclick = back;
+  $('#hs-next').onchange = (e) => saveLists({ ramsNext: Math.max(1, Number(e.target.value) || 22) });
+  $$('.hs-tpl').forEach((b) => (b.onclick = async () => {
+    const r = buildRams({ trade: b.dataset.t, work: b.dataset.w, kit: kitOf(b.dataset.t === 'fd' ? 'fd6' : b.dataset.t), site: 'Sample site', visitPath: 'Sample site › Collection › Section', drawings: ['Ground floor'], date: fmtDate(today()) });
+    const a = await dialog({ title: `${r.tradeName}: ${r.workName}`, body: `<div class="rams-prev">${ramsHtml(r, esc)}</div>`, buttons: [{ label: 'Close', value: false }, { label: 'Sample PDF', value: 'pdf', kind: 'primary' }] });
+    if (a.value === 'pdf') {
+      const bz = busy('Making the sample RAMS…');
+      try { const blob = await ramsPdf({ ...r, ref: 'SAMPLE', signers: [] }, await pdfLists()); bz.done(); await saveFile(`SAMPLE RAMS ${r.tradeName} ${r.workName}.pdf`, blob); } catch (err) { bz.done(); toast(err.message, 'error'); }
+    }
+  }));
+  $$('.hs-signed').forEach((b) => (b.onclick = async () => {
+    const r = signed[+b.dataset.i];
+    const f = r.fileId && (await db.get('files', r.fileId));
+    if (f) openFile(f).catch((err) => toast(err.message, 'error'));
+    else toast('The PDF for this RAMS is not on this device', 'error');
+  }));
 }
 
 // ---------- Customers ----------
@@ -2928,6 +2968,7 @@ function svcControls(project, plan, full = false) {
     const run = isRunning(sv);
     return `<span class="svc-chip ${run ? 'is-live' : 'is-paused'}">${run ? '<span class="live-dot" aria-hidden="true"></span> Live' : '⏸ Paused'}</span>
       ${timerChip(project, key)}
+      ${sv.ramsId && project.rams?.[sv.ramsId] ? `<button class="btn sm svc-act svc-rams" data-act="rams" data-plan="${plan.id}">${icon('shield')} RAMS ✓ ${project.rams[sv.ramsId].signers.length}</button>` : ''}
       <button class="btn sm svc-act" data-act="${run ? 'pause' : 'resume'}" data-plan="${plan.id}">${run ? '⏸ Pause' : icon('play') + ' Resume'}</button>
       <button class="btn primary sm svc-act" data-act="end" data-plan="${plan.id}">${icon('check')} End service</button>`;
   }
@@ -2942,8 +2983,7 @@ function bindSvc(root, project, plans, after = refresh) {
     const key = planKey(plan.id);
     const fresh = await db.get('projects', project.id);
     if (b.dataset.act === 'start') {
-      await startService(project.id, key, lists.inspector);
-      toast(`Service started: ${plan.name}`);
+      if (!(await startVisit(fresh, plan, plans))) return;
       await after();
       try {
         const doors = await db.projectDoors(project.id);
@@ -2953,6 +2993,16 @@ function bindSvc(root, project, plans, after = refresh) {
       } catch (err) {
         toast('Weather not recorded yet: ' + (/fetch|network|load failed/i.test(err.message) ? 'no internet' : err.message));
       }
+    } else if (b.dataset.act === 'rams') {
+      const rec = fresh.rams?.[fresh.services?.[key]?.ramsId];
+      if (!rec) return;
+      const a = await dialog({
+        title: `RAMS ${rec.ref}`,
+        body: `<p>${esc(WORKS[rec.work] || '')} · signed by ${esc(rec.signers.map((x) => x.name).join(', '))}</p><p class="small muted">In force for this visit until End service.</p>`,
+        buttons: [{ label: 'Close', value: false }, ...(rec.fileId ? [{ label: 'Open PDF', value: 'open' }] : []), { label: 'Sign on', value: 'sign', kind: 'primary' }],
+      });
+      if (a.value === 'open') { const f = await db.get('files', rec.fileId); if (f) openFile(f); }
+      if (a.value === 'sign') await signOnRams(fresh, rec.id, after);
     } else if (b.dataset.act === 'pause') {
       await pauseService(project.id, key);
       toast(`Paused. ${fmtJobTime(elapsedMs((await db.get('projects', project.id)).services[key]))} so far; Resume when you're back`);
@@ -2991,6 +3041,170 @@ function noteWeather(projectId) {
 }
 
 // ---------- End of service close-out ----------
+// ---------- Visits and RAMS (owner, 27 Nov 2026) ----------
+// A visit = a started service on one or more drawings. Work can't be recorded on a drawing until a
+// visit is started and its RAMS (rams.js) read and signed. The signed RAMS lasts for the whole visit
+// (pauses, closing the app) until End service; others on the visit sign the same RAMS ("Sign on").
+const tradeOf = (plan) => { const k = plan?.inspType || 'fd'; const b = k === 'fd' || TRADES[k] ? k : kitOf(k).base || 'fd'; return TRADES[b] ? b : 'fd'; };
+async function ramsContext(project, plans, work, extra = {}) {
+  const cust = (await customerList().catch(() => [])).find((c) => c.code === (project.customerCode || '').toUpperCase());
+  const first = plans[0];
+  const colls = [...new Set(plans.map((x) => (x.collection ? collLabel(x.collection) : '')).filter(Boolean))];
+  return buildRams({
+    trade: tradeOf(first), work, kit: kitOf(first?.inspType || 'fd'),
+    site: project.site || '', address: project.address || '', client: cust?.company || project.client || '', customer: cust?.code || project.customerCode || '',
+    contact: [cust?.name, cust?.role].filter(Boolean).join(', '), phone: [cust?.phone, cust?.mobile].filter(Boolean).join(' / '), email: (cust?.email || '').split(/[,;\s]+/)[0] || '',
+    visitPath: [project.site, ...colls].filter(Boolean).join(' › '), drawings: plans.map((x) => x.name || 'Drawing'),
+    ae: project.ramsAE || '', siteNotes: project.ramsSiteNotes || '', date: fmtDate(today()), dates: fmtDate(today()), ...extra,
+  });
+}
+function nextRamsRef() { return `FSCF-RAMS-${String(lists.ramsNext || 22).padStart(2, '0')}`; }
+async function startVisit(project, plan, plans) {
+  const p0 = await db.get('projects', project.id);
+  const all = (plans?.length ? plans : await db.projectPlans(project.id)).filter((x) => x.id === plan.id || (!p0.services?.[planKey(x.id)] && !p0.closeouts?.[planKey(x.id)]));
+  const sameTrade = all.filter((x) => tradeOf(x) === tradeOf(plan));
+  let work = state.repair ? 'rem' : 'insp';
+  const preview = async (form) => {
+    const picked = sameTrade.filter((x) => form.elements['d_' + x.id]?.checked);
+    const r = await ramsContext(p0, picked.length ? picked : [plan], work);
+    $('#rams-prev', form).innerHTML = ramsHtml(r, esc);
+    $('#rams-made', form).textContent = `${r.tradeName} — ${r.workName}${work === 'insp' && r.kit?.name ? ' · ' + r.kit.name : ''}`;
+  };
+  const r = await dialog({
+    title: 'Start visit: RAMS first',
+    body: `<p class="small muted">Work can't be recorded until this visit's RAMS has been read and signed. It lasts for the whole visit, until End service.</p>
+      <fieldset class="seg3" id="rams-work"><legend>What work?</legend>${Object.entries(WORKS).map(([k, l]) => `<label><input type="radio" name="work" value="${k}" ${k === work ? 'checked' : ''}><span>${esc(l)}</span></label>`).join('')}</fieldset>
+      <fieldset class="rams-dwgs"><legend>Drawings on this visit</legend>${sameTrade.map((x) => `<label class="check-line"><input type="checkbox" name="d_${x.id}" ${x.id === plan.id ? 'checked' : ''}> <span>${esc(planSvcName(x))}</span></label>`).join('')}</fieldset>
+      <label class="field"><span>RAMS reference</span><input name="ref" value="${esc(nextRamsRef())}" autocomplete="off"></label>
+      <label class="field"><span>Person(s) in charge / on site</span><input name="persons" value="${esc(lists.inspector || 'Mark Crosby')}" autocomplete="off"></label>
+      <label class="field"><span>Nearest A&amp;E hospital (name, address, phone)</span><input name="ae" value="${esc(p0.ramsAE || '')}" placeholder="e.g. Cavan General Hospital, Lisdarn, Cavan, H12 Y7W1 — 049 437 6000" autocomplete="off"></label>
+      <label class="field"><span>Site-specific notes (kept for this site)</span><textarea name="siteNotes" rows="3" placeholder="e.g. Sign in at main reception; boiler house keys from the porter">${esc(p0.ramsSiteNotes || '')}</textarea></label>
+      <label class="field"><span>Project / visit notes</span><textarea name="visitNotes" rows="2" placeholder="e.g. Ward 3 only before 10am"></textarea></label>
+      <details class="rams-read" open><summary><b>Read the RAMS</b> <span class="muted" id="rams-made"></span></summary><div id="rams-prev" class="rams-prev"></div></details>
+      <label class="check-line rams-ack"><input type="checkbox" name="read" required> <span><b>I have read and understood this RAMS</b> and will stop work and seek guidance if conditions change.</span></label>`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Sign and start', value: true, kind: 'primary' }],
+    onOpen: (form) => {
+      preview(form);
+      $$('[name=work]', form).forEach((x) => (x.onchange = () => { work = x.value; preview(form); }));
+      $$('.rams-dwgs input', form).forEach((x) => (x.onchange = () => preview(form)));
+    },
+  });
+  if (r.value !== true) return false;
+  if (!r.data.read) { toast('Tick "I have read and understood this RAMS" to start the visit', 'error'); return false; }
+  const picked = sameTrade.filter((x) => r.data['d_' + x.id]);
+  if (!picked.length) { toast('Pick at least one drawing', 'error'); return false; }
+  const sig = await signaturePad({ title: 'Sign the RAMS', name: (r.data.persons || '').split(/[,/&]/)[0].trim() || lists.inspector || '', saved: lists.signature });
+  if (!sig) return false;
+  const ramsId = db.uid();
+  const now = new Date().toISOString();
+  const rec = { id: ramsId, ref: (r.data.ref || nextRamsRef()).trim(), work: r.data.work || work, trade: tradeOf(plan), planIds: picked.map((x) => x.id), persons: r.data.persons || '', ae: r.data.ae || '', siteNotes: r.data.siteNotes || '', visitNotes: r.data.visitNotes || '', startedAt: now, signers: [{ name: sig.name || r.data.persons || '', role: 'Person in charge', at: now, sig: { data: sig.data, w: sig.w, h: sig.h } }] };
+  for (const x of picked) await startService(project.id, planKey(x.id), lists.inspector);
+  const p1 = await db.get('projects', project.id);
+  const services = { ...p1.services };
+  for (const x of picked) services[planKey(x.id)] = { ...services[planKey(x.id)], ramsId, work: rec.work, confirmedAt: now };
+  await db.put('projects', { ...p1, services, rams: { ...(p1.rams || {}), [ramsId]: rec }, ramsAE: rec.ae, ramsSiteNotes: rec.siteNotes });
+  const m = /(\d+)\s*$/.exec(rec.ref);
+  if (m && Number(m[1]) >= (lists.ramsNext || 22)) await saveLists({ ramsNext: Number(m[1]) + 1 });
+  await saveRamsPdf(project.id, ramsId);
+  toast(`RAMS ${rec.ref} signed · visit started on ${picked.length} drawing${picked.length === 1 ? '' : 's'}`);
+  return true;
+}
+// (re)make the signed RAMS PDF and keep it in the site's Files › RAMS
+async function saveRamsPdf(projectId, ramsId) {
+  try {
+    const p = await db.get('projects', projectId);
+    const rec = p.rams?.[ramsId];
+    if (!rec) return;
+    const plans = (await db.projectPlans(projectId)).filter((x) => rec.planIds.includes(x.id));
+    const r = await ramsContext(p, plans.length ? plans : [{}], rec.work, { ref: rec.ref, persons: rec.persons, ae: rec.ae, siteNotes: rec.siteNotes, visitNotes: rec.visitNotes, signers: rec.signers, date: fmtDate(rec.startedAt.slice(0, 10)), dates: fmtDate(rec.startedAt.slice(0, 10)) });
+    const blob = await ramsPdf(r, await pdfLists());
+    const name = `${rec.ref} ${p.site || 'Site'} ${r.workName} ${rec.startedAt.slice(0, 10)}.pdf`.replace(/[\\/:*?"<>|]+/g, ' ');
+    if (rec.fileId) { const f = await db.get('files', rec.fileId); if (f) await db.remove('files', rec.fileId); }
+    const f = await addBlob(projectId, blob, name, 'RAMS', { ramsId });
+    const p2 = await db.get('projects', projectId);
+    await db.put('projects', { ...p2, rams: { ...p2.rams, [ramsId]: { ...p2.rams[ramsId], fileId: f.id } } });
+  } catch (err) { console.error(err); toast('RAMS signed, but the PDF could not be made: ' + err.message, 'error'); }
+}
+// someone else on the visit signs the same RAMS
+async function signOnRams(project, ramsId, after) {
+  const rec = project.rams?.[ramsId];
+  if (!rec) return;
+  const r = await dialog({
+    title: `Sign on to ${rec.ref}`,
+    body: `<p class="small">Everyone working on this visit reads and signs the same RAMS before recording work.</p>
+      <label class="field"><span>Role</span><input name="role" value="Operative" autocomplete="off"></label>
+      <label class="check-line"><input type="checkbox" name="read"> <span><b>I have read and understood this RAMS</b></span></label>
+      ${rec.fileId ? '<button type="button" class="btn sm" id="rams-open">' + icon('report') + ' Open the RAMS</button>' : ''}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: 'Sign', value: true, kind: 'primary' }],
+    onOpen: (form) => { $('#rams-open', form)?.addEventListener('click', async () => { const f = await db.get('files', rec.fileId); if (f) openFile(f); }); },
+  });
+  if (r.value !== true) return;
+  if (!r.data.read) return toast('Tick "I have read and understood this RAMS" first', 'error');
+  const sig = await signaturePad({ title: 'Sign the RAMS', name: '' });
+  if (!sig) return;
+  const p = await db.get('projects', project.id);
+  const cur = p.rams[ramsId];
+  await db.put('projects', { ...p, rams: { ...p.rams, [ramsId]: { ...cur, signers: [...cur.signers, { name: sig.name, role: r.data.role || 'Operative', at: new Date().toISOString(), sig: { data: sig.data, w: sig.w, h: sig.h } }] } } });
+  await saveRamsPdf(project.id, ramsId);
+  toast(`${sig.name || 'Signed'}: signed on to ${cur.ref}`);
+  after?.();
+}
+// can work be recorded on this drawing now? (a live visit; with a RAMS for visits started since this release)
+function visitFor(project, planId) {
+  const key = planKey(planId);
+  const sv = project?.services?.[key];
+  if (!sv || project.closeouts?.[key]) return null;
+  return { sv, rams: sv.ramsId ? project.rams?.[sv.ramsId] : null };
+}
+let officeEdit = false; // owner PIN: edit records outside a visit (office corrections)
+async function applyVisitLock(door) {
+  const el = $('#sheet');
+  if (!el || !door?.planId) return;
+  const project = await db.get('projects', door.projectId);
+  const v = visitFor(project, door.planId);
+  const okWork = (w) => (state.repair ? ['rem', 'inst'].includes(w) : w === 'insp');
+  const open = officeEdit || (v && (!v.sv.ramsId || okWork(v.sv.work || 'insp')));
+  el.classList.toggle('rec-locked', !open);
+  $('#visit-lock', el)?.remove();
+  if (open) return;
+  const msg = v ? `This visit is for ${esc((WORKS[v.sv.work] || '').toLowerCase())}. End it and start a ${state.repair ? 'remedial repairs' : 'inspection'} visit to record this.` : 'Start a visit and sign its RAMS to record work here. You can still look at everything.';
+  const bar = document.createElement('div');
+  bar.id = 'visit-lock';
+  bar.className = 'visit-lock';
+  bar.innerHTML = `${icon('shield')}<span>${msg}</span>${v ? '' : '<button type="button" class="btn sm primary" id="vl-start">Start visit</button>'}<button type="button" class="link-btn" id="vl-office">Office edit (PIN)</button>`;
+  ($('.sheet-body', el) || el).prepend(bar);
+  $('#vl-start', bar)?.addEventListener('click', async () => {
+    const plan = await db.get('plans', door.planId);
+    if (await startVisit(project, plan)) { sheetDoorId = null; render(); }
+  });
+  $('#vl-office', bar).onclick = async () => {
+    if (!priced() && !(await unlockOwner({ redraw: false }))) return;
+    officeEdit = true; toast('Office edit on until the app is closed'); sheetDoorId = null; render();
+  };
+}
+// "Still on this visit?" after 7 days
+let visitCheckDone = false;
+async function checkOldVisits() {
+  if (visitCheckDone) return;
+  visitCheckDone = true;
+  const week = 7 * 864e5;
+  for (const p of await db.all('projects')) {
+    for (const [key, sv] of Object.entries(p.services || {})) {
+      if (p.closeouts?.[key] || Date.now() - Date.parse(sv.confirmedAt || sv.startedAt || 0) < week) continue;
+      const plan = await db.get('plans', key.replace(/^plan:/, ''));
+      if (!plan) continue;
+      const a = await dialog({
+        title: 'Still on this visit?',
+        body: `<p><b>${esc(p.site || 'Site')} › ${esc(planSvcName(plan))}</b></p><p class="small muted">Started ${esc(fmtDate((sv.startedAt || '').slice(0, 10)))}. The signed RAMS stays in force until you end the visit.</p>`,
+        buttons: [{ label: 'Open it to end', value: 'open' }, { label: 'Still on it', value: 'yes', kind: 'primary' }],
+      });
+      const fresh = await db.get('projects', p.id);
+      if (a.value === 'yes') await db.put('projects', { ...fresh, services: { ...fresh.services, [key]: { ...fresh.services[key], confirmedAt: new Date().toISOString() } } });
+      else if (a.value === 'open') return go({ view: 'plan', projectId: p.id, planId: plan.id });
+    }
+  }
+}
+
 async function closeService(project, plan, doors) {
   const key = planKey(plan.id);
   const plans = [plan];
@@ -5632,6 +5846,7 @@ async function renderSheet() {
   try {
     if (state.repair) await drawRepairSheet(door);
     else await drawSheet(door);
+    await applyVisitLock(door).catch((err) => console.error(err));
   } catch (err) {
     // never leave a half-drawn pin behind a backdrop (it looks frozen): close it and say why
     console.error(err);
@@ -5659,9 +5874,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.7';
+const VERSION_TAG = 'app v0.55.0';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'customers: tap an email to write in Gmail, tap a number to call; phone and mobile boxes; old details archived; restoring a backup merges';
+const WHATS_NEW = 'RAMS: start a visit, read and sign the RAMS, then record work; Health & safety page on Home';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

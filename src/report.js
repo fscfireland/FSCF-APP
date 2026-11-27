@@ -181,7 +181,7 @@ function drawBars(doc, rows, x0, y0, width, { max = 100, unit = '%', labelW = 78
 }
 
 // Place an image inside a box, keeping its shape; returns the drawn size
-function fitImage(doc, lg, x, y, maxW, maxH, align = 'left') {
+export function fitImage(doc, lg, x, y, maxW, maxH, align = 'left') {
   const k = Math.min(maxW / lg.w, maxH / lg.h);
   const w = lg.w * k;
   const h = lg.h * k;
@@ -192,7 +192,7 @@ function fitImage(doc, lg, x, y, maxW, maxH, align = 'left') {
 
 // The report's top band: your logos on white with a charcoal title bar and copper
 // rule (logo colours), or the plain charcoal band when no logo has been added
-function reportBanner(doc, lists, title, { bandH = 64, titleSize = 26 } = {}) {
+export function reportBanner(doc, lists, title, { bandH = 64, titleSize = 26 } = {}) {
   const banner = lists?.logoBanner;
   const round = lists?.logoRound;
   if (!banner && !round) {
