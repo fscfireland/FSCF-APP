@@ -1,4 +1,6 @@
-// FSCF house style: everything on screen in capitals, with three exceptions (the third: clause letters, below).
+// FSCF house style: everything on screen in capitals, with these exceptions (owner):
+// 0. Regulation quotations and references are kept exactly as written (owner, 27 Nov 2026): on screen with the
+//    keep-case class, in PDFs with doc.asWritten(); clause letters after a number always stay small (rule 3 below).
 //  1. Fire ratings keep the small "a" the standards use: E30Sa, E60Sa4, EW30Sa.
 //  2. Checklist questions, defects and repair items: only the heading before
 //     the colon is in capitals ("DOOR LEAF: free from damage…", "HINGES: fewer
@@ -106,7 +108,9 @@ export function capsWorkbook(wb) {
 // splitTextToSize has already styled are drawn as they are.
 export function capsPdf(doc) {
   const styled = new Set();
-  const map = (v) => (Array.isArray(v) ? v.map(map) : typeof v === 'string' && !styled.has(v) ? smartCaps(v) : v);
+  const written = []; // texts kept as written; tables split them into lines, so their pieces count too
+  const asIs = (v) => styled.has(v) || (v.trim().length >= 12 && written.some((w) => w.includes(v.trim())));
+  const map = (v) => (Array.isArray(v) ? v.map(map) : typeof v === 'string' && !asIs(v) ? smartCaps(v) : v);
   const text = doc.text.bind(doc);
   const split = doc.splitTextToSize.bind(doc);
   const width = doc.getTextWidth.bind(doc);
@@ -129,6 +133,9 @@ export function capsPdf(doc) {
     return out;
   };
   doc.getTextWidth = (t, ...a) => width(map(t), ...a);
+  // regulation quotations and references are printed exactly as written (owner, 27 Nov 2026: "if it's a reg the
+  // caps rule does not apply")
+  doc.asWritten = (s) => { styled.add(s); written.push(s); return s; };
   // table plug-ins measure with these
   if (doc.getStringUnitWidth) {
     const unit = doc.getStringUnitWidth.bind(doc);

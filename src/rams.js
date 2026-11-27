@@ -272,7 +272,7 @@ export async function ramsPdf(r, lists) {
   if (r.visitNotes) { sub('Project / visit notes'); para(r.visitNotes); }
   head('2. Legislation & Standards');
   para('The following legislation and standards apply to this work (EN standards are used in preference to British Standards wherever a suitable EN equivalent exists):');
-  bullets(r.legislation);
+  bullets(r.legislation.map((x) => doc.asWritten(x)));
   head('3. Roles & Responsibilities');
   need(40);
   table({

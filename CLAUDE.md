@@ -51,6 +51,11 @@ with two exceptions:
 - Checklist questions, defects and repair items: only the heading before the colon is in
   capitals, and the rest stays as written ("DOOR LEAF: free from damage…").
 
+- Regulations (owner, 27 Nov 2026: "if it's a reg then the caps rule does not apply"): regulation quotations and
+  references are kept exactly as written, e.g. "Gen App Regs 2007, Reg 30(b)(iii): deterioration detected and remedied in
+  good time". On screen give the element the `keep-case` class; in PDFs pass the text through `doc.asWritten()` (caps.js).
+  Clause letters after a number always stay small, even inside capitals: REG 119(1)(b)(i).
+
 Long lines in PDFs wrap; they are never shrunk or cut off.
 
 ### 3. Doors and pins

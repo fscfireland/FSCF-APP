@@ -94,7 +94,7 @@ export async function ladderPdf(ladder, c) {
   const font = (s, z, col = INK) => { doc.setFont('helvetica', s); doc.setFontSize(z); doc.setTextColor(...col); };
   const need = (h) => { if (y + h > BOTTOM) { doc.addPage(); y = 20; } };
   const head = (t) => { need(20); y += 2; font('bold', 11.5, ORANGE); doc.text(t, M, y); y += 5; };
-  const ref = (t) => { font('italic', 7.6, GREY); for (const ln of doc.splitTextToSize(`Ref: ${t}`, CW)) { doc.text(ln, M, y); y += 3.4; } y += 1; };
+  const ref = (t) => { font('italic', 7.6, GREY); for (const ln of doc.splitTextToSize(doc.asWritten(`Ref: ${t}`), CW)) { doc.text(ln, M, y); y += 3.4; } y += 1; };
   const table = (opts) => { doc.autoTable({ margin: { left: M, right: M, bottom: 22 }, theme: 'grid', rowPageBreak: 'avoid', styles: { fontSize: 8.6, cellPadding: 1.8, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, valign: 'top' }, headStyles: { fillColor: DARK, textColor: 255, fontStyle: 'bold' }, ...opts, startY: y }); y = doc.lastAutoTable.finalY + 5; };
   const label = { 0: { cellWidth: 62, fontStyle: 'bold', fillColor: PEACH } };
   const yn = (v, opts) => opts.map((o) => `${o === v ? '[X]' : '[  ]'} ${o}`).join('   ');
@@ -128,7 +128,7 @@ export async function ladderPdf(ladder, c) {
   head('4. Condition checklist'); ref('Each item\'s source is under it. Form 129 = FSCF Form 129 rev 000; TBT = toolbox talks (see Sources)');
   table({
     head: [['#', 'Component & what to check', 'Result', 'Comments / location of defect']],
-    body: ITEMS.map(([h, t, , src], i) => [String(i + 1), `${h}\n${t}\nRef: ${src}`, ({ pass: 'Pass', fail: 'Fail', na: 'N/A' })[c.items?.[i]?.r] || '', c.items?.[i]?.note || 'No comment']),
+    body: ITEMS.map(([h, t, , src], i) => [String(i + 1), doc.asWritten(`${h.toUpperCase()}\n${t}\nRef: ${src}`), ({ pass: 'Pass', fail: 'Fail', na: 'N/A' })[c.items?.[i]?.r] || '', c.items?.[i]?.note || 'No comment']),
     columnStyles: { 0: { cellWidth: 8 }, 1: { cellWidth: 78 }, 2: { cellWidth: 18, fontStyle: 'bold', halign: 'center' } },
     didParseCell: (d) => { if (d.section === 'body' && d.column.index === 2) d.cell.styles.fillColor = RES[c.items?.[d.row.index]?.r] || [255, 255, 255]; },
   });
@@ -169,16 +169,16 @@ export async function ladderPdf(ladder, c) {
   });
   head('Notes – from the regulations, GA3 and Form 129');
   font('normal', 8.4, INK);
-  for (const p of NOTES) { for (const ln of doc.splitTextToSize(p, CW)) { need(4.4); doc.text(ln, M, y); y += 4; } y += 2; }
+  for (const p of NOTES) { for (const ln of doc.splitTextToSize(doc.asWritten(p), CW)) { need(4.4); doc.text(ln, M, y); y += 4; } y += 2; }
   head('Sources');
-  table({ head: [['Short name', 'Document (and where it is kept)']], body: SOURCES, styles: { fontSize: 7.8, cellPadding: 1.5, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, valign: 'top' }, columnStyles: { 0: { cellWidth: 34, fontStyle: 'bold', fillColor: PEACH } } });
+  table({ head: [['Short name', 'Document (and where it is kept)']], body: SOURCES.map(([a, b]) => [a, doc.asWritten(b)]), styles: { fontSize: 7.8, cellPadding: 1.5, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, valign: 'top' }, columnStyles: { 0: { cellWidth: 34, fontStyle: 'bold', fillColor: PEACH } } });
 
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
     font('normal', 7.6, ORANGE); doc.text(`FSCF Ireland  |  Ladder check ${ladder.ref || ''}  |  ${fmt(c.at)}`, M, 11);
     font('normal', 7, GREY);
-    const lines = doc.splitTextToSize(`${FOOT} Page ${i} of ${n}`, CW);
+    const lines = doc.splitTextToSize(doc.asWritten(`${FOOT} Page ${i} of ${n}`), CW);
     lines.forEach((ln, k) => doc.text(ln, W / 2, 284 + k * 3.4, { align: 'center' }));
   }
   return doc.output('blob');
