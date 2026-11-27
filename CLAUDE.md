@@ -228,6 +228,13 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   (`signOnRams`). "Still on this visit?" after 7 days (`checkOldVisits`). Health & safety page (view `hs`, Home tile):
   templates by trade (fold-outs, owner liked these), next RAMS number, all signed RAMS. Part 2 next: ladder checks
   (Form 129), tools list, stock list. Kells praise: Sandra Mahon, HSE DNE Facilities, 15/10/2026 ("nicest RAMS").
+- v0.55.1 (27 Nov 2026): door Access chips on the pin Info (None / Code / Swipe; `door.access`, `door.accessCode`, code box
+  only for Code; small tag on the Doors list). Codes are NOT put in reports or exports (security). Building type per drawing
+  (`plan.building`: acute_res / nonacute_res / nonacute_nonres, BUILDINGS in main.js) asked when adding drawings (pickKind
+  opts.building), on New project from a drawing, and in the drawing's menu; project.building keeps the last one as default.
+  Acute + non-acute residential = CLINICAL: while a visit is live on such a drawing, `handCheck` (every minute) shows
+  "Have you cleaned your hands?" every 2 hours (settings `handAt`), and once when the visit's RAMS is signed. Refs: WHO hand
+  hygiene 2009 + DoH NCG No. 30 IPC 2023; the categories and the 2-hour interval are (FSCF practice, source to be confirmed).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

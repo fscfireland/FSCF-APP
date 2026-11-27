@@ -310,6 +310,7 @@ async function render() {
 // ---------- Projects list ----------
 async function renderProjects() {
   setTimeout(() => checkOldVisits().catch(() => {}), 1200);
+  setInterval(() => handCheck().catch(() => {}), 60e3);
   const projects = (await db.all('projects')).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.updatedAt.localeCompare(a.updatedAt));
   const allDoors = await db.all('doors');
   const allPlans = await db.all('plans');
@@ -683,6 +684,7 @@ async function importFromDrawing(file, { manual = false } = {}) {
       <label class="field"><span>Address / Eircode</span><input name="address"></label>
       <label class="field"><span>Inspection frequency</span><select name="frequency">${freqOpts('')}</select><small class="muted">Each door's next inspection due date is worked out from its inspection date.</small></label>
       <label class="field"><span>Inspection type</span><select name="kind">${kindIds().map((k) => `<option value="${k}" ${k === 'fd' ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select></label>
+      ${buildingField('')}
       ${lists.aiKey && !manual ? `<label class="check-line"><input type="checkbox" name="ai" checked> Auto-pin pages with no readable text using the drawing reader</label><p class="cost-note">${icon('spark')} <span><b>Cost will be charged to your account.</b> The drawing reader is billed by Anthropic to the account of the API key in Settings.</span></p>` : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Create project', value: true, kind: 'primary' }],
   });
@@ -698,14 +700,14 @@ async function importFromDrawing(file, { manual = false } = {}) {
     const text = isPdf && !manual ? await textDoors(file).catch(() => []) : [];
     const project = await db.put('projects', {
       id: db.uid(), site: r.data.site.trim() || file.name, client: r.data.client.trim(), address: r.data.address.trim(), date: r.data.date || today(),
-      frequency: Number(r.data.frequency) || 0,
+      frequency: Number(r.data.frequency) || 0, building: r.data.building || '',
       workType: kindIds().includes(kind) && kind !== 'fd' ? kitOf(kind).name : 'Fire door inspection', scheme: lists.lastScheme || DEFAULT_SCHEME, zones: [], nextPin: 1,
     });
     let first = null;
     let needAi = 0;
     const scanned = [];
     for (const [i, pg] of pages.entries()) {
-      const plan = await db.put('plans', { id: db.uid(), projectId: project.id, order: i, sourceName: file.name, collection: '', inspType: kind, ...pg });
+      const plan = await db.put('plans', { id: db.uid(), projectId: project.id, order: i, sourceName: file.name, collection: '', inspType: kind, building: r.data.building || '', ...pg });
       first ||= plan;
       const t = text[i];
       if (t?.doors.length) {
@@ -3107,6 +3109,7 @@ async function startVisit(project, plan, plans) {
   if (m && Number(m[1]) >= (lists.ramsNext || 22)) await saveLists({ ramsNext: Number(m[1]) + 1 });
   await saveRamsPdf(project.id, ramsId);
   toast(`RAMS ${rec.ref} signed · visit started on ${picked.length} drawing${picked.length === 1 ? '' : 's'}`);
+  if (picked.some((x) => CLINICAL.includes(x.building))) setTimeout(() => handCheck(true).catch(() => {}), 1500);
   return true;
 }
 // (re)make the signed RAMS PDF and keep it in the site's Files › RAMS
@@ -3150,6 +3153,45 @@ async function signOnRams(project, ramsId, after) {
   after?.();
 }
 // can work be recorded on this drawing now? (a live visit; with a RAMS for visits started since this release)
+// Building type of a drawing (owner, 27 Nov 2026). The two residential healthcare types turn on the
+// hand hygiene reminder during a live visit. Categories: (FSCF practice, source to be confirmed).
+const BUILDINGS = [
+  ['acute_res', 'Acute residential', 'e.g. hospital wards'],
+  ['nonacute_res', 'Non-acute residential', 'e.g. nursing home, care unit, residential disability'],
+  ['nonacute_nonres', 'Non-acute non-residential', 'e.g. health centre, clinic, offices, school'],
+];
+const CLINICAL = ['acute_res', 'nonacute_res'];
+const HAND_EVERY = 2 * 36e5; // every 2 hours (FSCF practice, owner's instruction 27 Nov 2026)
+const HAND_REF = 'Hand hygiene before and after work in patient / resident areas (WHO Guidelines on Hand Hygiene in Health Care 2009; Dept of Health National Clinical Guideline No. 30, Infection Prevention and Control 2023). Every 2 hours: FSCF practice, source to be confirmed.';
+const buildingName = (b) => BUILDINGS.find(([k]) => k === b)?.[1] || '';
+function buildingField(cur, name = 'building') {
+  return `<label class="field"><span>Building type</span><select name="${name}" id="f-building"><option value="">Select…</option>${BUILDINGS.map(([k, n, eg]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(n)} (${esc(eg)})</option>`).join('')}</select><small class="muted">Acute and non-acute residential turn on a "have you cleaned your hands?" reminder every 2 hours during a visit.</small></label>`;
+}
+let handBusy = false;
+async function handCheck(force = false) {
+  if (handBusy || document.querySelector('.modal-wrap')) return;
+  if (!force && Date.now() - (lists.handAt || 0) < HAND_EVERY) return;
+  const live = [];
+  for (const p of await db.all('projects')) {
+    for (const key of Object.keys(p.services || {})) {
+      if (p.closeouts?.[key]) continue;
+      const pl = await db.get('plans', key.replace(/^plan:/, ''));
+      if (pl && CLINICAL.includes(pl.building)) live.push(`${p.site || 'Site'} › ${planSvcName(pl)}`);
+    }
+  }
+  if (!live.length) return;
+  handBusy = true;
+  try {
+    navigator.vibrate?.([200, 100, 200]);
+    await dialog({
+      title: 'Have you cleaned your hands?',
+      body: `<p class="hand-q">${icon('shield')}<span>Clean your hands before and after work in patient and resident areas, and after touching doors, ironmongery or waste.</span></p><p class="small muted">${esc(live.slice(0, 3).join(' · '))}</p><p class="small muted">${esc(HAND_REF)}</p>`,
+      buttons: [{ label: 'Yes, hands cleaned', value: true, kind: 'primary' }],
+    });
+    await saveLists({ handAt: Date.now() });
+  } finally { handBusy = false; }
+}
+
 function visitFor(project, planId) {
   const key = planKey(planId);
   const sv = project?.services?.[key];
@@ -4372,8 +4414,10 @@ function renderPlansTab(body, project, plans, doors, active) {
       if (r.value !== true) return;
       target = r.data.coll === '__new' ? joinColl((r.data.newfolder || '').trim(), (r.data.newname || '').trim() || suggestName(colls, !(r.data.newfolder || '').trim())) : r.data.coll;
     }
-    const kind = await pickKind(files.length > 1 ? 'What are these drawings for?' : 'What is this drawing for?', kindIds().find((k) => kitOf(k).name === project.workType) || kindForWork(project.workType));
-    if (!kind) return;
+    const picked = await pickKind(files.length > 1 ? 'What are these drawings for?' : 'What is this drawing for?', kindIds().find((k) => kitOf(k).name === project.workType) || kindForWork(project.workType), { building: plans.find((x) => x.building)?.building || project.building || '' });
+    if (!picked) return;
+    const { kind, building } = picked;
+    if (building && building !== project.building) await db.put('projects', { ...(await db.get('projects', project.id)), building });
     const bz = busy('Reading drawing…');
     let order = plansIn(plans, target).length;
     let first = null;
@@ -4385,7 +4429,7 @@ function renderPlansTab(body, project, plans, doors, active) {
       try {
         const pages = await importDrawing(file, (m) => bz.update(files.length > 1 ? `Drawing ${n + 1} of ${files.length}: ${m}` : m));
         for (const pg of pages) {
-          const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, inspType: kind, ...pg });
+          const rec = await db.put('plans', { id: db.uid(), projectId: project.id, order: order++, sourceName: file.name, collection: target, inspType: kind, building, ...pg });
           first ||= rec;
           added++;
         }
@@ -4521,13 +4565,15 @@ async function folderMenu(project, plans, doors, f) {
 }
 
 // Choose an inspection type (big buttons, one tap)
-async function pickKind(title, current) {
+async function pickKind(title, current, opts = {}) {
   const r = await dialog({
     title,
     body: `<p class="muted small">Sets the checklist, defects and item types for every new pin on the drawing.</p>
-      <div class="kind-list">${kindIds().map((k) => `<label class="kind-opt ${kcls(k)}"><input type="radio" name="kind" value="${k}" ${k === current ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>Each pin is ${/^[aeiou]/i.test(kitOf(k).item) ? 'an' : 'a'} ${esc(kitOf(k).item.toLowerCase())} · ${(kitOf(k).questions || []).filter((q) => q.text?.trim() && !q.hidden).length} checks</small></span></label>`).join('')}</div>`,
+      <div class="kind-list">${kindIds().map((k) => `<label class="kind-opt ${kcls(k)}"><input type="radio" name="kind" value="${k}" ${k === current ? 'checked' : ''}><span><b>${esc(kitOf(k).name)}</b><small>Each pin is ${/^[aeiou]/i.test(kitOf(k).item) ? 'an' : 'a'} ${esc(kitOf(k).item.toLowerCase())} · ${(kitOf(k).questions || []).filter((q) => q.text?.trim() && !q.hidden).length} checks</small></span></label>`).join('')}</div>
+      ${'building' in opts ? buildingField(opts.building) : ''}`,
     buttons: [{ label: 'Cancel', value: false }, { label: 'Use this type', value: true, kind: 'primary' }],
   });
+  if ('building' in opts) return r.value === true ? { kind: r.data.kind || current, building: r.data.building || '' } : null;
   return r.value === true ? r.data.kind || current : null;
 }
 async function setPlanKind(plan, newKind) {
@@ -4584,13 +4630,14 @@ async function planMenu(plan, colls = []) {
     body: `<label class="field"><span>Name</span><input name="name" id="plan-name" value="${esc(plan.name)}"></label>
       <label class="field"><span>Inspection type</span><select name="kind" id="plan-kind">${kindIds().map((k) => `<option value="${k}" ${k === kindOfPlan(plan) ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select>
         <small class="muted">Sets the checklist, defects and item types for every pin on this drawing.</small></label>
+      ${buildingField(plan.building || '')}
       ${colls.length > 1 || plan.collection ? `<label class="field"><span>Collection</span>
         <select name="coll" id="plan-coll">${collOptions(colls, plan.collection || '', { folders: false })}</select></label>` : ''}`,
     buttons: [{ label: 'Delete plan', value: 'delete', kind: 'ghost danger-text' }, { label: 'Remove pins…', value: 'pins', kind: 'ghost' }, { label: 'Find doors…', value: 'find', kind: 'ghost' }, { label: 'Cancel', value: false }, { label: 'Save', value: 'save', kind: 'primary' }],
   });
   if (r.value === 'save') {
     await setPlanKind(plan, r.data.kind || kindOfPlan(plan));
-    await db.put('plans', { ...(await db.get('plans', plan.id)), name: r.data.name || plan.name, ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
+    await db.put('plans', { ...(await db.get('plans', plan.id)), name: r.data.name || plan.name, building: r.data.building || '', ...(r.data.coll != null ? { collection: r.data.coll } : {}) });
     refresh();
   } else if (r.value === 'pins') {
     await removePins(plan);
@@ -4668,7 +4715,7 @@ function doorRow(d, planName) {
     <button class="door-row" data-id="${d.id}" role="row">
       <span class="pin-badge ${s.id === 'not_inspected' ? 'is-hollow' : ''}" style="--pin:${s.color}">${d.pinNo ?? ''}</span>
       <span class="dr-main">
-        <b>${esc(d.ref || 'No ref')}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}</b>
+        <b>${esc(d.ref || 'No ref')}${d.location ? ` <span class="muted">· ${esc(d.location)}</span>` : ''}${d.access ? ` <span class="acc-tag">${d.access === 'code' ? `Code${d.accessCode ? ' ' + esc(d.accessCode) : ''}` : 'Swipe'}</span>` : ''}</b>
         <small>${esc([d.category, d.doorType, d.zoneNo ? 'Zone ' + d.zoneNo : '', d.risk ? 'Risk: ' + d.risk : '', planName[d.planId]].filter(Boolean).join(' · ') || 'No details yet')}${d.planId ? '' : ' <span class="unplaced">Not on a drawing</span>'}${d.replacement ? ` <span class="rep-badge">${esc(SUPPLY[d.replacement])}</span>` : ''}</small>
       </span>
       <span class="dr-side">
@@ -5874,9 +5921,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.55.0';
+const VERSION_TAG = 'app v0.55.1';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'RAMS for every visit in your own layout: start a visit, read and sign, then record; Health & safety on Home';
+const WHATS_NEW = 'Door access (None / Code / Swipe) with the code on the pin; building type on each drawing, with a hand cleaning reminder every 2 hours on residential healthcare sites';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -5940,6 +5987,10 @@ async function drawSheet(door) {
         <label class="field"><span>Fire alarm zone no.</span><input id="f-zone" data-k="zoneNo" value="${esc(door.zoneNo)}" placeholder="e.g. 4" autocomplete="off" list="zone-nos"></label>
         <label class="field"><span>Fire alarm zone name</span><input id="f-zname" data-k="zoneName" value="${esc(door.zoneName)}" placeholder="e.g. East wing ground floor" autocomplete="off" list="zone-names"></label>
       </div>
+      <div class="field acc-field"><span>Access (door code / swipe)</span>
+          <div class="acc-chips" role="radiogroup" aria-label="Access">${[['', 'None'], ['code', 'Code'], ['swipe', 'Swipe']].map(([v, n]) => `<label class="acc-chip"><input type="radio" name="f-access" data-k="access" value="${v}" ${v === (door.access || '') ? 'checked' : ''}><span>${n}</span></label>`).join('')}</div>
+          <input id="f-acode" data-k="accessCode" value="${esc(door.accessCode || '')}" placeholder="Door code" autocomplete="off" inputmode="text" ${door.access === 'code' ? '' : 'hidden'}>
+        </div>
       <label class="field"><span class="field-head">Category <button type="button" class="link-btn" id="cat-edit">Edit list</button></span>
         <select id="f-cat" data-k="category">${['', ...new Set([...(lists.categories || DEFAULT_CATEGORIES), door.category].filter(Boolean))].map((c) => `<option value="${esc(c)}" ${c === (door.category || '') ? 'selected' : ''}>${esc(c || 'No category')}</option>`).join('')}<option value="__new">+ Add new category…</option></select>
       </label>
@@ -6270,6 +6321,7 @@ async function drawSheet(door) {
         Object.assign(lastZone, { planId: door.planId, no: $('#f-zone').value, name: $('#f-zname').value });
       }
       if (inp.dataset.k === 'category') Object.assign(lastCategory, { planId: door.planId, value: inp.value });
+      if (inp.dataset.k === 'access') { const c = $('#f-acode'); c.hidden = inp.value !== 'code'; if (inp.value === 'code') c.focus(); }
     });
   });
   // location map: tap to see the pin on the full drawing

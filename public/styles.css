@@ -1647,3 +1647,18 @@ a.lib-card { text-decoration: none; }
 .rams-rate { display: flex; flex-wrap: wrap; gap: 6px; }
 .rams-rate em { font-style: normal; font-weight: 700; font-size: 11.5px; padding: 1px 8px; border-radius: 8px; }
 .rams-prev h4 { color: #de6e20; }
+
+/* door access: small None / Code / Swipe chips, code box beside them */
+.acc-field .acc-chips { display: flex; gap: 4px; flex-wrap: wrap; }
+.acc-chip { position: relative; }
+.acc-chip input { position: absolute; opacity: 0; pointer-events: none; }
+.acc-chip span { display: inline-block; padding: 5px 10px; border: 1px solid var(--line, #d7d9dc); border-radius: 999px; font-size: 13px; line-height: 1.2; cursor: pointer; }
+.acc-chip input:checked + span { background: var(--brand, #23282d); border-color: var(--brand, #23282d); color: #fff; }
+.acc-chip input:focus-visible + span { outline: 2px solid var(--accent, #c2672c); }
+.acc-field #f-acode { margin-top: 6px; }
+.acc-tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 6px; margin-left: 4px; border-radius: 6px; background: var(--accent-soft, #f6e4d2); color: var(--accent-ink, #7a3d14); vertical-align: middle; }
+.hand-q { display: flex; gap: 10px; align-items: flex-start; }
+.hand-q svg { flex: none; width: 28px; height: 28px; color: var(--accent, #c2672c); }
+.acc-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
+.acc-field > span:first-child { flex-basis: 100%; }
+.acc-field #f-acode { margin-top: 0; flex: 1 1 140px; max-width: 220px; }
