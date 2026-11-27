@@ -184,6 +184,13 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   phone and 2 an email in the workbook; offered to search Gmail for the rest (owner not answered yet). Customer dialog:
   "Update details" archives the details as they were in `history [{at, changed, before}]` (Previous details, Use these
   again); "Nothing changed" when nothing changed. Bug fixed: updating an existing customer was refused as a duplicate code.
+- Customer emails from the owner's sent Gmail (v0.54.4, owner asked): searched `in:sent "<CODE>"` per customer
+  (suppliers such as Exitex, Proline, Inniskeen / MCD Joinery and the consultant fiona@ksa.ie left out). Kept in
+  `private/customer-emails.json` (gitignored, NOT in the repo; container copy is temporary) and built in via esbuild
+  `define __GMAIL_CONTACTS__`; on first open the app copies them to settings `lists.gmailContacts` so they stay on the
+  device even when later builds don't have the file. Merged into each customer's email (several per customer, comma
+  separated; app copies with an email of their own are left alone). Each email in the customer dialog is a link that
+  opens a new Gmail message (`gmailCompose`, mail.google.com ?view=cm), plus "Email all".
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

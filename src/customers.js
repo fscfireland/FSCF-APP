@@ -96,7 +96,7 @@ export function splitLines(lines = []) {
 }
 
 // Every customer: the app's own list first, then workbook customers not edited in the app.
-export function allCustomers(own = [], book = null, names = {}) {
+export function allCustomers(own = [], book = null, names = {}, gmail = {}) {
   const out = own.map((c) => ({ ...c, source: c.source || 'app' }));
   const have = new Set(out.map((c) => c.code.toUpperCase()));
   // phones and emails from every quote and invoice of each customer, newest first
@@ -128,7 +128,25 @@ export function allCustomers(own = [], book = null, names = {}) {
     }
     out.push({ code, ...fromBook, notes: note, source: 'workbook', bookSites: (c.sites || []).length });
   }
+  // emails found in the owner's sent Gmail: added to workbook customers, and to app copies with no email yet
+  for (const c of out) {
+    const g = gmail?.[c.code.toUpperCase()] || [];
+    if (!g.length) continue;
+    const have = emailList(c.email);
+    if (c.source === 'app' && have.length) continue; // the owner's own list stays as he left it
+    // the same address written with or without dots (enda.mullarkey@ / endamullarkey@): keep the one actually emailed
+    const bare = (x) => x.replace(/\./g, '');
+    const sent = g.map((x) => x.toLowerCase());
+    const all = [...new Set([...sent, ...have.filter((x) => !sent.some((y) => bare(y) === bare(x)))])];
+    c.email = all.join(', ');
+    c.gmailFound = g.length;
+  }
   return out.sort((a, b) => a.code.localeCompare(b.code));
 }
 
 export const customerLabel = (c) => [c.code, c.company || c.name, c.company && c.name ? c.name : ''].filter(Boolean).join(' · ');
+
+// "a@x.ie, b@y.ie" → ['a@x.ie', 'b@y.ie']
+export const emailList = (v) => String(v || '').split(/[\s,;]+/).map((x) => x.trim().toLowerCase()).filter((x) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+// Opens a new message in Gmail (the Gmail app on Android) to these addresses
+export const gmailCompose = (to) => `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent([].concat(to).join(','))}`;

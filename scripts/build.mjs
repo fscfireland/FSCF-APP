@@ -10,11 +10,17 @@ rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 cpSync('public', out, { recursive: true });
 
+// Customer emails found in the owner's sent Gmail (private/, never committed): built into
+// this copy of the app only; the app copies them onto the device the first time it opens.
+let gmailContacts = null;
+try { gmailContacts = JSON.parse(readFileSync('private/customer-emails.json', 'utf8')); } catch { /* none here */ }
+
 await build({
   entryPoints: ['src/main.js'],
   bundle: true,
   format: 'iife',
   target: ['es2020', 'safari14'],
+  define: { __GMAIL_CONTACTS__: JSON.stringify(gmailContacts) },
   outfile: join(out, 'app.js'),
   minify: true,
   sourcemap: false,

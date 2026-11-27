@@ -22,7 +22,7 @@ import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
 import { markupPhoto, plainThumb } from './photomark.js';
-import { makeCode, allCustomers, customerLabel } from './customers.js';
+import { makeCode, allCustomers, customerLabel, emailList, gmailCompose } from './customers.js';
 import { IRON_MAINT, DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
@@ -157,6 +157,10 @@ async function loadLists() {
     const have = new Set(s.defects.map((d) => d.label));
     const add = DEFAULT_DEFECTS.filter((d) => !have.has(d.label));
     await saveLists({ defects: [...s.defects, ...add], defVersion: 2 });
+  }
+  // Customer emails found in the owner's sent Gmail (27 Nov 2026), built into this release: kept on the device
+  if (__GMAIL_CONTACTS__ && __GMAIL_CONTACTS__.emails && lists.gmailContactsFrom !== __GMAIL_CONTACTS__.from) {
+    await saveLists({ gmailContacts: { ...(lists.gmailContacts || {}), ...__GMAIL_CONTACTS__.emails }, gmailContactsFrom: __GMAIL_CONTACTS__.from });
   }
   // My files: a Technical guidance folder (owner, 27 Nov 2026), added once to a saved folder list
   if (lists.libFolders?.length && !lists.tgdFolder1 && !lists.libFolders.some((x) => /technical guidance/i.test(x))) {
@@ -1690,7 +1694,7 @@ async function renderBizHub() {
 async function customerList() {
   const book = await quoteBook().catch(() => null);
   const names = (await db.get('settings', 'bizNames').catch(() => null))?.names || {};
-  return allCustomers(lists.customers || [], book, names);
+  return allCustomers(lists.customers || [], book, names, lists.gmailContacts || {});
 }
 // the details kept for a customer, and how each is named in the archive
 const CUST_FIELDS = [['name', 'Contact name'], ['company', 'Company'], ['code', 'Customer code'], ['role', 'Role'], ['phone', 'Phone'], ['email', 'Email'], ['address', 'Address'], ['notes', 'Notes']];
@@ -1711,7 +1715,8 @@ async function editCustomer(existing, { name: name0 = '', company: company0 = ''
         <label class="field"><span>Role</span><input name="role" value="${esc(c.role || '')}" placeholder="e.g. Facilities manager" autocomplete="off"></label>
         <label class="field"><span>Phone</span><input name="phone" type="tel" value="${esc(c.phone || '')}" autocomplete="off"></label>
       </div>
-      <label class="field"><span>Email</span><input name="email" type="email" value="${esc(c.email || '')}" autocomplete="off"><small class="muted">Used for the customer portal sign-in when it goes live.</small></label>
+      <label class="field"><span>Email (several allowed, separated by commas)</span><input name="email" type="text" inputmode="email" value="${esc(c.email || '')}" autocomplete="off"><small class="muted">Used for the customer portal sign-in when it goes live.${c.gmailFound ? ` ${c.gmailFound} found in your sent Gmail.` : ''}</small></label>
+      ${emailList(c.email).length ? `<div class="cu-mails">${emailList(c.email).map((m) => `<a class="cu-mail" href="${esc(gmailCompose(m))}" target="_blank" rel="noopener">${icon('mail')}<span>${esc(m)}</span></a>`).join('')}${emailList(c.email).length > 1 ? `<a class="cu-mail cu-mail-all" href="${esc(gmailCompose(emailList(c.email)))}" target="_blank" rel="noopener">${icon('mail')}<span>Email all ${emailList(c.email).length}</span></a>` : ''}</div>` : ''}
       <label class="field"><span>Address</span><input name="address" value="${esc(c.address || '')}" autocomplete="off"></label>
       <label class="field"><span>Notes</span><textarea name="notes" rows="2">${esc(c.notes || '')}</textarea></label>
       ${existing ? `<p class="small muted">${c.source === 'workbook' ? 'From your workbook. Updating keeps your changes in the app (the workbook is not changed). ' : ''}Sites: ${sites.length ? sites.map((x) => esc(x.site || 'Site')).join(', ') : 'none yet (pick this customer in a site\'s details)'}.</p>` : ''}
@@ -1774,7 +1779,7 @@ async function renderCustomers() {
     <main class="page">
       <div class="row-btns import-row"><button class="btn primary sm" id="cu-new">${icon('plus')} New customer</button></div>
       <label class="search">${icon('search')}<input id="cu-q" type="search" placeholder="Search name, company or code…" value="${esc(state.custQ || '')}" autocomplete="off"></label>
-      <div class="doc-list">${shown.map((c, i) => { const n = sitesOf(c.code).length; return `<button type="button" class="doc-row cu-row" data-i="${i}"><span class="q-main"><span class="cu-code">${esc(c.code)}</span><b>${esc(c.company || c.name || c.code)}</b><small>${esc([c.company ? c.name : '', c.role].filter(Boolean).join(' · ') || '—')}${n ? ` · ${n} site${n === 1 ? '' : 's'} in the app` : ''}</small></span></button>`; }).join('') || '<p class="muted small">No customers match.</p>'}</div>
+      <div class="doc-list">${shown.map((c, i) => { const n = sitesOf(c.code).length; return `<button type="button" class="doc-row cu-row" data-i="${i}"><span class="q-main"><span class="cu-code">${esc(c.code)}</span><b>${esc(c.company || c.name || c.code)}</b><small>${esc([c.company ? c.name : '', c.role].filter(Boolean).join(' · ') || '—')}${n ? ` · ${n} site${n === 1 ? '' : 's'} in the app` : ''}${emailList(c.email).length ? ` · ${emailList(c.email).length} email${emailList(c.email).length === 1 ? '' : 's'}` : ''}</small></span></button>`; }).join('') || '<p class="muted small">No customers match.</p>'}</div>
       <p class="small muted">Tap a customer to add their email and phone, or change their details. Customers from your workbook come in automatically each time you import it; your changes here are kept.</p>
     </main>`;
   $('#back').onclick = back;
@@ -5648,9 +5653,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.3';
+const VERSION_TAG = 'app v0.54.4';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'customers filled in from your workbook; Update details keeps the old details archived';
+const WHATS_NEW = 'customer emails from your Gmail: tap one to write to them in Gmail; Update details keeps old details';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

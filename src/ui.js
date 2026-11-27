@@ -51,6 +51,7 @@ const P = {
   file: '<path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5"/>',
   cloud: '<path d="M7 18h10a4 4 0 0 0 .6-8A6 6 0 0 0 6.2 9.5 4.3 4.3 0 0 0 7 18z"/>',
   door: '<path d="M6 21V3h12v18"/><path d="M3 21h18"/><circle cx="14.5" cy="12" r="1"/>',
+  mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/>',
 };
 
 export function icon(name, cls = '') {
