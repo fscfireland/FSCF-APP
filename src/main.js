@@ -23,7 +23,7 @@ import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
 import { buildRams, ramsHtml, ramsPdf, WORKS, TRADES } from './rams.js';
 import { SEED_LADDERS, SEED_CHECKS } from './ladder-seed.js';
-import { ITEMS as LAD_ITEMS, LADDER_TYPES, MATERIALS as LAD_MATERIALS, METHODS as LAD_METHODS, INTERVAL_DAYS, FORM_REF as LAD_REF, itemApplies, ladderStatus, STATUS_LABEL as LAD_STATUS, ladderPdf } from './ladders.js';
+import { ITEMS as LAD_ITEMS, LADDER_TYPES, MATERIALS as LAD_MATERIALS, METHODS as LAD_METHODS, INTERVAL_DAYS, FORM_REF as LAD_REF, INTERVAL_REF, itemApplies, ladderStatus, STATUS_LABEL as LAD_STATUS, ladderPdf } from './ladders.js';
 import { markupPhoto, plainThumb } from './photomark.js';
 import { makeCode, allCustomers, customerLabel, emailList, gmailCompose, phoneList, telHref } from './customers.js';
 import { IRON_MAINT, DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
@@ -1738,7 +1738,7 @@ async function renderHealthSafety() {
       <h2 class="h2">Ladder checks <span class="muted">${ladders.filter((l) => !l.retired).length}</span></h2>
       <div class="doc-list">${ladders.map((l) => { const st = ladderStatus(l, lchecks); return `<button type="button" class="doc-row lad-row" data-id="${esc(l.id)}"><span class="q-main"><b>${esc(l.ref)}</b><small>${esc([l.type === 'Other' ? l.typeOther : l.type, l.make].filter(Boolean).join(' · '))}${l.kept ? ` · ${esc(l.kept)}` : ''} · ${st.last ? `last ${esc(fmtDate(st.last.at.slice(0, 10)))}` : 'never checked'}${st.next && !['out', 'retired'].includes(st.st) ? ` · next ${esc(fmtDate(st.next))}` : ''}</small></span><span class="lad-pill lp-${st.st}">${esc(LAD_STATUS[st.st])}</span></button>`; }).join('') || '<p class="muted small">No ladders yet. Add each ladder once, then check it before use and at least every 7 days.</p>'}</div>
       <button type="button" class="btn" id="lad-add">${icon('plus')} Add ladder</button>
-      <p class="small muted">Checklist and report from your FSCF Form 129 (HSA GA3), SHWW (General Application) Regs 2007, Reg 119. Records kept 5 years (Reg 119(4)). Re-check every 7 days is your own form's practice; Reg 119(1) says "suitable intervals".</p>
+      <details class="type-note fold-note"><summary>Sources</summary><small class="muted">Ref: ${esc(LAD_REF)}. Records kept 5 years (Reg 119(4)(b)). ${esc(INTERVAL_REF)}. Every item on the check and in its PDF names its source, with a list of the documents at the end of the PDF.</small></details>
       <h2 class="h2">RAMS templates</h2>
       <p class="small muted">The generic part of every RAMS. Starting a visit fills in the site, customer, drawings and check, adds your notes, and asks for it to be read and signed.</p>
       ${Object.entries(TRADES).map(([t, tn]) => `<details class="ffold"><summary>${icon('shield')}<b>${esc(tn)}</b><span class="muted">${Object.keys(WORKS).length}</span></summary><div class="ffold-body"><div class="doc-list">${Object.entries(WORKS).map(([w, wn]) => `<button type="button" class="doc-row hs-tpl" data-t="${t}" data-w="${w}"><span class="q-main"><b>${esc(wn)}</b><small>${t === 'fd' ? 'From your own RAMS' : 'Industry standards in your format · review before first issue'}</small></span></button>`).join('')}</div></div></details>`).join('')}
@@ -1829,7 +1829,7 @@ async function editLadder(l0 = null) {
         <label class="field"><span>Duty rating / load class</span><input name="duty" value="${esc(l.duty || '')}" placeholder="e.g. EN 131 professional, 150 kg"></label>
         <label class="field"><span>Kept at</span><input name="kept" value="${esc(l.kept || '')}" placeholder="e.g. Van"></label>
       </div>
-      <label class="field"><span>Re-check every (days)</span><input name="interval" type="number" inputmode="numeric" min="1" value="${esc(l.interval || INTERVAL_DAYS)}"><small class="muted">7 days as your Form 129 (FSCF practice); Reg 119(1): "suitable intervals".</small></label>
+      <label class="field"><span>Re-check every (days)</span><input name="interval" type="number" inputmode="numeric" min="1" value="${esc(l.interval || INTERVAL_DAYS)}"><small class="muted">${esc(INTERVAL_REF)}</small></label>
       ${l0 ? `<label class="check-line"><input type="checkbox" name="retired" ${l.retired ? 'checked' : ''}> Destroyed / no longer in use (records kept 5 years)</label>` : ''}`,
     buttons: [...(l0 ? [{ label: 'Delete', value: 'del', kind: 'ghost danger-text' }] : []), { label: 'Cancel', value: false }, { label: l0 ? 'Save' : 'Add ladder', value: true, kind: 'primary' }],
   });
@@ -1902,7 +1902,7 @@ async function ladderCheck(l) {
         <h3 class="h3">3. Inspection method</h3>
         <div class="lc-opts">${radio('method', v.method, LAD_METHODS.map((m) => [m, m]))}</div>
         <h3 class="h3 lc-head">4. Condition checklist <button type="button" class="btn sm" id="lc-allpass">All pass</button></h3>
-        ${LAD_ITEMS.map(([h, t], i) => `<div class="lc-item"><p><b>${i + 1}. ${esc(h)}:</b> ${esc(t)}</p><div class="lc-opts">${radio('i' + i, v['i' + i], [['pass', 'Pass'], ['fail', 'Fail'], ['na', 'N/A']])}</div><input name="n${i}" class="lc-note" value="${esc(v['n' + i] || '')}" placeholder="Comments / location of defect"></div>`).join('')}
+        ${LAD_ITEMS.map(([h, t], i) => `<div class="lc-item"><p><b>${i + 1}. ${esc(h)}:</b> ${esc(t)}<small class="muted lc-ref">Ref: ${esc(LAD_ITEMS[i][3] || '')}</small></p><div class="lc-opts">${radio('i' + i, v['i' + i], [['pass', 'Pass'], ['fail', 'Fail'], ['na', 'N/A']])}</div><input name="n${i}" class="lc-note" value="${esc(v['n' + i] || '')}" placeholder="Comments / location of defect"></div>`).join('')}
         <h3 class="h3">5. Visible damage or wear</h3>
         <textarea name="damage" class="lc-note" rows="2" placeholder="None">${esc(v.damage || '')}</textarea>
         <h3 class="h3">6. Fitness for use</h3>
@@ -6142,9 +6142,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.56.2';
+const VERSION_TAG = 'app v0.56.3';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'HSE 6-point check: question 1 (fire register faults addressed) is N/A by default on every door; All pass / All fail leave it alone';
+const WHATS_NEW = 'Ladder checks: every item and section now names its source (Form 129, Gen App Regs 2007 Regs 30, 114, 118, 119, Schedule 5, toolbox talks), with a Sources list in the PDF';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

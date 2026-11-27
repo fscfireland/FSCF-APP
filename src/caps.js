@@ -1,4 +1,4 @@
-// FSCF house style: everything on screen in capitals, with two exceptions.
+// FSCF house style: everything on screen in capitals, with three exceptions (the third: clause letters, below).
 //  1. Fire ratings keep the small "a" the standards use: E30Sa, E60Sa4, EW30Sa.
 //  2. Checklist questions, defects and repair items: only the heading before
 //     the colon is in capitals ("DOOR LEAF: free from damage…", "HINGES: fewer
@@ -7,7 +7,11 @@
 // answers keep normal case so they stay readable.
 
 const RATING = /\b(E[IW]?\d{2,3}S)A(\d?)\b/g;
-export const caps = (s) => s.toUpperCase().replace(RATING, '$1a$2');
+// 3. Clause references keep their small letters, as the regulations and standards write them:
+//    Reg 30(b)(iii), Reg 114(e)(ii), Reg 12(f), Reg 119(1)(b)(i) (owner's referencing rule, CLAUDE.md rule 1).
+const CLAUSE = /(\d)((?:\((?:\d{1,3}|[A-Z]{1,4})\))+)/g;
+const clauseCase = (s) => s.replace(CLAUSE, (m, d, g) => d + g.replace(/\(([A-Z]{1,4})\)/g, (x, l) => `(${l.toLowerCase()})`));
+export const caps = (s) => clauseCase(s.toUpperCase().replace(RATING, '$1a$2'));
 export function headCaps(s) {
   const m = /^(\s*)([^:\n]{2,40}):(\s*)/.exec(s);
   return m ? m[1] + caps(m[2]) + ':' + m[3] + s.slice(m[0].length) : s;
@@ -64,7 +68,7 @@ export function setHeadTexts(list) {
 }
 export function smartCaps(s) {
   if (typeof s !== 'string') return s;
-  if (!/[a-z]/.test(s)) return s.replace(RATING, '$1a$2');
+  if (!/[a-z]/.test(s)) return clauseCase(s.replace(RATING, '$1a$2'));
   if (/https?:\/\/|www\.|@[\w-]+\./i.test(s)) return s;
   const k = s.trim();
   if (headTexts.has(k)) return headCaps(s);

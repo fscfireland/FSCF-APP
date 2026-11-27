@@ -257,6 +257,13 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   only where known. `NA_DEFAULT` / `naDefaultsFor` in main.js, applied by `db.beforePut('doors', …)` (new hook in db.js)
   so every save path gets it, and in the sheet's `queue`; All pass / All fail skip it; small note under the question;
   one-off sweep of existing doors (flag `naSweep1`) only fills it where unanswered (answers already given are kept).
+- v0.56.3 (owner: ladder checks must be cited): every ladder item has a reference (ITEMS[i][3], shown under the item in
+  the check dialog and as "Ref:" in the PDF), every PDF section has a Ref line, notes quote the regs exactly, and a Sources
+  table names each document with its Drive name: S.I. No. 299 of 2007 Gen App Regs (Regs 30, 114, 118, 119, Sch 5; Drive
+  GENERAL_APPLICATION_REGULATIONS_2007_SI_2007_UNOFFICIAL_COPY.PDF), FSCF Form 129 rev 000 (INSPECTION LADDER.DOC), HSA GA3
+  (GA3 FORMS.PDF), Ladders TBT 2.3.1, Peninsula TBT v2.1. Item 12 handrail = FSCF practice, source to be confirmed.
+  Corrected: Reg 119(2)–(3) 24-hour report applies only to construction working platforms ≥ 2 m (Reg 119(1)(c)).
+  caps.js: third exception, clause letters stay small after a number: Reg 30(b)(iii), Reg 119(1)(b)(i).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
