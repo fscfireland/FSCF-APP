@@ -205,7 +205,10 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   published at https://claude.ai/artifact/JbTieRFr4NN9kmsQDpFW5r. Home gets one small row of 3 tiles (H&S, Tools, Stock);
   nothing else moves. RAMS: 3 generic templates made from the owner's own RAMS — Inspection = FSCF-RAMS-21 Dunboyne
   (Drive 1XqBwylRrogKMAOFRStbT0qXDkgZlvnpN), Install = CVL-001-REM-001 Rev 2 Lombard St (Drive 1Z0uhSqBJI279dIOus2oXUKRFGDtpzjwO),
-  Remedial = master to be confirmed by the owner (candidates: St Eunan's Feb 2026, IBTS ARD-002, 35 Glenview Rev 2);
+  Remedial = FSCF-RAMS-14 Rev 1 Dromore Unit, St Mary's Castleblayney (owner's sent Gmail 23/10/2026, attachment
+  FSCF_RAMS_StMarys_Castleblayney_Dromore_Remedials.docx: occupied care unit, one door at a time, planing outside, hinge
+  packing, handles, signage) + FSCF-RAMS-04 Rev 2 Hawthorns Stillorgan (Drive 1tHomlxulsK6UQbmccZffdJI_clob1iAd: closers,
+  drop seals, entrance doors, signage fixings, waste via Oxigen); the owner said to use his emails for RAMS too;
   same structure (scope, legislation, roles, 5×5 risk register, method, PPE, training, plant, emergency, sign-off).
   Generated per site › collection › section › drawing with customer and site filled in, plus site-specific and
   project notes; signed; PDF to the site's Files › RAMS. Offered when a service starts. Ladder checks = FSCF Form 129 /
