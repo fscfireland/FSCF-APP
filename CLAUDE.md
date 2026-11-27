@@ -179,6 +179,11 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
 - Backups (v0.54.1): only a real Drive upload sets `lastDriveAt` (Home "backed up"); a saved backup file sets `lastFileAt` and
   is called "saved on this phone (not uploaded)". As of 27 Nov 2026 the direct Drive upload had never worked from the owner's
   phone (Drive folder held only files he saved by hand); reason still to find (pop-up / Settings shows it).
+- Customers filled from the workbook (v0.54.2–3): address, phone and email from the customer box of every quote and
+  invoice (`contactBits`; FSCF's own number / email skipped; contact name noted when it differs). Only ~8 customers have a
+  phone and 2 an email in the workbook; offered to search Gmail for the rest (owner not answered yet). Customer dialog:
+  "Update details" archives the details as they were in `history [{at, changed, before}]` (Previous details, Use these
+  again); "Nothing changed" when nothing changed. Bug fixed: updating an existing customer was refused as a duplicate code.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
