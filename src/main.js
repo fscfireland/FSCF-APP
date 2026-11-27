@@ -393,10 +393,13 @@ async function renderProjects() {
     <main class="page">
       ${(() => {
         if (!projects.length) return `<div class="offline-note">${icon('check')} Saved on this device — works with no signal</div>`;
-        const last = lists.lastBackupAt ? Date.parse(lists.lastBackupAt) : 0;
+        const driveAt = lists.lastDriveAt || (lists.driveBackupFolder ? lists.lastBackupAt : '');
+        const last = driveAt ? Date.parse(driveAt) : 0;
         const days = last ? Math.floor((Date.now() - last) / 864e5) : null;
-        if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} <span>Saved on this device · backed up ${days ? 'yesterday' : 'today'}${lists.autoBackup ? ' · automatic backup on' : ''}</span> <button class="link-btn" id="home-backup">Back up now</button></div>`;
-        return `<div class="backup-warn bk-line">${icon('shield')}<span><b>${last ? `Last backup ${days} days ago` : 'Not backed up yet'}</b><small>${lists.autoBackup ? 'Daily backup is on: it runs while the app is open' : 'Back up once: daily backup then runs by itself'}</small></span><button class="btn sm primary" id="home-backup">Back up</button></div>`;
+        if (days !== null && days < 2) return `<div class="offline-note">${icon('check')} <span>Backed up to Google Drive ${days ? 'yesterday' : 'today'}${lists.autoBackup ? ' · daily backup on' : ''}</span> <button class="link-btn" id="home-backup">Back up now</button></div>`;
+        const fileDays = lists.lastFileAt ? Math.floor((Date.now() - Date.parse(lists.lastFileAt)) / 864e5) : null;
+        const sub = fileDays !== null && fileDays < 2 ? `Backup file saved on this phone ${fileDays ? 'yesterday' : 'today'}: it is only in Drive if you put it there` : lists.autoBackup ? 'Daily backup is on: it runs while the app is open' : 'Back up once: daily backup then runs by itself';
+        return `<div class="backup-warn bk-line">${icon('shield')}<span><b>${last ? `Not in Google Drive for ${days} days` : 'Not in Google Drive yet'}</b><small>${sub}</small></span><button class="btn sm primary" id="home-backup">Back up</button></div>`;
       })()}
       <div class="quick-row" aria-label="Shortcuts">
         <button type="button" class="quick-btn qk-cont" id="qk-cont" ${lastSite ? '' : 'disabled'}><svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 4l12 8-12 8z"/></svg><span>Continue</span><small>${esc(contLabel || 'nothing yet')}</small></button>
@@ -461,8 +464,8 @@ async function renderProjects() {
       const { result, videosLeftOut } = await backupProjects(await db.all('projects'), { library: true });
       b.done();
       if (result === 'saved') {
-        await saveLists({ lastBackupAt: new Date().toISOString() });
-        toast(videosLeftOut ? `Backup saved (${videosLeftOut} large file(s) left out)` : 'Backup saved');
+        await saveLists({ lastFileAt: new Date().toISOString() });
+        toast(videosLeftOut ? `Backup file saved on this phone (${videosLeftOut} large file(s) left out)` : 'Backup file saved on this phone');
         refresh();
       }
     } catch (e) {
@@ -4635,7 +4638,7 @@ function renderExportTab(body, project, plans, allDoors) {
     try {
       const { result, videosLeftOut } = await backupProjects([project]);
       b.done();
-      if (result === 'saved') saveLists({ lastBackupAt: new Date().toISOString() }), toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
+      if (result === 'saved') saveLists({ lastFileAt: new Date().toISOString() }), toast(videosLeftOut ? `Backup file saved on this phone (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup file saved on this phone');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
@@ -5621,9 +5624,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.0';
+const VERSION_TAG = 'app v0.54.1';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Continue button, Today counts, customer list with codes, folders in Files';
+const WHATS_NEW = 'Continue, Today counts, customer list with codes, folders in Files; backup now says clearly if it reached Google Drive';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -7372,7 +7375,7 @@ async function renderSettings() {
         </div>
         <label class="check-line"><input type="checkbox" id="s-autobk" ${lists.autoBackup ? 'checked' : ''}> Back up to Google Drive automatically, once a day</label>
         <p class="muted small">Runs whenever the app is open on this device (it can't run while the app is closed). Turns on after your first Google Drive backup on this device.${lists.autoBackupIssue ? ` <b class="warn-text">Last automatic backup didn't run: ${esc(DRIVE_REASONS[lists.autoBackupIssue] || DRIVE_REASONS.error)}</b>` : ''}</p>
-        <p class="muted small">Google Drive backups go in the <b>16 FSCF IRELAND APP BACKUPS</b> folder: every site, drawing, pin, photo, file, quote and your settings. Big backups are split into parts; to restore, pick all the parts together. Videos over 50 MB stay on the phone.${lists.lastBackupAt ? ` Last backup: ${esc(new Date(lists.lastBackupAt).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' }))}.` : ''}</p>
+        <p class="muted small">Google Drive backups go in the <b>16 FSCF IRELAND APP BACKUPS</b> folder: every site, drawing, pin, photo, file, quote and your settings. Big backups are split into parts; to restore, pick all the parts together. Videos over 50 MB stay on the phone. Last upload to Google Drive: <b>${(lists.lastDriveAt || (lists.driveBackupFolder && lists.lastBackupAt)) ? esc(new Date(lists.lastDriveAt || lists.lastBackupAt).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' })) : 'never from this device'}</b>.${lists.lastFileAt ? ` Last backup file saved on this phone: ${esc(new Date(lists.lastFileAt).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' }))}.` : ''}${lists.autoBackupIssue ? ` Why Drive didn't work: ${esc(DRIVE_REASONS[lists.autoBackupIssue] || DRIVE_REASONS.error)}` : ''}</p>
       </section>
       <p class="muted small pad">FSCF Ireland app · data stays on this device until cloud sync is set up.</p>
     </main>`;
@@ -7800,7 +7803,7 @@ async function renderSettings() {
     try {
       const { result, videosLeftOut } = await backupProjects(projects, { library: true });
       b.done();
-      if (result === 'saved') saveLists({ lastBackupAt: new Date().toISOString() }), toast(videosLeftOut ? `Backup saved (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup saved');
+      if (result === 'saved') saveLists({ lastFileAt: new Date().toISOString() }), toast(videosLeftOut ? `Backup file saved on this phone (${videosLeftOut} video(s)/large file(s) left out – too large)` : 'Backup file saved on this phone');
     } catch (e) {
       b.done();
       toast(e.message, 'error');
@@ -8002,20 +8005,20 @@ async function backupEverythingToDrive(projects, { quiet = false } = {}) {
       await saveLists({ autoBackupIssue: r.unavailable });
       if (quiet) return true;
       const ask = await dialog({
-        title: 'Google Drive not reachable here',
-        body: `<p>${esc(DRIVE_REASONS[r.unavailable] || DRIVE_REASONS.error)}</p><p class="small">You can still save a backup file now and choose Google Drive when your phone asks where to save it.</p>`,
+        title: 'Not uploaded to Google Drive',
+        body: `<p><b>Nothing has gone to Google Drive.</b> ${esc(DRIVE_REASONS[r.unavailable] || DRIVE_REASONS.error)}</p><p class="small">Instead, save a backup file. When your phone asks where to save it, choose <b>Drive › 16 FSCF IRELAND APP BACKUPS</b>. If it goes to Downloads, it is only on this phone.</p>`,
         buttons: [{ label: 'Not now', value: false }, { label: 'Save a backup file', value: true, kind: 'primary' }],
       });
       if (ask.value === true) {
         const b2 = busy('Preparing backup…');
         const { result } = await backupProjects(projects, { library: true });
         b2.done();
-        if (result === 'saved') { await saveLists({ lastBackupAt: new Date().toISOString() }); toast('Backup file saved'); refresh(); }
+        if (result === 'saved') { await saveLists({ lastFileAt: new Date().toISOString() }); toast('Backup file saved on this phone (not uploaded). Put it in Drive › 16 FSCF IRELAND APP BACKUPS if it isn\'t there.'); refresh(); }
       }
       return true;
     }
     const first = !lists.driveBackupFolder;
-    await saveLists({ lastBackupAt: new Date().toISOString(), driveBackupFolder: r.folderId, autoBackupIssue: '' });
+    await saveLists({ lastBackupAt: new Date().toISOString(), lastDriveAt: new Date().toISOString(), driveBackupFolder: r.folderId, autoBackupIssue: '' });
     toast(`Backed up to Google Drive › 16 FSCF IRELAND APP BACKUPS${r.parts > 1 ? ` (${r.parts} parts)` : ''}${r.videosLeftOut ? ` · ${r.videosLeftOut} large video(s) left on the device` : ''}`);
     if (!quiet && first && lists.autoBackup === undefined) {
       const ok = await confirmBox('Back up automatically?', 'Back up to the same Google Drive folder once a day whenever the app is open on this device. You can turn this off in Settings › Backup.', 'Yes, every day', false);

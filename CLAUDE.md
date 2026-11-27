@@ -176,6 +176,9 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   details: Customer drop-down (+ New customer…) and "share on the customer portal" tick (`customerCode`, `portalShare`);
   line at the top of the site's Plans tab. Business tab: Customer portal card opens the mock-up (not live). Files / My files:
   folders are open/close sections like collections, New folder, Add inside a folder; My files has a Technical guidance folder.
+- Backups (v0.54.1): only a real Drive upload sets `lastDriveAt` (Home "backed up"); a saved backup file sets `lastFileAt` and
+  is called "saved on this phone (not uploaded)". As of 27 Nov 2026 the direct Drive upload had never worked from the owner's
+  phone (Drive folder held only files he saved by hand); reason still to find (pop-up / Settings shows it).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
