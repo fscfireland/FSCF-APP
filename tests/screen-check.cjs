@@ -58,6 +58,8 @@ const overflow = (p) => p.evaluate(() => {
     await p.goto(U); await p.waitForTimeout(1500);
     await p.evaluate(() => window.__qa.go({ view: 'business' })); await p.waitForTimeout(1200);
     if (await p.locator('#biz-import').count()) { await p.setInputFiles('#biz-import', BOOK); await p.waitForTimeout(25000); await closeModals(); }
+    // a live visit on the demo drawing, so the pin can be recorded on (RAMS lock)
+    await p.evaluate(async () => { const db = window.__qa.db; for (const pr of await db.all('projects')) { const pls = (await db.all('plans')).filter((x) => x.projectId === pr.id); const services = { ...(pr.services || {}) }; for (const pl of pls) services['plan:' + pl.id] = { startedAt: new Date().toISOString(), sessions: [{ start: new Date().toISOString(), end: null }], work: 'insp' }; await db.put('projects', { ...pr, services }); } });
     const ids = await p.evaluate(async () => {
       const open = (n) => new Promise((res) => { const r = indexedDB.open('fscf-doors'); r.onsuccess = () => { const d = r.result; const tx = d.transaction(n); const g = tx.objectStore(n).getAll(); g.onsuccess = () => res(g.result); }; });
       const projects = await open('projects'); const plans = await open('plans'); const doors = await open('doors'); const quotes = await open('quotes').catch(() => []);
@@ -70,6 +72,7 @@ const overflow = (p) => p.evaluate(() => {
       ['repairs-all', { view: 'repairsAll' }],
       ['bizhub', { view: 'bizhub' }],
       ['customers', { view: 'customers' }],
+      ['health-safety', { view: 'hs' }],
       ['business', { view: 'business' }],
       ['quotes', { view: 'quotes' }],
       ['pricing', { view: 'pricing' }],
@@ -93,6 +96,7 @@ const overflow = (p) => p.evaluate(() => {
       business: ['.biz-cust:not(.biz-site)|.biz-soa'],
       'site-plans': ['.coll-copy', '.site-cust'],
       customers: ['.cu-row', '#cu-new'],
+      'health-safety': ['.hs-tpl'],
       'site-files': ['#file-newf'],
       'site-export': ['#pdf'],
     };

@@ -245,7 +245,7 @@ export async function ramsPdf(r, lists) {
   const bullets = (a) => { for (const t of a) { font('normal', 9.2); const lines = doc.splitTextToSize(t, CW - 8); need(lines.length * 4.5 + 1); doc.text('•', M + 1.5, y); lines.forEach((ln, k) => doc.text(ln, M + 8, y + k * 4.5)); y += lines.length * 4.5 + 1.4; } y += 1; };
   let stepNo = 0;
   const steps = (a) => { for (const t of a) { stepNo++; font('normal', 9.2); const lines = doc.splitTextToSize(t, CW - 9); need(lines.length * 4.5 + 1); font('bold', 9.2); doc.text(`${stepNo}.`, M + 1, y); font('normal', 9.2); lines.forEach((ln, k) => doc.text(ln, M + 9, y + k * 4.5)); y += lines.length * 4.5 + 1.6; } y += 1; };
-  const table = (opts) => { doc.autoTable({ margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 8.4, cellPadding: 1.6, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, valign: 'top' }, headStyles: { fillColor: DARK, textColor: 255, fontStyle: 'bold' }, ...opts, startY: y }); y = doc.lastAutoTable.finalY + 6; };
+  const table = (opts) => { need(18); doc.autoTable({ rowPageBreak: 'avoid', margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 8.4, cellPadding: 1.6, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, valign: 'top' }, headStyles: { fillColor: DARK, textColor: 255, fontStyle: 'bold' }, ...opts, startY: y }); y = doc.lastAutoTable.finalY + 6; };
 
   // title block, as the owner's RAMS
   font('bold', 22, ORANGE); doc.text('FSCF IRELAND', M, y); y += 6;
@@ -274,6 +274,7 @@ export async function ramsPdf(r, lists) {
   para('The following legislation and standards apply to this work (EN standards are used in preference to British Standards wherever a suitable EN equivalent exists):');
   bullets(r.legislation);
   head('3. Roles & Responsibilities');
+  need(40);
   table({
     head: [['Role', 'Responsibilities']],
     body: [
@@ -289,7 +290,7 @@ export async function ramsPdf(r, lists) {
   para(MATRIX_NOTE[0]);
   need(40);
   table({
-    head: [['Likelihood ↓ / Severity →', ...SEV]],
+    head: [['Likelihood (down) / Severity (across)', ...SEV]],
     body: LIK.map((l, i) => [l, ...SEV.map((_, j) => String((i + 1) * (j + 1)))]),
     styles: { fontSize: 8.2, cellPadding: 1.4, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, fontStyle: 'bold' },
     columnStyles: { 0: { cellWidth: 38, fontStyle: 'normal' } },

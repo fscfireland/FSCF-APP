@@ -5876,7 +5876,7 @@ function showAppError(err, where = '') {
 }
 const VERSION_TAG = 'app v0.55.0';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'RAMS: start a visit, read and sign the RAMS, then record work; Health & safety page on Home';
+const WHATS_NEW = 'RAMS for every visit in your own layout: start a visit, read and sign, then record; Health & safety on Home';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

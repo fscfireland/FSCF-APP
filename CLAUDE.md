@@ -214,6 +214,20 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   project notes; signed; PDF to the site's Files › RAMS. Offered when a service starts. Ladder checks = FSCF Form 129 /
   HSA GA3, SHWW Gen App Regs 2007 Reg 119 (Drive 1tGTZN7nkOa6Gbyh6WpysYfY6vhbjKqNU), weekly re-inspection, 5-year
   record. Tools list (check type, next check) and stock list (from the price list, minimum levels).
+- RAMS for every visit (v0.55.0, owner approved 27 Nov 2026): `src/rams.js` = templates (trade × work: fd from the owner's
+  own RAMS; dampers / alarm / emergency lighting / extinguishers from the standards in his format, marked "FSCF practice,
+  review before first issue"), the check type's steps (6-point text from FSCF-RAMS-21; other kits list their questions),
+  `buildRams`, `ramsHtml` preview (coloured matrix + ratings) and `ramsPdf` in the owner's layout (copper title, peach
+  label column, dark table heads, coloured 5×5 matrix, green/amber/red Pre/Res cells, numbered method, running header,
+  address footer; style copied from FSCF-RAMS-21 PDF). Start service → `startVisit`: what work (Inspection / Remedial /
+  Replacement-install), drawings of the same trade, ref (settings `ramsNext`, default 22 after FSCF-RAMS-21), persons, A&E,
+  site notes (kept on the project), visit notes, read + tick + signature → `project.rams[id]` and each service gets
+  `ramsId`, `work`, `confirmedAt`; PDF to site Files › RAMS (`saveRamsPdf`). Recording on a pin is locked without a live
+  visit of the right work (`applyVisitLock`, `.rec-locked`; repairs need a remedial/install visit); legacy visits without
+  ramsId stay open; "Office edit (PIN)" unlocks until the app closes. RAMS ✓ n chip on the service → open PDF / Sign on
+  (`signOnRams`). "Still on this visit?" after 7 days (`checkOldVisits`). Health & safety page (view `hs`, Home tile):
+  templates by trade (fold-outs, owner liked these), next RAMS number, all signed RAMS. Part 2 next: ladder checks
+  (Form 129), tools list, stock list. Kells praise: Sandra Mahon, HSE DNE Facilities, 15/10/2026 ("nicest RAMS").
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
