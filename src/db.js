@@ -76,8 +76,13 @@ export async function byIndex(store, index, value) {
 }
 
 // Insert or update. Stamps updatedAt and marks the record as needing sync.
+// A store can have one rule run on every record before it is saved (e.g. default answers on doors)
+const beforeHooks = {};
+export function beforePut(store, fn) { beforeHooks[store] = fn; }
+
 export async function put(store, rec) {
-  const r = { ...rec, updatedAt: now(), dirty: true };
+  let r = { ...rec, updatedAt: now(), dirty: true };
+  if (beforeHooks[store] && !r.deleted) r = (await beforeHooks[store](r)) || r;
   if (!r.createdAt) r.createdAt = r.updatedAt;
   const s = await tx(store, 'readwrite');
   await wrap(s.put(r));

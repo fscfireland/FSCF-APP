@@ -252,6 +252,11 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   Ladder_Checks_2026.zip; WK2207B-3J: 17/11/2026 (Drive 1tGTZN7nkOa6Gbyh6WpysYfY6vhbjKqNU). Read from his PDFs: all Pass,
   item 6 N/A, Home (pre-work check), Visual. Imported checks have `imported` (file name) and `dateOnly`; their PDF says
   "Signed on the original: <file>". Fixed: handCheck timer was started on every Home render (now once, `handTimer`).
+- v0.56.2 (owner, 27 Nov 2026): HSE 6-point check Q1 (`fd6-1`, fire register faults addressed) is N/A by default on
+  every door once it is looked at (any answer or a result other than Not inspected), whatever the result; changed by hand
+  only where known. `NA_DEFAULT` / `naDefaultsFor` in main.js, applied by `db.beforePut('doors', …)` (new hook in db.js)
+  so every save path gets it, and in the sheet's `queue`; All pass / All fail skip it; small note under the question;
+  one-off sweep of existing doors (flag `naSweep1`) only fills it where unanswered (answers already given are kept).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

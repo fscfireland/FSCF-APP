@@ -1682,3 +1682,4 @@ a.lib-card { text-decoration: none; }
 .lc-note { width: 100%; }
 .lc-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .warn-box { background: #ffd9de; color: #7a0f20; border-radius: 10px; padding: 10px 12px; font-size: 14px; }
+.q-nadef { display: block; font-size: 12px; margin-top: 2px; }

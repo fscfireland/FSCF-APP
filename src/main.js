@@ -180,6 +180,10 @@ async function loadLists() {
     } catch (err) { console.error(err); }
     await saveLists({ defSweep1: true });
   }
+  if (!lists.naSweep1) {
+    try { for (const d of await db.all('doors')) { const k = d.kind || (await db.get('plans', d.planId))?.inspType; if (NA_DEFAULT[k] && naDefaultsFor(d, k) !== d) await db.put('doors', d); } } catch (err) { console.error(err); }
+    await saveLists({ naSweep1: true });
+  }
   refreshDefectCosts();
   return lists;
 }
@@ -230,6 +234,25 @@ async function saveKit(patch, kind = kindNow) {
 }
 const kindOfPlan = (plan) => plan?.inspType || 'fd';
 const kindOfDoor = (d, plan) => d?.kind || plan?.inspType || 'fd';
+// Questions that start as N/A on every door once it is looked at, whatever the other answers or the result,
+// and are changed by hand only where known (owner, 27 Nov 2026). HSE 6-point check Q1 "Have any noted faults in
+// the fire register been addressed?": FSCF can't know whether earlier remedial repairs were carried out, so N/A
+// unless known (FSCF practice, owner's instruction 27 Nov 2026).
+const NA_DEFAULT = { fd6: ['fd6-1'] };
+const NA_NOTE = 'N/A by default: earlier repairs not known (FSCF practice). Change it where you know.';
+const isNaDefault = (id) => Object.values(NA_DEFAULT).some((ids) => ids.includes(id));
+function naDefaultsFor(d, kind) {
+  const ids = NA_DEFAULT[kind];
+  if (!ids || !d) return d;
+  const checks = d.checks || {};
+  const touched = (d.status && d.status !== 'not_inspected') || Object.entries(checks).some(([id, c]) => c?.answer && !ids.includes(id));
+  const missing = ids.filter((id) => !checks[id]?.answer);
+  if (!touched || !missing.length) return d;
+  const next = { ...checks };
+  for (const id of missing) next[id] = { ...next[id], text: (kitOf(kind).questions || []).find((q) => q.id === id)?.text || next[id]?.text || '', answer: 'na' };
+  return { ...d, checks: next };
+}
+db.beforePut('doors', async (d) => naDefaultsFor(d, d.kind || (d.planId && (await db.get('plans', d.planId))?.inspType) || 'fd'));
 // Every fail item recorded anywhere joins its checklist's defect list
 // (Settings › Defect list), so it can be given a cost (owner, 26 Nov 2026).
 async function addToDefectList(items, kind = kindNow) {
@@ -6119,9 +6142,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.56.1';
+const VERSION_TAG = 'app v0.56.2';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Your two ladders are in Health & safety (Waku 4-step and WK2207B-3J) with all their past checks from Drive';
+const WHATS_NEW = 'HSE 6-point check: question 1 (fire register faults addressed) is N/A by default on every door; All pass / All fail leave it alone';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -6346,7 +6369,7 @@ async function drawSheet(door) {
       const due = $('#f-due');
       if (due) due.value = patch.nextDue;
     }
-    current = { ...current, ...patch };
+    current = naDefaultsFor({ ...current, ...patch }, kindNow);
     pending = current;
     $('#saved').textContent = 'Saving…';
     clearTimeout(saveTimer);
@@ -6457,6 +6480,7 @@ async function drawSheet(door) {
     // back to "Not inspected" with a checklist: work the result out again
     if (autoRes && r.value === 'not_inspected') queue(autoFail({}));
     else showStatus(r.value);
+    drawQuestions(); // a question that starts as N/A shows straight away
   }));
   showStatus(door.status);
   showGps();
@@ -6767,7 +6791,7 @@ async function drawSheet(door) {
     $('#q-n').textContent = qs.length ? `(${answered}/${qs.length}${fails ? ` · ${fails} fail` : ''})` : '';
     // All … toggles light up when every answer matches; Rest N/A while the
     // questions it filled are still N/A
-    const allAre = (a) => qs.length > 0 && qs.every((q) => checks[q.id]?.answer === a);
+    const allAre = (a) => qs.some((q) => !isNaDefault(q.id)) && qs.every((q) => isNaDefault(q.id) || checks[q.id]?.answer === a);
     const memo = restMemo.get(door.id);
     for (const [id, on] of [['#q-all-pass', allAre('pass')], ['#q-all-fail', allAre('fail')], ['#q-rest-pass', !!(memo && memo.answer === 'pass' && restStillSet(memo))], ['#q-rest-fail', !!(memo && memo.answer === 'fail' && restStillSet(memo))], ['#q-rest-na', !!(memo && memo.answer === 'na' && restStillSet(memo))]]) {
       $(id).hidden = !qs.length || arranging;
@@ -6784,7 +6808,7 @@ async function drawSheet(door) {
         const open = note || openNotes.has(q.id);
         return `
         <div class="q-row ${a ? 'is-' + a : ''}" data-id="${esc(q.id)}">
-          <span class="q-text"><span class="q-no">${i + 1}</span><span class="q-label">${esc(q.text)}${q.removed ? ` <small class="muted">(${q.hidden ? 'hidden question' : 'removed from list'})</small>` : ''}</span>
+          <span class="q-text"><span class="q-no">${i + 1}</span><span class="q-label">${esc(q.text)}${isNaDefault(q.id) ? ` <small class="muted q-nadef">${esc(NA_NOTE)}</small>` : ''}${q.removed ? ` <small class="muted">(${q.hidden ? 'hidden question' : 'removed from list'})</small>` : ''}</span>
             <button type="button" class="q-note-btn ${note ? 'has-note' : ''}" aria-label="${note ? 'Edit note' : 'Add a note'}" aria-expanded="${!!open}">${icon('pencil')}<span>${note ? 'Note' : 'Note'}</span></button></span>
           <span class="q-ans" role="group" aria-label="Answer">
             ${ANSWERS.map((x) => `<button type="button" class="q-btn q-${x.id}" data-a="${x.id}" aria-pressed="${a === x.id}">${x.label}</button>`).join('')}
@@ -6841,7 +6865,7 @@ async function drawSheet(door) {
   // put the answers back as they were, or tap the other to switch across.
   let beforeAll = null;
   const toggleAll = (answer) => {
-    const qs = questionsFor(current, kq() || []);
+    const qs = questionsFor(current, kq() || []).filter((q) => !isNaDefault(q.id));
     const cur = current.checks || {};
     const allAre = (a) => qs.length > 0 && qs.every((q) => cur[q.id]?.answer === a);
     let checks;
