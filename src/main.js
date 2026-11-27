@@ -22,7 +22,7 @@ import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
 import { markupPhoto, plainThumb } from './photomark.js';
-import { makeCode, allCustomers, customerLabel, emailList, gmailCompose } from './customers.js';
+import { makeCode, allCustomers, customerLabel, emailList, gmailCompose, phoneList, telHref } from './customers.js';
 import { IRON_MAINT, DEFAULT_REMEDIAL_TEXT, remedialItems, remedialProgress, projectProgress } from './remedial.js';
 import { MK_COLORS, TOOLS, TEXT_SIZES, renderSvg, lineLengthPx, fmtLength } from './markup.js';
 import { isVideo, videoInfo, fmtDuration, fmtSize, cleanLink } from './media.js';
@@ -1716,6 +1716,7 @@ async function editCustomer(existing, { name: name0 = '', company: company0 = ''
         <label class="field"><span>Phone (landline)</span><input name="phone" type="tel" value="${esc(c.phone || '')}" placeholder="e.g. 042 969 8498" autocomplete="off"></label>
         <label class="field"><span>Mobile</span><input name="mobile" type="tel" value="${esc(c.mobile || '')}" placeholder="e.g. 087 123 4567" autocomplete="off"></label>
       </div>
+      ${[...phoneList(c.phone).map((n) => ['Phone', n]), ...phoneList(c.mobile).map((n) => ['Mobile', n])].length ? `<div class="cu-mails cu-tels">${[...phoneList(c.phone).map((n) => ['Phone', n]), ...phoneList(c.mobile).map((n) => ['Mobile', n])].map(([k, n]) => `<a class="cu-mail cu-tel" href="${esc(telHref(n))}" data-n="${esc(n)}"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3h4l2 5-3 2a11 11 0 0 0 6 6l2-3 5 2v4a2 2 0 0 1-2 2A17 17 0 0 1 3 5a2 2 0 0 1 2-2z"/></svg><span>${esc(n)}</span><small>${k}</small></a>`).join('')}</div>` : ''}
       <label class="field"><span>Email (several allowed, separated by commas)</span><input name="email" type="text" inputmode="email" value="${esc(c.email || '')}" autocomplete="off"><small class="muted">Used for the customer portal sign-in when it goes live.${c.gmailFound ? ` ${c.gmailFound} found in your sent Gmail.` : ''}</small></label>
       ${emailList(c.email).length ? `<div class="cu-mails">${emailList(c.email).map((m) => `<a class="cu-mail" href="${esc(gmailCompose(m))}" target="_blank" rel="noopener">${icon('mail')}<span>${esc(m)}</span></a>`).join('')}${emailList(c.email).length > 1 ? `<a class="cu-mail cu-mail-all" href="${esc(gmailCompose(emailList(c.email)))}" target="_blank" rel="noopener">${icon('mail')}<span>Email all ${emailList(c.email).length}</span></a>` : ''}</div>` : ''}
       <label class="field"><span>Address</span><input name="address" value="${esc(c.address || '')}" autocomplete="off"></label>
@@ -1740,6 +1741,10 @@ async function editCustomer(existing, { name: name0 = '', company: company0 = ''
       $('#cu-company', form).addEventListener('input', fill);
       $('#cu-name', form).addEventListener('input', fill);
       fill();
+      // tapping a number opens the phone's dialler; it is also copied, in case the dialler can't open from here
+      $$('.cu-tel', form).forEach((a) => a.addEventListener('click', () => {
+        try { navigator.clipboard?.writeText(a.dataset.n).then(() => toast(`${a.dataset.n} copied: if the dialler didn't open, paste it there`), () => {}); } catch { /* copying is a back-up only */ }
+      }));
       $$('.cu-restore', form).forEach((b) => (b.onclick = () => {
         const old = c.history[+b.dataset.k].before;
         codeTouched = true;
@@ -5654,9 +5659,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.6';
+const VERSION_TAG = 'app v0.54.7';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'customer emails (tap to write in Gmail), phone and mobile boxes, archive of old details; restoring a backup now merges with this device';
+const WHATS_NEW = 'customers: tap an email to write in Gmail, tap a number to call; phone and mobile boxes; old details archived; restoring a backup merges';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

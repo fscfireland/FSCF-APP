@@ -185,3 +185,12 @@ export function mergeCustomers(mine = [], theirs = []) {
   }
   return [...by.values()];
 }
+
+// "042 969 8498, (00353) 087 335 8490" → ['042 969 8498', '(00353) 087 335 8490']
+export const phoneList = (v) => String(v || '').split(/\s*[,;/|]\s*/).map((x) => x.trim()).filter((x) => x.replace(/\D/g, '').length >= 7);
+// A number the phone's dialler understands: 0868123456, or +353868123456 for numbers written with 00353 / +353
+export const telHref = (n) => {
+  let d = String(n || '').replace(/[^\d+]/g, '');
+  d = d.replace(/^00353/, '+353').replace(/^\+3530/, '+353');
+  return 'tel:' + d;
+};

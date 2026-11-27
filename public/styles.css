@@ -1609,3 +1609,6 @@ a.lib-card { text-decoration: none; }
 .cu-mail .ico { flex: none; width: 18px; height: 18px; }
 .cu-mail span { min-width: 0; overflow-wrap: anywhere; }
 .cu-mail-all { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); justify-content: center; }
+.cu-tel { color: var(--st-pass); }
+.cu-tel small { margin-left: auto; color: var(--ink-2); font-size: 11px; font-weight: 600; }
+.cu-tel .ico { fill: none; stroke: currentColor; stroke-width: 2; stroke-linejoin: round; }
