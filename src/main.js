@@ -423,6 +423,7 @@ async function renderProjects() {
       <div class="brand"><span class="brand-mark ${lists.logoRound || lists.logoBanner ? 'has-logo' : ''}">${lists.logoRound || lists.logoBanner ? `<img alt="" src="${(lists.logoRound || lists.logoBanner).data}">` : icon('shield')}</span><div><b>FSCF Ireland <span class="rev-chip" title="App version: close and reopen the app to get the latest">Rev ${esc(VERSION_TAG.replace(/^app v/, ''))}</span></b><small>Fire safety compliance &amp; facilities</small></div></div>
       <span class="bar-btns">
         ${lists.libPin ? `<button class="icon-btn owner-lock ${priced() ? 'is-open' : ''}" id="owner-lock" aria-label="${priced() ? 'Lock prices' : 'Unlock prices'}">${icon('shield')}<span>${priced() ? 'Unlocked' : 'Locked'}</span></button>` : ''}
+        <span class="bar-clock" id="bar-clock" aria-label="Date and time">${clockText()}</span>
         <button class="icon-btn" id="settings" aria-label="Settings">${icon('gear')}</button>
       </span>
     </header>
@@ -3387,6 +3388,9 @@ const buildingName = (b) => BUILDINGS.find(([k]) => k === b)?.[1] || '';
 function buildingField(cur, name = 'building') {
   return `<label class="field"><span>Building type</span><select name="${name}" id="f-building"><option value="">Select…</option>${BUILDINGS.map(([k, n, eg]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(n)} (${esc(eg)})</option>`).join('')}</select><small class="muted">Acute and non-acute residential turn on a "have you cleaned your hands?" reminder every 2 hours during a visit.</small></label>`;
 }
+// Home: small date and time beside the settings cog (owner, 27 Nov 2026), kept current every 20 s
+const clockText = () => { const d = new Date(); return `${d.toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' })}<b>${d.toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit' })}</b>`; };
+setInterval(() => { const el = document.getElementById('bar-clock'); if (el) el.innerHTML = clockText(); }, 20e3);
 let handBusy = false;
 let handTimer = null;
 async function handCheck(force = false) {
@@ -6142,9 +6146,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.57.0';
+const VERSION_TAG = 'app v0.57.1';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Install RAMS: a full step-by-step fire door fitting method (removal, frame fixing and pellets, lifting and hanging, lock fitting, sealing, testing), every step referenced';
+const WHATS_NEW = 'Small date and time beside the settings cog on Home';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
