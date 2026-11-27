@@ -22,6 +22,7 @@ import { doorMapURL } from './minimap.js';
 import { getPosition, geoError, gpsText, mapLink } from './geo.js';
 import { signaturePad } from './signature.js';
 import { buildRams, ramsHtml, ramsPdf, WORKS, TRADES } from './rams.js';
+import { SEED_LADDERS, SEED_CHECKS } from './ladder-seed.js';
 import { ITEMS as LAD_ITEMS, LADDER_TYPES, MATERIALS as LAD_MATERIALS, METHODS as LAD_METHODS, INTERVAL_DAYS, FORM_REF as LAD_REF, itemApplies, ladderStatus, STATUS_LABEL as LAD_STATUS, ladderPdf } from './ladders.js';
 import { markupPhoto, plainThumb } from './photomark.js';
 import { makeCode, allCustomers, customerLabel, emailList, gmailCompose, phoneList, telHref } from './customers.js';
@@ -311,7 +312,10 @@ async function render() {
 // ---------- Projects list ----------
 async function renderProjects() {
   setTimeout(() => checkOldVisits().catch(() => {}), 1200);
-  setInterval(() => handCheck().catch(() => {}), 60e3);
+  if (!handTimer) { // once per app open (renderProjects runs every time Home is drawn)
+    handTimer = setInterval(() => handCheck().catch(() => {}), 60e3);
+    seedLadders().catch((err) => console.error(err));
+  }
   const projects = (await db.all('projects')).sort((a, b) => (b.date || '').localeCompare(a.date || '') || b.updatedAt.localeCompare(a.updatedAt));
   const allDoors = await db.all('doors');
   const allPlans = await db.all('plans');
@@ -453,12 +457,7 @@ async function renderProjects() {
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#my-hs')?.addEventListener('click', () => go({ view: 'hs' }));
-  ladderData().then(({ ladders, checks }) => {
-    const due = ladders.filter((l) => ['due', 'overdue', 'new'].includes(ladderStatus(l, checks).st)).length;
-    const out = ladders.filter((l) => ladderStatus(l, checks).st === 'out').length;
-    const el = $('#my-hs-sub');
-    if (el && (due || out)) { el.textContent = [due && `${due} ladder check${due === 1 ? '' : 's'} due`, out && `${out} out of service`].filter(Boolean).join(' · '); el.classList.add('warn-text'); }
-  }).catch(() => {});
+  hsTile().catch(() => {});
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'pricing' }); });
   $('#qk-cont')?.addEventListener('click', async () => {
@@ -1760,6 +1759,40 @@ async function ladderData(withRetired = false) {
   const ladders = all.filter((x) => x.kind === 'ladder' && (withRetired || !x.retired)).sort((a, b) => !!a.retired - !!b.retired || String(a.ref).localeCompare(String(b.ref), undefined, { numeric: true }));
   return { ladders, checks: all.filter((x) => x.kind === 'ladderCheck') };
 }
+// Home: the Health & safety tile says when ladder checks are due or a ladder is out of service
+async function hsTile() {
+  const { ladders, checks } = await ladderData();
+  const due = ladders.filter((l) => ['due', 'overdue', 'new'].includes(ladderStatus(l, checks).st)).length;
+  const out = ladders.filter((l) => ladderStatus(l, checks).st === 'out').length;
+  const el = $('#my-hs-sub');
+  if (el && (due || out)) { el.textContent = [due && `${due} ladder check${due === 1 ? '' : 's'} due`, out && `${out} out of service`].filter(Boolean).join(' · '); el.classList.add('warn-text'); }
+}
+// the owner's two ladders and their past checks from Drive (ladder-seed.js), added once on each device
+async function seedLadders() {
+  if (lists.ladderSeed1) return;
+  const all = await db.all('settings');
+  const idOf = {};
+  for (const l of SEED_LADDERS) {
+    const same = all.find((x) => x.kind === 'ladder' && String(x.ref).trim().toLowerCase() === l.ref.toLowerCase());
+    idOf[l.key] = same?.id || 'ladder-' + l.key;
+    if (!same && !(await db.getRaw('settings', idOf[l.key]))) await db.put('settings', { id: idOf[l.key], kind: 'ladder', ref: l.ref, type: l.type, typeOther: '', make: l.make, material: '', duty: '', kept: '', interval: INTERVAL_DAYS, retired: false });
+  }
+  const R = { p: 'pass', n: 'na', f: 'fail' };
+  for (const [key, date, reinspect, pat, file] of SEED_CHECKS) {
+    const id = `lcheck-${key}-${date}`;
+    if (await db.getRaw('settings', id)) continue;
+    await db.put('settings', {
+      id, kind: 'ladderCheck', ladderId: idOf[key], at: new Date(`${date}T12:00:00`).toISOString(), dateOnly: true, imported: file,
+      where: 'Other', whereOther: 'Home (pre-work check)', forWho: 'FSCF Ireland', address: 'Copponagh, Bailieborough, Co. Cavan, A82 YK46', contact: '',
+      inspector: 'Mark Crosby', position: 'Director', method: 'Visual', methodOther: '',
+      items: [...pat].map((c) => ({ r: R[c], note: '' })), damage: '', fit: 'Yes', used: 'Yes', details: '',
+      result: pat.includes('f') ? 'fail' : 'pass', repairable: '', defects: '', corrective: '', further: '', reinspect,
+    });
+  }
+  await saveLists({ ladderSeed1: true });
+  if (state.view === 'hs' && !document.querySelector('.modal-wrap')) renderHealthSafety();
+  hsTile().catch(() => {});
+}
 async function editLadder(l0 = null) {
   const l = l0 || { type: 'Stepladder', material: 'Aluminium', interval: INTERVAL_DAYS };
   const r = await dialog({
@@ -1800,7 +1833,7 @@ async function ladderPanel(id) {
         <p class="small">${esc([l.type === 'Other' ? l.typeOther : l.type, l.make, l.material, l.duty, l.kept && 'kept at ' + l.kept].filter(Boolean).join(' · '))}</p>
         <p class="small muted">${st.next && !['out', 'retired'].includes(st.st) ? `Next check by ${esc(fmtDate(st.next))} · ` : ''}every ${esc(l.interval || INTERVAL_DAYS)} days</p>
         <h3 class="h3">Checks <span class="muted">${st.checks.length}</span></h3>
-        <div class="doc-list">${st.checks.map((c) => `<button type="button" class="doc-row lc-row" data-c="${esc(c.id)}"><span class="q-main"><b>${esc(fmtDate(c.at.slice(0, 10)))} · ${c.result === 'fail' ? 'FAILED' : 'Passed'}</b><small>${esc(c.inspector || '')}${c.defects ? ' · ' + esc(c.defects) : ''}</small></span>${icon('report')}</button>`).join('') || '<p class="muted small">No checks yet.</p>'}</div>`,
+        <div class="doc-list">${st.checks.map((c) => `<button type="button" class="doc-row lc-row" data-c="${esc(c.id)}"><span class="q-main"><b>${esc(fmtDate(c.at.slice(0, 10)))} · ${c.result === 'fail' ? 'FAILED' : 'Passed'}</b><small>${esc(c.inspector || '')}${c.defects ? ' · ' + esc(c.defects) : ''}${c.imported ? ' · from your signed PDF in Drive' : ''}</small></span>${icon('report')}</button>`).join('') || '<p class="muted small">No checks yet.</p>'}</div>`,
       buttons: [{ label: 'Close', value: false }, { label: 'Edit', value: 'edit', kind: 'ghost' }, ...(l.retired ? [] : [{ label: 'Check now', value: 'check', kind: 'primary' }])],
       onOpen: (f) => f.querySelectorAll('.lc-row').forEach((b) => (b.onclick = (e) => { e.preventDefault(); openLadderPdf(l, checks.find((c) => c.id === b.dataset.c)).catch((err) => toast(err.message, 'error')); })),
     });
@@ -3332,6 +3365,7 @@ function buildingField(cur, name = 'building') {
   return `<label class="field"><span>Building type</span><select name="${name}" id="f-building"><option value="">Select…</option>${BUILDINGS.map(([k, n, eg]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(n)} (${esc(eg)})</option>`).join('')}</select><small class="muted">Acute and non-acute residential turn on a "have you cleaned your hands?" reminder every 2 hours during a visit.</small></label>`;
 }
 let handBusy = false;
+let handTimer = null;
 async function handCheck(force = false) {
   if (handBusy || document.querySelector('.modal-wrap')) return;
   if (!force && Date.now() - (lists.handAt || 0) < HAND_EVERY) return;
@@ -6085,9 +6119,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.56.0';
+const VERSION_TAG = 'app v0.56.1';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Ladder checks on Health & safety: your Form 129 checklist, sign, PDF to My files › Ladder checks, weekly re-check, out of service on a fail';
+const WHATS_NEW = 'Your two ladders are in Health & safety (Waku 4-step and WK2207B-3J) with all their past checks from Drive';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

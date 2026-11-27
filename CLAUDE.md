@@ -246,6 +246,12 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   items start N/A; any Fail or fit ≠ Yes = failed → "TAKE THE LADDER OUT OF SERVICE NOW", not repairable → retired.
   Can't delete a ladder with checks (5-year record, Reg 119(4)). PDF to My files › Ladder checks. Home H&S tile shows
   "n ladder checks due / out of service". Next: tools list, stock list.
+- v0.56.1: the owner's two ladders + past checks seeded once per device (`src/ladder-seed.js`, `seedLadders`, flag
+  `ladderSeed1`; fixed ids `ladder-waku4`, `ladder-wk2207b3j`, `lcheck-<key>-<date>` so devices never duplicate; a ladder he
+  already added with the same number is reused). Waku 4-step: 36 weekly checks 02/03–02/11/2026 from Drive
+  Ladder_Checks_2026.zip; WK2207B-3J: 17/11/2026 (Drive 1tGTZN7nkOa6Gbyh6WpysYfY6vhbjKqNU). Read from his PDFs: all Pass,
+  item 6 N/A, Home (pre-work check), Visual. Imported checks have `imported` (file name) and `dateOnly`; their PDF says
+  "Signed on the original: <file>". Fixed: handCheck timer was started on every Home render (now once, `handTimer`).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

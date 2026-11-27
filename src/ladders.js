@@ -103,7 +103,7 @@ export async function ladderPdf(ladder, c) {
     ['Inspection carried out for (person / company)', c.forWho || 'FSCF Ireland'],
     ['Address where inspection was carried out', c.address || ''],
     ['Client / site contact', c.contact || ''],
-    ['Date & time of inspection', fmt(c.at, true)],
+    ['Date & time of inspection', fmt(c.at, !c.dateOnly)],
     ['Inspector name / position', [c.inspector, c.position].filter(Boolean).join(' — ')],
     ['Ladder no. reference', ladder.ref || ''],
     ['Re-inspection date', c.result === 'fail' ? 'Out of service — re-inspect after repair before use' : fmt(c.reinspect)],
@@ -150,7 +150,7 @@ export async function ladderPdf(ladder, c) {
   need(50);
   head('8. Sign-off');
   table({
-    body: [['Name & position of person making inspection', [c.inspector, c.position].filter(Boolean).join(', ')], ['Date', fmt(c.at)], ['Signature of person who made inspection', '']],
+    body: [['Name & position of person making inspection', [c.inspector, c.position].filter(Boolean).join(', ')], ['Date', fmt(c.at)], ['Signature of person who made inspection', c.imported ? `Signed on the original: ${c.imported}` : '']],
     columnStyles: label,
     didParseCell: (d) => { if (d.section === 'body' && d.row.index === 2) d.cell.styles.minCellHeight = 18; },
     didDrawCell: (d) => {
