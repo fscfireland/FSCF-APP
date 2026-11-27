@@ -26,7 +26,7 @@ const FSCF_ADDR = 'FSCF Ireland — Copponagh, Bailieborough, Co. Cavan, A82 YK4
 const SRC = {
   fdInsp: 'FSCF-RAMS-21 Rev 0 (Dunboyne Health Centre, 17/11/2026)',
   fdRem: 'FSCF-RAMS-14 Rev 1 (Dromore Unit, St Mary\'s Castleblayney, 22/10/2026) and FSCF-RAMS-04 Rev 2 (Hawthorns, Stillorgan, 02/09/2026)',
-  fdInst: 'CVL-001-REM-001 Rev 2 (Civil Registration Service, Lombard Street, 09/11/2026)',
+  fdInst: 'CVL-001-REM-001 Rev 2 (Civil Registration Service, Lombard Street, 09/11/2026) and FSCF-RAMS-STJ-02 Rev 1 (St Joseph\'s CNU Trim installs, 05/11/2026); installation steps from BS 8214:2026 clauses 10, 12, 13 and 14 and the BWF-Certifire Fire Door Installation Best Practice Guide',
   other: (std) => `Industry standards (${std}) in the FSCF RAMS format of FSCF-RAMS-21 — FSCF practice, source to be confirmed: review before first issue`,
 };
 
@@ -41,7 +41,7 @@ const LEGIS_FD = [
   'EN 1634-1 — Fire resistance test for door and shutter assemblies',
   'EN 13501-2 — Fire classification of construction products and building elements',
   'EN 1935 — Single-axis hinges, performance requirements',
-  'BS 8214:2026 — Timber-based fire door assemblies, code of practice (used where no direct EN equivalent applies)',
+  'BS 8214:2026 — Fire-resisting and smoke control doors: practical considerations concerning specification, design and performance in use, code of practice (used where no direct EN equivalent applies)',
   'PAS 79-2 — Fire risk assessment, Part 2: fire doors',
 ];
 export const MATRIX_NOTE = [
@@ -113,14 +113,96 @@ const T = {
   'fd:inst': {
     source: SRC.fdInst,
     scope: ['Removal of the existing door leaf, frame and architraves and the supply and installation of new certified fire doorset(s) at the openings listed above, with fire-stopping between frame and wall, and making good.', 'Each doorset is installed strictly within its manufacturer\'s certification / field of application (assessment report held on site), with the frame fixed and sealed to the wall as the assessment requires.', 'The compartment is restored the same day: the new door is hung, self-closing and latching before the team leaves; an opening is never left unattended or unprotected.'],
-    legislation: [...LEGIS_BASE, 'Safety, Health and Welfare at Work (Chemical Agents) Regulations 2001, as amended (construction dust)', 'EN 1634-1 — Fire resistance test for door and shutter assemblies', 'EN 1634-3 — Smoke control test for door and shutter assemblies (Sa classification)', 'EN 13501-2 — Fire classification of construction products and building elements', 'EN 16034 — Pedestrian doorsets: fire resisting and/or smoke control characteristics (product standard)', 'EN 1935 — Single-axis hinges, performance requirements', 'EN 1154 — Controlled door closing devices', 'EN 15725 — Extended application reports on the fire performance of construction products', 'BS 8214 — Timber-based fire door assemblies, code of practice (used where no direct EN equivalent applies)'],
+    legislation: [...LEGIS_BASE, 'Safety, Health and Welfare at Work (Chemical Agents) Regulations 2001, as amended (construction dust)', 'EN 1634-1 — Fire resistance test for door and shutter assemblies', 'EN 1634-3 — Smoke control test for door and shutter assemblies (Sa classification)', 'EN 13501-2 — Fire classification of construction products and building elements', 'EN 16034 — Pedestrian doorsets: fire resisting and/or smoke control characteristics (product standard)', 'EN 1935 — Single-axis hinges, performance requirements', 'EN 1154 — Controlled door closing devices', 'EN 15725 — Extended application reports on the fire performance of construction products', 'BS 8214:2026 — Fire-resisting and smoke control doors: practical considerations concerning specification, design and performance in use, code of practice (used where no direct EN equivalent applies)'],
     risks: [R.dust, R.compartment, ['Security — opening unsecured while the old door is out', 'Client', 'Team member at the opening whenever it is open; keyholder agreed with the site contact', 8, 'Opening never left unattended; new doorset hung and latching the same day; keys and locking agreed before leaving site', 4], R.manual, R.wah, R.tools, R.asbestos, R.chemicals, R.slips, R.waste, R.electric],
     before: ['Issue this RAMS for approval before starting. Hold the FSCF Safety Statement, insurance documents, Safe Pass / CSR cards and training records for each operative.', 'Agree with the client: dates and hours, access and egress, parking and unloading, the route for materials and waste, cordon positions, escape routes and fire alarm arrangements, and the keyholder.', 'Check the delivered doorsets, their certification and installation instructions, and the fire-stopping products before attending. Mark Crosby checks the certification against the opening.'],
     setup: ['Sign in, walk the route, confirm the escape routes, call points and assembly point. Erect barriers and a fire-retardant dust screen around the work area, leaving escape routes clear. Lay and tape down floor protection.', 'Protect any existing services or equipment near the opening; existing cables are not moved, cut or disconnected — if one is in the line of the work, stop and call Mark Crosby and the site contact.'],
+    // Detailed install method (owner, 27 Nov 2026: "a detailed step by step guide on how to fit a fire door").
+    // Every step names its source; all checked against the documents in the owner's Drive.
+    stages: [
+      ['Before starting — documents and checks', [
+        'Have the doorset manufacturer\'s installation instructions and its supporting evidence (fire certificate, global assessment or field of application report) on site and follow them at every step. Where they differ from this method, they take precedence (BS 8214:2026, 13.1; BWF-Certifire Guide, p.16).',
+        'Check each doorset against the door schedule and its opening: door reference, size, hand, swing, fire rating, ironmongery and finish. Record the door reference for every opening (FSCF-RAMS-STJ-02, 5).',
+        'Pre-installation checks: the wall is of suitable fire resistance for the door rating; leaf and frame free from damage and suitable for the rating; the certification label on the top edge of the leaf undamaged; seals, fixings and ironmongery (with their intumescent pads) as specified; the frame-to-wall sealing method and materials agreed (BWF-Certifire Guide, p.15).',
+        'Any issue with the supporting structure (opening size, fixing substrate, loads) is raised before work starts (BS 8214:2026, 13.2).',
+      ]],
+      ['Delivery, handling and lifting the door', [
+        'Fire doors are heavy. Avoid manual handling where a door lifter or trolley can be used; where it cannot be avoided, every leaf and frame is a two-person lift (Gen App Regs 2007, Reg 69; CVL-001-REM-001, risk register; BWF-Certifire Guide, p.12).',
+        'Lift doors evenly and securely so the leaf and frame do not bend or get damaged. Keep the protective wrapping on for as long as possible (BWF-Certifire Guide, p.12).',
+        'Store flat on a level, dry surface on at least three level bearers, in the order they will be fitted, away from damp, standing water and heat; keep storage time on site to a minimum (BWF-Certifire Guide, p.12; BS 8214:2026, 12).',
+        'Never remove, damage or paint over the certification label on the top edge of the leaf (BWF-Certifire Guide, pp.4 and 25).',
+      ]],
+      ['Removing the existing door and frame', [
+        'Remove the existing closer and set any switch or device to one side for refitting. Nothing is disconnected without the permission of the client\'s nominated person (FSCF-RAMS-STJ-02, 11).',
+        'Unscrew the leaf from its hinges with a screw gun. Two people carry it clear, wrapped, to the agreed storage area (FSCF-RAMS-STJ-02, 12).',
+        'Cut the frame with a reciprocating saw (Sawzall), with HEPA extraction connected to the tool and running at all times (FSCF-RAMS-STJ-02, 13).',
+        'Cut the bottom of one jamb about halfway up and remove that section first; prise the remaining sections out with a prise bar, cutting fixings with the saw where this frees the frame (FSCF-RAMS-STJ-02, 14–16).',
+        'Wrap or bag each section straight away and remove it by the agreed route (FSCF-RAMS-STJ-02, 17).',
+        'HEPA vacuum the opening. Inspect the structure, lintel, plasterboard, blockwork, fire-stopping and any damp or mould. Stop and report anything unexpected before going further (FSCF-RAMS-STJ-02, 18; CVL-001-REM-001, 5.D5).',
+        'Make good damaged reveals so the new frame fixes to a sound, clean, true surface (FSCF-RAMS-STJ-02, 19).',
+        'Check the opening is square, plumb and level, with the permissible fitting gap for the frame and the sealing method, and that any studwork or linings needed for the fixings are in place (BWF-Certifire Guide, p.16; BS 8214:2026, 13.4.1).',
+        'The opening is never left unattended: the new door is hung, self-closing and latching the same day (CVL-001-REM-001, risk register).',
+      ]],
+      ['Preparing the frame', [
+        'Doorsets arrive with the frame machined and the door hung in the factory; for a door assembly, set the frame out from the shoulder of the head joint as the datum, working from the top down and allowing for the door gaps and the finished floor / undercut (BWF-Certifire Guide, pp.16–18).',
+        'Joint the frame corners with the specified fixings and adhesive, pre-drilled so the timber does not split, and check the joints are tight and the frame square (BWF-Certifire Guide, p.22).',
+        'Intumescent and smoke seals: in the exact position and size given by the manufacturer, full length, butted tightly in the corners, flush with the groove, not painted over and not mechanically fixed (BWF-Certifire Guide, pp.19–20; BS 8214:2026, 8).',
+        'Mark out the frame fixings: positions and number from the manufacturer\'s instructions; where none are given, 120–200 mm from the corners and at no more than 450 mm centres. Frames over 900 mm wide get head fixings as the manufacturer requires (BWF-Certifire Guide, p.27).',
+        'Drill a 5.5 mm pilot hole through the frame at each fixing and counter-bore it, so the screw head sits below the surface with room for a timber plug (pellet) (BWF-Certifire Guide, pp.26–27).',
+      ]],
+      ['Fixing the frame', [
+        'Dry-fit the frame. Position it centrally with an equal fitting gap on both sides, at the correct depth for the wall finishes, and at the correct height for the finished floor, using packers under the frame that are removed after fixing (BWF-Certifire Guide, p.27; FSCF-RAMS-STJ-02, 20).',
+        'Fit a packer at every fixing point, exactly the thickness of the gap and the full depth of the frame, so the frame is not distorted; hardwood packers, or the material the certificate specifies. Where intumescent mastic capping is required, cut the packers short to leave at least 10 mm for the mastic on each face (BWF-Certifire Guide, pp.26–27; FSCF-RAMS-STJ-02, 23).',
+        'Start at the top fixing on the hinge jamb. Fixings are at least 5 mm gauge and reach at least 70 mm into the wall (not counting the fitting gap): masonry frame fixings into blockwork, wood screws into timber studs, as the manufacturer requires. Fix through the packer (BWF-Certifire Guide, pp.26 and 28; FSCF-RAMS-STJ-02, 21).',
+        'Tighten with care: do not over-tighten or damage the screw head. After each fixing, check the frame is still plumb, square, level and at the right height, without twist, racking or distortion (BWF-Certifire Guide, p.28; FSCF-RAMS-STJ-02, 22; BS 8214:2026, 13.3).',
+        'With all fixings in, check the frame opening is exactly the right width and height for the leaf plus its gaps, and remove the height packers (BWF-Certifire Guide, p.28).',
+        'Pellet the fixings: glue a compatible timber plug (pellet) into each counter-bore over the screw head and finish it flush with the frame (BWF-Certifire Guide, pp.26 and 28).',
+      ]],
+      ['Hanging the door', [
+        'Any sizing of the leaf is minor and within the manufacturer\'s limits, never from the top of the leaf, and only after checking for a concealed intumescent seal. Planing and cutting are done outside the building (BWF-Certifire Guide, p.25; BS 8214:2026, 13.5.1; CVL-001-REM-001, 5.F2).',
+        'Hinges are to BS EN 1935 and as specified for the door (BS 8214:2026, 10.3). Fit them to the leaf with their intumescent pads where required, using the fixings supplied with the hinges (BWF-Certifire Guide, p.30).',
+        'Lift the leaf with the door lifter (two people) and stand it on packers at the base in the opening. Locate the hinges in the frame recesses with intumescent pads under the blades where specified (BWF-Certifire Guide, p.30; CVL-001-REM-001, 5.D2).',
+        'Counter-bore pilot holes to suit the hinge screws and put 2 fixings in each hinge first. Remove the base packers, swing the door and check it closes correctly and the gaps are right, then put in the remaining fixings without over-tightening (BWF-Certifire Guide, p.30).',
+        'Operating gaps as the supporting evidence (typically 3 mm ± 1 mm at the head and jambs on the doorsets FSCF installs), and the gap under the door within the manufacturer\'s limit (BS 8214:2026, 13.5.2–13.5.3; FSCF-RAMS-STJ-02, 26).',
+        'Keep a drop-down threshold seal locked up while hanging; release and adjust it at the final checks so it meets the floor across its full length. The smoke seal must touch around the full perimeter when the door is closed (BWF-Certifire Guide, pp.25 and 30).',
+        'Loose doorstops are fitted after hanging, against the closed leaf, full length and butted at the corners, with any doorstop smoke seal fitted first; adhesive and pins 100 mm from the corners and at 250 mm centres unless the manufacturer says otherwise (BWF-Certifire Guide, p.29).',
+      ]],
+      ['Fitting the lock or latch', [
+        'Only a lock or latch included in the supporting evidence is fitted, conforming to BS EN 12209 (or BS EN 15685, BS EN 14846 or BS EN 179, as appropriate) (BS 8214:2026, 10.4).',
+        'Mortices are factory-prepared where possible. If one must be cut on site, it is cut by a competent person to the manufacturer\'s specification, as accurately as possible and within the maximum sizes in the instructions (BS 8214:2026, 10.2; BWF-Certifire Guide, pp.21–22).',
+        'Mark out the lock and keep positions from the manufacturer\'s instructions, allowing for any intumescent protection (BWF-Certifire Guide, pp.18 and 21).',
+        'Fit the intumescent lock kit, pads or jacket the evidence requires around the lock body and under the forend before the lock goes in (BS 8214:2026, 10.4 Note 1; BWF-Certifire Guide, p.22).',
+        'Fit the lock with the fixings supplied: pilot-drill, put in every screw and do not over-tighten (BWF-Certifire Guide, pp.22 and 24).',
+        'Machine the keep into the frame in the specified position, with an intumescent pad behind it where required, and fix it (BWF-Certifire Guide, pp.21–22).',
+        'Fit the spindle, handles, cylinder and escutcheons with their supplied fixings, then check the latch engages securely in the keep (BWF-Certifire Guide, pp.24 and 33).',
+      ]],
+      ['Closer, sealing the frame, architraves and signage', [
+        'Closer to BS EN 1154, positioned to the manufacturer\'s template, with intumescent protection where the certificate requires it and pilot holes for the supplied fixings. Adjust it so it closes the door from any angle and overcomes the latch and seals (BS 8214:2026, 10.5; BWF-Certifire Guide, p.31).',
+        'Seal the gap between the frame and the wall once the door has passed its size and operation checks, using only materials covered by the supporting evidence for that frame, wall type, gap width and depth and fire period (BWF-Certifire Guide, p.32; BS 8214:2026, 13.4.1–13.4.2).',
+        'Pack the gap with mineral wool to the full depth of the frame and cap it with intumescent mastic as the certification requires, on 30- and 60-minute doors alike (FSCF-RAMS-STJ-02, 24–25). Expanding foam or mastic only if it is an approved linear gap seal for that use (BWF-Certifire Guide, p.32; BS 8214:2026, 13.4.2).',
+        'Photograph the frame fixings, packers and the sealing before the architraves go on, labelled with the door reference (BS 8214:2026, 14 Note 4; FSCF-RAMS-STJ-02, 7).',
+        'Architraves of the specified size and material, cut outside the building, fixed with at least 30 mm penetration, 100 mm from the corners and at 250 mm centres unless the manufacturer specifies otherwise (BWF-Certifire Guide, p.31; FSCF-RAMS-STJ-02, 28).',
+        'Face-fixed items (signs, plates) use fixings that do not affect fire performance; apertures are never cut on site (BWF-Certifire Guide, pp.23 and 25). Fire door signage and the door identification tag are fitted last (FSCF-RAMS-STJ-02, 35).',
+      ]],
+      ['Testing and handover', [
+        'Pairs: test with the half leaf bolted shut, then release it and test again as a complete doorset (FSCF-RAMS-STJ-02, 32–33).',
+        'The door must open freely, close fully and latch from several opening angles, without slamming; adjust the hinges and closer until it does (CVL-001-REM-001, 5.F6; BS 8214:2026, 10.5).',
+        'Complete the post-installation checklist: leaf, frame, seals, latch, hinges, closer, signage, gaps, threshold seal, frame-to-wall gap and label (BWF-Certifire Guide, pp.33–34).',
+        'Hand over a description of the fixings, packers and sealants used with their evidence, the operating and maintenance instructions, and the photographs (BS 8214:2026, 14). Record the installation (date, fitter, certification) and give the client the record (CVL-001-REM-001, 5.J).',
+      ]],
+    ],
     after: ['Remove the old leaf (two people, door lifter), architraves and stops, then cut the frame out in sections with extraction to a HEPA vacuum, wrapping each section straight away. Inspect the exposed opening and stop and report anything unexpected.', 'Do any sizing, planing or routing of the new leaf outside the building only.', 'Set the frame plumb, square and level with packers at hinge and lock positions; fix it as the manufacturer\'s instructions and the assessment require, without distorting it.', 'Seal the frame-to-wall gap with the fire-rated sealant / fire-stopping specified for the assembly.', 'Hang the leaf; check the gaps (3 mm at sides and top, bottom as the fire specification requires); fit the intumescent and smoke seals, ironmongery and closer as specified.', 'Test: the door opens freely, closes fully and latches from several opening angles, without slamming.', 'Fit the architraves, fire door signage and identification tag; clean down with HEPA vacuum and wet wipe (no dry sweeping); remove waste by the agreed route.', 'Record the installation (date, fitter, manufacturer\'s certification) and give the client the installation record.'],
+    refs: [
+      'BS 8214:2026 — Fire-resisting and smoke control doors: practical considerations concerning specification, design and performance in use, code of practice: clauses 8, 10.2–10.5, 12, 13.1–13.5 and 14. Drive: BS 8214-2026-FIRE-RESISTING AND SMOKE CONTROL DOORS.PDF',
+      'BWF-Certifire Fire Door Installation Best Practice Guide (pages as cited). Drive: FIRE DOOR INSTALLATION CERTIFIRE-INSTALLATION.PDF',
+      'FSCF-RAMS-STJ-02 Rev 1 — St Joseph\'s CNU Trim, fire door replacement method (steps as cited). Drive: FSCF IRELAND RAMS ST JOSEPH TRIM INSTALLS JAN 2027.pdf',
+      'CVL-001-REM-001 Rev 2 — Civil Registration Service, Lombard Street (sections as cited). Drive: FSCF_RAMS_CVL-001_Civil_Reg_Lombard_St_Rev2.pdf',
+      'Safety, Health and Welfare at Work (General Application) Regulations 2007, S.I. No. 299 of 2007, Reg 69 (manual handling). Drive: GENERAL_APPLICATION_REGULATIONS_2007_SI_2007_UNOFFICIAL_COPY.PDF',
+      'The doorset manufacturer\'s installation instructions and supporting evidence for the doors being fitted (held on site; they take precedence).',
+    ],
     ppe: [...PPE_BASE, 'Hard hat where required by the site', 'Hearing protection (when cutting or using power tools)', 'Coveralls (Type 5/6 where dust-generating work is under way)'],
     training: ['FDIS Diploma in Fire Door Inspection (DipFD) — Mark Crosby (overall supervision)', 'Competent fire door installer / carpenter — on site', 'Safe Pass / CSR card — all operatives', ...TRAIN_BASE.slice(1), 'Site induction acknowledgement signed by every operative before starting work'],
-    plant: ['Barriers, signs, fire-retardant polythene, tape and floor protection', 'HEPA-filtered vacuum (H13/H14) and tool extraction', 'Chop saw, multi-tool, hand saws, cordless drill / driver, plane, chisels, spirit and laser level; cable / stud detector', 'Door lifter / trolley, wedges and packers; steps or low-level platform (checked, FSCF Form 129)', '110V transformer and RCD, PAT-tested leads', 'Certified doorset, seals, ironmongery, closer, signage and fire-stopping products as specified'],
+    plant: ['Barriers, signs, fire-retardant polythene, tape and floor protection', 'HEPA-filtered vacuum (H13/H14) and tool extraction', 'Chop saw, multi-tool, hand saws, cordless drill / driver, plane, chisels, spirit and laser level; cable / stud detector', 'Door lifter / trolley, wedges and packers; steps or low-level platform (checked, FSCF Form 129)', 'Reciprocating saw (Sawzall) and prise bar for removal; impact driver; 5.5 mm pilot drill, counter-bore and plug (pellet) cutter; mortice jig and lock / hinge templates where mortices are cut on site', 'Masonry frame fixings or wood screws (min 5 mm gauge, 70 mm into the wall), hardwood packers, timber plugs (pellets), mineral wool and intumescent mastic, as the certification requires', '110V transformer and RCD, PAT-tested leads', 'Certified doorset, seals, ironmongery, closer, signage and fire-stopping products as specified'],
   },
 };
 
@@ -190,13 +272,15 @@ export function buildRams(ctx) {
     };
   }
   const checks = work === 'insp' ? checkSteps(ctx.kit) : [];
-  const method = [
-    ['Before starting', tpl.before],
-    ['Setting up', tpl.setup],
-    ...(checks.length ? [[`The inspection — ${ctx.kit?.name || 'checklist'}${checks.length ? ` (${checks.length} checks)` : ''}`, checks]] : []),
-    [work === 'insp' ? 'Exits, special areas, recording and finishing' : 'The works, recording and finishing', tpl.after],
-  ];
-  return { ...ctx, trade, work, tradeName: TRADES[trade], workName: WORKS[work], source: tpl.source, scope: tpl.scope, legislation: tpl.legislation, risks: tpl.risks, method, ppe: tpl.ppe, training: tpl.training, plant: tpl.plant };
+  const method = tpl.stages
+    ? [['Before attending and arrival', tpl.before], ['Setting up', tpl.setup], ...tpl.stages]
+    : [
+      ['Before starting', tpl.before],
+      ['Setting up', tpl.setup],
+      ...(checks.length ? [[`The inspection — ${ctx.kit?.name || 'checklist'}${checks.length ? ` (${checks.length} checks)` : ''}`, checks]] : []),
+      [work === 'insp' ? 'Exits, special areas, recording and finishing' : 'The works, recording and finishing', tpl.after],
+    ];
+  return { ...ctx, trade, work, tradeName: TRADES[trade], workName: WORKS[work], source: tpl.source, scope: tpl.scope, legislation: tpl.legislation, risks: tpl.risks, method, ppe: tpl.ppe, training: tpl.training, plant: tpl.plant, refs: tpl.refs || [] };
 }
 
 // Short HTML preview of the generic part (shown in the app before signing)
@@ -214,6 +298,7 @@ export function ramsHtml(r, esc) {
     <h4>5. PPE</h4>${list(r.ppe)}
     <h4>6. Training &amp; competency</h4>${list(r.training)}
     <h4>7. Plant &amp; equipment</h4>${list(r.plant)}
+    ${r.refs?.length ? `<h4>Sources for the method</h4><ul class="keep-case">${r.refs.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
     <h4>8. Emergency arrangements</h4>${list(EMERGENCY_STEPS)}`;
 }
 
@@ -338,6 +423,7 @@ export async function ramsPdf(r, lists) {
       }
     },
   });
+  if (r.refs?.length) { head('Sources for the method statement'); para('Each step of the method statement names its source in brackets. The documents:'); bullets(r.refs.map((x) => doc.asWritten(x))); }
   font('normal', 7.4, GREY); for (const ln of doc.splitTextToSize(`Generic part made from ${r.source}. Site details, drawings, notes and signatures added for this visit in the FSCF Ireland app.`, CW)) { need(4); doc.text(ln, M, y); y += 3.6; }
 
   // running header and footer on every page, as the owner's RAMS

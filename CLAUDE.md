@@ -269,6 +269,15 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   (GA3 FORMS.PDF), Ladders TBT 2.3.1, Peninsula TBT v2.1. Item 12 handrail = FSCF practice, source to be confirmed.
   Corrected: Reg 119(2)–(3) 24-hour report applies only to construction working platforms ≥ 2 m (Reg 119(1)(c)).
   caps.js: third exception, clause letters stay small after a number: Reg 30(b)(iii), Reg 119(1)(b)(i).
+- v0.57.0 (owner: install RAMS must be a detailed step-by-step guide to fitting a fire door): `T['fd:inst'].stages` in
+  rams.js = 9 stages, 55 steps (documents and checks; delivery, handling and lifting; removal; preparing the frame; fixing the
+  frame incl. packers, 5.5 mm pilot + counter-bore, 70 mm / 5 mm fixings, 120–200 mm from corners, 450 mm centres, pellets;
+  hanging; lock / latch fitting with intumescent kit and keep; closer, frame-to-wall sealing, architraves, signage; testing
+  and handover). Every step cites its source: BS 8214:2026 cl. 8, 10.2–10.5, 12, 13.1–13.5, 14 (Drive BS 8214-2026-…PDF);
+  BWF-Certifire Fire Door Installation Best Practice Guide pages (Drive FIRE DOOR INSTALLATION CERTIFIRE-INSTALLATION.PDF);
+  owner's FSCF-RAMS-STJ-02 Rev 1 Trim steps (Drive 1qcRNFjJDBqCopGbQODvc9-wqnFeO6fN_); CVL-001-REM-001; Gen App Regs Reg 69.
+  `tpl.refs` → "Sources for the method statement" section in the PDF/preview (kept as written). buildRams uses `stages`
+  when a template has them. BS 8214 title corrected to the 2026 title everywhere in rams.js.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
