@@ -16,7 +16,7 @@
 //   in the same FSCF format from the standards each one names, and marked "FSCF practice, review
 //   before first issue" until the owner has reviewed them.
 
-import { loadJsPdf, reportBanner } from './report.js';
+import { loadJsPdf } from './report.js';
 import { capsPdf } from './caps.js';
 
 export const WORKS = { insp: 'Inspection', rem: 'Remedial repairs', inst: 'Replacement / install' };
@@ -59,6 +59,7 @@ export const EMERGENCY_STEPS = [
 export const SIGNOFF_TEXT = 'We, the undersigned, confirm that we have read, understood and agree to comply with this Risk Assessment & Method Statement. We will stop work and seek guidance if conditions change from those described above.';
 const PPE_BASE = ['Safety footwear (steel-capped)', 'High-visibility vest/jacket', 'Safety gloves', 'Eye protection (as required)', 'Dust mask / FFP2–FFP3 respirator (as required)'];
 const TRAIN_BASE = ['Safe Pass — all operatives', 'Manual Handling — all operatives', 'Working at height (stepladder / podium) — all operatives'];
+export const bandName = (n) => (n >= 15 ? 'high' : n >= 8 ? 'med' : 'low');
 export const rating = (n) => `${n} (${n >= 15 ? 'High' : n >= 8 ? 'Medium' : 'Low'})`;
 
 // [hazard, who, existing controls, pre, additional controls, residual]
@@ -205,8 +206,10 @@ export function ramsHtml(r, esc) {
     <p class="small muted">Made from ${esc(r.source)}.</p>
     <h4>1. Scope of works</h4>${list(r.scope)}
     <h4>2. Legislation &amp; standards</h4>${list(r.legislation)}
-    <h4>3. Risk assessment</h4>${list(MATRIX_NOTE)}
-    <div class="rams-risks">${r.risks.map(([h, w, e, pre, a, res]) => `<div class="rams-risk"><b>${esc(h)}</b><small>Who: ${esc(w)} · Before controls ${esc(rating(pre))} · After ${esc(rating(res))}</small><small>${esc(e)}. ${esc(a)}.</small></div>`).join('')}</div>
+    <h4>3. Risk assessment</h4><p>${esc(MATRIX_NOTE[0])}</p>
+    <div class="rams-tw"><table class="rams-matrix"><tr><th>Likelihood ↓ / Severity →</th>${[1, 2, 3, 4, 5].map((j) => `<th>${j}</th>`).join('')}</tr>${[1, 2, 3, 4, 5].map((i) => `<tr><th>${i}</th>${[1, 2, 3, 4, 5].map((j) => `<td class="rb-${bandName(i * j)}">${i * j}</td>`).join('')}</tr>`).join('')}</table></div>
+    <p class="small">${esc(MATRIX_NOTE.slice(1).join(' '))}</p>
+    <div class="rams-risks">${r.risks.map(([h, w, e, pre, a, res]) => `<div class="rams-risk"><b>${esc(h)}</b><small>Who might be harmed: ${esc(w)}</small><small>${esc(e)}</small><span class="rams-rate"><em class="rb-${bandName(pre)}">Pre ${esc(rating(pre))}</em><em class="rb-${bandName(res)}">Residual ${esc(rating(res))}</em></span><small>Additional: ${esc(a)}</small></div>`).join('')}</div>
     <h4>4. Method statement</h4>${r.method.map(([h, steps]) => `<p><b>${esc(h)}</b></p><ol>${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>`).join('')}
     <h4>5. PPE</h4>${list(r.ppe)}
     <h4>6. Training &amp; competency</h4>${list(r.training)}
@@ -214,81 +217,134 @@ export function ramsHtml(r, esc) {
     <h4>8. Emergency arrangements</h4>${list(EMERGENCY_STEPS)}`;
 }
 
-// ---------- PDF in the FSCF RAMS layout ----------
+// ---------- PDF in the owner's own RAMS layout (as FSCF-RAMS-21 / FSCF-RAMS-14 / CVL-001-REM-001) ----------
+// Copper running header and title, peach label column, dark table headers, the coloured 5×5 risk
+// matrix, a risk register with green / amber / red rating cells, steps numbered straight through,
+// and the FSCF address in the footer of every page.
+const ORANGE = [222, 110, 32];
+const PEACH = [246, 228, 210];
+const DARK = [45, 45, 45];
+const INK = [30, 30, 30];
+const GREY = [90, 90, 90];
+const BAND = { low: [198, 239, 206], med: [255, 235, 156], high: [255, 199, 206] };
+const band = (n) => (n >= 15 ? BAND.high : n >= 8 ? BAND.med : BAND.low);
+const LIK = ['1 Rare', '2 Unlikely', '3 Possible', '4 Likely', '5 Almost Certain'];
+const SEV = ['1 Negligible', '2 Minor', '3 Moderate', '4 Major', '5 Severe'];
+
 export async function ramsPdf(r, lists) {
   const JsPDF = await loadJsPdf();
   const doc = new JsPDF({ unit: 'mm', format: 'a4' });
   capsPdf(doc);
-  const W = 210; const M = 16; const CW = W - 2 * M;
-  const ink = [21, 33, 44]; const ink2 = [76, 92, 107]; const char = [35, 40, 45]; const copper = [194, 103, 44];
-  let y = reportBanner(doc, lists, `RAMS — ${r.workName}`, { bandH: 40, titleSize: 15 }) + 6;
-  const font = (s, z, c = ink) => { doc.setFont('helvetica', s); doc.setFontSize(z); doc.setTextColor(...c); };
-  const need = (h) => { if (y + h > 280) { doc.addPage(); y = 18; } };
-  const head = (t) => { need(14); font('bold', 11.5, char); doc.text(t, M, y); doc.setDrawColor(...copper); doc.setLineWidth(0.6); doc.line(M, y + 1.6, M + 30, y + 1.6); y += 7; };
-  const para = (t, z = 9.2, c = ink) => { font('normal', z, c); const lines = doc.splitTextToSize(t, CW); for (const ln of lines) { need(5); doc.text(ln, M, y); y += 4.4; } y += 1; };
-  const bullets = (a, num = false) => { a.forEach((t, i) => { font('normal', 9.2); const lines = doc.splitTextToSize(t, CW - 7); need(lines.length * 4.4 + 1); doc.text(num ? `${i + 1}.` : '•', M + 1, y); lines.forEach((ln, k) => doc.text(ln, M + 7, y + k * 4.4)); y += lines.length * 4.4 + 1.2; }); y += 1; };
-  font('bold', 13, char); doc.text(`${r.tradeName} — ${r.workName}`, M, y); y += 6;
-  doc.autoTable({
-    startY: y, margin: { left: M, right: M }, theme: 'grid',
-    styles: { fontSize: 8.6, cellPadding: 1.8, textColor: ink, lineColor: [205, 210, 218], lineWidth: 0.1, valign: 'top' },
-    columnStyles: { 0: { cellWidth: 44, fontStyle: 'bold', fillColor: [243, 245, 247] } },
+  const W = 210; const M = 16; const CW = W - 2 * M; const BOTTOM = 280;
+  let y = 22;
+  const font = (s, z, c = INK) => { doc.setFont('helvetica', s); doc.setFontSize(z); doc.setTextColor(...c); };
+  const need = (h) => { if (y + h > BOTTOM) { doc.addPage(); y = 20; } };
+  const head = (t) => { need(16); y += 3; font('bold', 12.5, ORANGE); doc.text(t, M, y); y += 7; };
+  const sub = (t) => { need(10); font('bold', 9.8, INK); doc.text(t, M, y); y += 5.5; };
+  const para = (t, z = 9.2, c = INK) => { font('normal', z, c); for (const ln of doc.splitTextToSize(t, CW)) { need(5); doc.text(ln, M, y); y += 4.5; } y += 1.5; };
+  const bullets = (a) => { for (const t of a) { font('normal', 9.2); const lines = doc.splitTextToSize(t, CW - 8); need(lines.length * 4.5 + 1); doc.text('•', M + 1.5, y); lines.forEach((ln, k) => doc.text(ln, M + 8, y + k * 4.5)); y += lines.length * 4.5 + 1.4; } y += 1; };
+  let stepNo = 0;
+  const steps = (a) => { for (const t of a) { stepNo++; font('normal', 9.2); const lines = doc.splitTextToSize(t, CW - 9); need(lines.length * 4.5 + 1); font('bold', 9.2); doc.text(`${stepNo}.`, M + 1, y); font('normal', 9.2); lines.forEach((ln, k) => doc.text(ln, M + 9, y + k * 4.5)); y += lines.length * 4.5 + 1.6; } y += 1; };
+  const table = (opts) => { doc.autoTable({ margin: { left: M, right: M }, theme: 'grid', styles: { fontSize: 8.4, cellPadding: 1.6, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, valign: 'top' }, headStyles: { fillColor: DARK, textColor: 255, fontStyle: 'bold' }, ...opts, startY: y }); y = doc.lastAutoTable.finalY + 6; };
+
+  // title block, as the owner's RAMS
+  font('bold', 22, ORANGE); doc.text('FSCF IRELAND', M, y); y += 6;
+  font('normal', 8.6, GREY); doc.text('Fire Door Inspection · Remedial Repair · Fire Stopping · Installation', M, y); y += 9;
+  font('bold', 14, INK); doc.text('RISK ASSESSMENT & METHOD STATEMENT', M, y); y += 7;
+  font('bold', 10.5, INK);
+  for (const ln of doc.splitTextToSize(`${r.tradeName} ${r.workName} — ${r.site || ''}`, CW)) { doc.text(ln, M, y); y += 5; }
+  y += 2;
+  table({
     body: [
-      ['RAMS reference', r.ref || ''], ['Revision / date', `${r.rev || 'Rev 0'} — ${r.date || ''}`], ['Site name', r.site || ''], ['Site address', r.address || ''],
-      ['Client / organisation', [r.client, r.customer].filter(Boolean).join(' — ')], ['Client contact', [r.contact, r.phone, r.email].filter(Boolean).join(' · ') || 'TO BE CONFIRMED'],
-      ['Visit', r.visitPath || ''], ['Drawings / areas', (r.drawings || []).join(', ')], ['Work / check', `${r.workName}${r.kit?.name && r.work === 'insp' ? ' — ' + r.kit.name : ''}`],
-      ['Nearest A&E hospital', r.ae || 'TO BE CONFIRMED. 112/999 if life-threatening.'], ['Date(s) of works', r.dates || ''], ['Person(s) in charge', r.persons || 'Mark Crosby (Director, DipFD)'], ['Prepared by', FSCF_ADDR],
+      ['RAMS Reference', r.ref || ''], ['Revision / Date', `${r.rev || 'Rev 0'} — ${r.date || ''}`], ['Site Name', r.site || ''], ['Site Address', r.address || '[TO BE CONFIRMED]'],
+      ['Client / Organisation', [r.client, r.customer ? `customer ID ${r.customer}` : ''].filter(Boolean).join(' — ') || '[TO BE CONFIRMED]'],
+      ['Client Contact', [r.contact, r.phone, r.email].filter(Boolean).join(' — ') || '[TO BE CONFIRMED]'],
+      ['Visit', [r.visitPath, (r.drawings || []).join(', ')].filter(Boolean).join(' — ')],
+      ['Work / Check', `${r.workName}${r.work === 'insp' && r.kit?.name ? ' — ' + r.kit.name : ''}`],
+      ['Nearest A&E Hospital', r.ae || '[TO BE CONFIRMED]. 112/999 if life-threatening.'],
+      ['Date(s) of Works', r.dates || '[TO BE CONFIRMED]'], ['Person(s) in Charge', r.persons || 'Mark Crosby (Director, DipFD)'], ['Prepared By', FSCF_ADDR],
     ],
+    columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', fillColor: PEACH } },
   });
-  y = doc.lastAutoTable.finalY + 6;
-  head('1. Scope of works'); bullets(r.scope);
-  if (r.siteNotes) { head('Site-specific notes'); para(r.siteNotes); }
-  if (r.visitNotes) { head('Project / visit notes'); para(r.visitNotes); }
-  head('2. Legislation & standards'); bullets(r.legislation);
-  head('3. Roles & responsibilities');
-  bullets(['Mark Crosby — Director / DipFD: overall responsibility for this RAMS, competency, sign-off of high-risk items, and liaison with the client and site contacts.', 'Operative(s): briefed on this RAMS and sign it before starting; follow the method statement and stop work if conditions change.', 'Client / site contact: access, keys, locked areas, the order and times of work, and the site\'s fire and evacuation arrangements.']);
-  head('4. Risk assessment'); MATRIX_NOTE.forEach((t) => para(t, 8.8, ink2));
-  need(30);
-  doc.autoTable({
-    startY: y, margin: { left: M, right: M }, theme: 'grid',
+
+  head('1. Scope of Works'); bullets(r.scope);
+  if (r.siteNotes) { sub('Site-specific notes'); para(r.siteNotes); }
+  if (r.visitNotes) { sub('Project / visit notes'); para(r.visitNotes); }
+  head('2. Legislation & Standards');
+  para('The following legislation and standards apply to this work (EN standards are used in preference to British Standards wherever a suitable EN equivalent exists):');
+  bullets(r.legislation);
+  head('3. Roles & Responsibilities');
+  table({
+    head: [['Role', 'Responsibilities']],
+    body: [
+      ['Mark Crosby — Director / DipFD', 'Overall responsibility for this RAMS, competency, sign-off of high-risk items, and liaison with the client and site contacts.'],
+      ['Operative(s)', 'Briefed on this RAMS and sign it before starting work on the visit. Follow the method statement and stop work if conditions change.'],
+      [r.contact ? `${r.contact} — client contact` : 'Client contact', 'Scope, access and reporting.'],
+      ['Site contact', 'Access, keys, locked rooms and other locked areas; agrees the order and times of work; the site\'s fire and evacuation arrangements.'],
+    ],
+    columnStyles: { 0: { cellWidth: 55 } },
+  });
+
+  head('4. Risk Assessment');
+  para(MATRIX_NOTE[0]);
+  need(40);
+  table({
+    head: [['Likelihood ↓ / Severity →', ...SEV]],
+    body: LIK.map((l, i) => [l, ...SEV.map((_, j) => String((i + 1) * (j + 1)))]),
+    styles: { fontSize: 8.2, cellPadding: 1.4, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, fontStyle: 'bold' },
+    columnStyles: { 0: { cellWidth: 38, fontStyle: 'normal' } },
+    didParseCell: (d) => { if (d.section === 'body' && d.column.index > 0) d.cell.styles.fillColor = band(Number(d.cell.raw)); },
+  });
+  para(`${MATRIX_NOTE[1]}  ${MATRIX_NOTE[2]}  ${MATRIX_NOTE[3]}`, 8.8);
+  sub('Risk Assessment Register');
+  table({
     head: [['Hazard', 'Who might be harmed', 'Existing controls', 'Pre', 'Additional controls', 'Res.']],
     body: r.risks.map(([h, w, e, pre, a, res]) => [h, w, e, rating(pre), a, rating(res)]),
-    styles: { fontSize: 7.6, cellPadding: 1.4, textColor: ink, lineColor: [205, 210, 218], lineWidth: 0.1, valign: 'top' },
-    headStyles: { fillColor: char, textColor: 255, fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 32 }, 1: { cellWidth: 22 }, 2: { cellWidth: 42 }, 3: { cellWidth: 15 }, 4: { cellWidth: 52 }, 5: { cellWidth: 15 } },
+    styles: { fontSize: 7.6, cellPadding: 1.4, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, valign: 'top' },
+    columnStyles: { 0: { cellWidth: 30 }, 1: { cellWidth: 20 }, 2: { cellWidth: 41 }, 3: { cellWidth: 16, fontStyle: 'bold' }, 4: { cellWidth: 55 }, 5: { cellWidth: 16, fontStyle: 'bold' } },
+    didParseCell: (d) => { if (d.section === 'body' && (d.column.index === 3 || d.column.index === 5)) d.cell.styles.fillColor = band(parseInt(d.cell.raw, 10) || 0); },
   });
-  y = doc.lastAutoTable.finalY + 6;
-  head('5. Method statement');
-  for (const [h, steps] of r.method) { need(10); font('bold', 9.6, char); doc.text(h, M, y); y += 5; bullets(steps, true); }
-  head('6. Personal protective equipment (PPE)'); bullets(r.ppe);
-  head('7. Training & competency'); bullets(r.training);
-  head('8. Plant & equipment'); bullets(r.plant);
-  head('9. Emergency arrangements');
-  para(`A&E hospital: ${r.ae || 'TO BE CONFIRMED with the site contact'}. Emergency services: dial 999 or 112. Site first aider and assembly point: confirmed with the site contact on arrival.`);
-  bullets(EMERGENCY_STEPS, true);
-  head('10. Sign-off'); para(SIGNOFF_TEXT);
-  need(20);
-  doc.autoTable({
-    startY: y, margin: { left: M, right: M }, theme: 'grid',
-    head: [['Print name', 'Role', 'Signature', 'Date / time']],
-    body: (r.signers || []).map((s) => [s.name, s.role || 'Operative', '', new Date(s.at).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' })]),
-    styles: { fontSize: 8.6, cellPadding: 2, textColor: ink, lineColor: [205, 210, 218], lineWidth: 0.1, minCellHeight: 14, valign: 'middle' },
-    headStyles: { fillColor: char, textColor: 255, fontStyle: 'bold', minCellHeight: 6 },
-    columnStyles: { 2: { cellWidth: 48 } },
+
+  head(`5. Method Statement — ${r.workName}${r.work === 'insp' && r.kit?.name ? ` (${r.kit.name})` : ''}`);
+  for (const [h, list] of r.method) { sub(h); steps(list); }
+  head('6. Personal Protective Equipment (PPE)'); bullets(r.ppe);
+  head('7. Training & Competency'); bullets(r.training);
+  head('8. Plant & Equipment'); bullets(r.plant);
+  head('9. Emergency Arrangements');
+  table({
+    body: [
+      ['A&E Hospital', r.ae || '[TO BE CONFIRMED with the site contact on arrival]'],
+      ['Emergency Services', 'Dial 999 or 112 immediately'],
+      ['Site First Aider', '[TO BE CONFIRMED with the site contact on arrival]'],
+      ['Assembly Point', '[TO BE CONFIRMED with the site contact on arrival]'],
+      ['Site Emergency Procedure', EMERGENCY_STEPS.map((x, i) => `${i + 1}. ${x}`).join('\n')],
+    ],
+    columnStyles: { 0: { cellWidth: 40, fontStyle: 'bold', fillColor: PEACH } },
+  });
+  head('10. Sign-Off'); para(SIGNOFF_TEXT);
+  need(24);
+  table({
+    head: [['Print Name', 'Role', 'Signature', 'Date']],
+    body: [...(r.signers || []).map((s) => [s.name, s.role || 'Operative', '', new Date(s.at).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' })]), ['', 'Operative', '', ''], ['', 'Operative', '', '']],
+    styles: { fontSize: 8.6, cellPadding: 2, textColor: INK, lineColor: [60, 60, 60], lineWidth: 0.15, minCellHeight: 14, valign: 'middle' },
+    headStyles: { fillColor: DARK, textColor: 255, fontStyle: 'bold', minCellHeight: 6 },
+    columnStyles: { 2: { cellWidth: 50 } },
     didDrawCell: (d) => {
       const s = r.signers?.[d.row.index];
       if (d.section === 'body' && d.column.index === 2 && s?.sig?.data) {
-        const k = Math.min(44 / s.sig.w, 11 / s.sig.h);
+        const k = Math.min(46 / s.sig.w, 11 / s.sig.h);
         try { doc.addImage(s.sig.data, 'PNG', d.cell.x + 2, d.cell.y + 1.5, s.sig.w * k, s.sig.h * k); } catch { /* signature image unreadable */ }
       }
     },
   });
+  font('normal', 7.4, GREY); for (const ln of doc.splitTextToSize(`Generic part made from ${r.source}. Site details, drawings, notes and signatures added for this visit in the FSCF Ireland app.`, CW)) { need(4); doc.text(ln, M, y); y += 3.6; }
+
+  // running header and footer on every page, as the owner's RAMS
   const n = doc.getNumberOfPages();
   for (let i = 1; i <= n; i++) {
     doc.setPage(i);
-    font('normal', 7.2, ink2);
-    doc.text(`${r.ref || 'RAMS'} · ${r.site || ''}`, M, 290);
-    doc.text(`Page ${i} of ${n}`, W - M, 290, { align: 'right' });
-    if (i === n) { font('normal', 6.8, ink2); doc.text(doc.splitTextToSize(`Generic part made from ${r.source}.`, CW), M, 284); }
+    font('normal', 7.6, ORANGE); doc.text(`FSCF Ireland  |  ${r.ref || 'RAMS'}`, M, 11);
+    font('normal', 7.4, GREY); doc.text(`${FSCF_ADDR}  ·  Page ${i} of ${n}`, W / 2, 290, { align: 'center' });
   }
   return doc.output('blob');
 }

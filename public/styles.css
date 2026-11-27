@@ -1637,3 +1637,13 @@ a.lib-card { text-decoration: none; }
 .visit-lock > .ico { flex: none; width: 20px; height: 20px; color: var(--st-noaccess); }
 .visit-lock > span { flex: 1 1 180px; min-width: 0; }
 .sheet.rec-locked .status-set, .sheet.rec-locked .auto-res, .sheet.rec-locked #sj-insp, .sheet.rec-locked #sj-photos, .sheet.rec-locked #sj-defs, .sheet.rec-locked #sj-acts, .sheet.rec-locked #sj-signs, .sheet.rec-locked #sj-mats, .sheet.rec-locked .dup-row, .sheet.rec-locked .rep-items, .sheet.rec-locked #rs-verify-all, .sheet.rec-locked .row-btns:has(#rs-cam) { pointer-events: none; opacity: .5; filter: grayscale(.3); }
+/* RAMS preview: coloured matrix and ratings like the owner's RAMS */
+.rams-tw { overflow-x: auto; }
+.rams-matrix { border-collapse: collapse; font-size: 12px; margin: 4px 0; }
+.rams-matrix th, .rams-matrix td { border: 1px solid var(--line); padding: 4px 8px; text-align: center; }
+.rams-matrix th { background: #2d2d2d; color: #fff; font-weight: 700; }
+.rams-matrix td { font-weight: 700; color: #1e1e1e; }
+.rb-low { background: #c6efce; color: #1e1e1e; } .rb-med { background: #ffeb9c; color: #1e1e1e; } .rb-high { background: #ffc7ce; color: #1e1e1e; }
+.rams-rate { display: flex; flex-wrap: wrap; gap: 6px; }
+.rams-rate em { font-style: normal; font-weight: 700; font-size: 11.5px; padding: 1px 8px; border-radius: 8px; }
+.rams-prev h4 { color: #de6e20; }

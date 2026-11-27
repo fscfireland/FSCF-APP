@@ -101,7 +101,7 @@ function popState() {
 }
 window.addEventListener('popstate', popState);
 // test address only (?qa=1): lets the screen checks open any page directly
-if (/[?&]qa=1\b/.test(location.search)) window.__qa = { go: (x) => go(x), state: () => state, customers: () => customerList() };
+if (/[?&]qa=1\b/.test(location.search)) window.__qa = { go: (x) => go(x), state: () => state, customers: () => customerList(), db };
 
 // Redraw the current screen from the database
 function refresh() {
