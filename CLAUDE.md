@@ -235,6 +235,7 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   Acute + non-acute residential = CLINICAL: while a visit is live on such a drawing, `handCheck` (every minute) shows
   "Have you cleaned your hands?" every 2 hours (settings `handAt`), and once when the visit's RAMS is signed. Refs: WHO hand
   hygiene 2009 + DoH NCG No. 30 IPC 2023; the categories and the 2-hour interval are (FSCF practice, source to be confirmed).
+- v0.55.2: Health & safety RAMS inspection samples have a Check type drop-down (every kit of that trade with questions; default 6 point). On a site the RAMS uses the check type of the first drawing picked for the visit.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

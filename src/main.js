@@ -1715,8 +1715,18 @@ async function renderHealthSafety() {
   $('#back').onclick = back;
   $('#hs-next').onchange = (e) => saveLists({ ramsNext: Math.max(1, Number(e.target.value) || 22) });
   $$('.hs-tpl').forEach((b) => (b.onclick = async () => {
-    const r = buildRams({ trade: b.dataset.t, work: b.dataset.w, kit: kitOf(b.dataset.t === 'fd' ? 'fd6' : b.dataset.t), site: 'Sample site', visitPath: 'Sample site › Collection › Section', drawings: ['Ground floor'], date: fmtDate(today()) });
-    const a = await dialog({ title: `${r.tradeName}: ${r.workName}`, body: `<div class="rams-prev">${ramsHtml(r, esc)}</div>`, buttons: [{ label: 'Close', value: false }, { label: 'Sample PDF', value: 'pdf', kind: 'primary' }] });
+    // inspection samples: pick the check type (6-point, 29-point, BM TRADA DCS 058 …), as a drawing's type does on site
+    const kits = b.dataset.w === 'insp' ? kindIds().filter((k) => tradeOf({ inspType: k }) === b.dataset.t && (kitOf(k).questions || []).some((q) => q.text?.trim())) : [];
+    let kitId = kits.includes('fd6') ? 'fd6' : kits[0] || b.dataset.t;
+    const make = () => buildRams({ trade: b.dataset.t, work: b.dataset.w, kit: kitOf(kitId), site: 'Sample site', visitPath: 'Sample site › Collection › Section', drawings: ['Ground floor'], date: fmtDate(today()) });
+    let r = make();
+    const picker = kits.length > 1 ? `<label class="field"><span>Check type</span><select id="hs-kit">${kits.map((k) => `<option value="${k}" ${k === kitId ? 'selected' : ''}>${esc(kitOf(k).name)}</option>`).join('')}</select><small class="muted">On a site the RAMS uses the check type of the drawing the visit is started on.</small></label>` : '';
+    const a = await dialog({
+      title: `${r.tradeName}: ${r.workName}`,
+      body: `${picker}<div class="rams-prev">${ramsHtml(r, esc)}</div>`,
+      buttons: [{ label: 'Close', value: false }, { label: 'Sample PDF', value: 'pdf', kind: 'primary' }],
+      onOpen: (f) => { const sel = f.querySelector('#hs-kit'); if (sel) sel.onchange = () => { kitId = sel.value; r = make(); f.querySelector('.rams-prev').innerHTML = ramsHtml(r, esc); }; },
+    });
     if (a.value === 'pdf') {
       const bz = busy('Making the sample RAMS…');
       try { const blob = await ramsPdf({ ...r, ref: 'SAMPLE', signers: [] }, await pdfLists()); bz.done(); await saveFile(`SAMPLE RAMS ${r.tradeName} ${r.workName}.pdf`, blob); } catch (err) { bz.done(); toast(err.message, 'error'); }
@@ -5921,9 +5931,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.55.1';
+const VERSION_TAG = 'app v0.55.2';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Door access (None / Code / Swipe) with the code on the pin; building type on each drawing, with a hand cleaning reminder every 2 hours on residential healthcare sites';
+const WHATS_NEW = 'Health & safety: RAMS inspection samples now let you pick the check type (6-point, 29-point, BS 8214, BM TRADA DCS 058, final exits)';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
