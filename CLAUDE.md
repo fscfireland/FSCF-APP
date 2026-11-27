@@ -279,6 +279,7 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   `tpl.refs` → "Sources for the method statement" section in the PDF/preview (kept as written). buildRams uses `stages`
   when a template has them. BS 8214 title corrected to the 2026 title everywhere in rams.js.
 - v0.57.1: small date + time beside the settings cog on Home (`#bar-clock`, `clockText`, refreshed every 20 s).
+- v0.57.2: compact Home header (owner): title one line, Rev chip + tagline on one small line trimmed with …, 30 px logo (`.brand-txt`).
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:
