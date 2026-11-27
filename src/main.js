@@ -100,7 +100,7 @@ function popState() {
 }
 window.addEventListener('popstate', popState);
 // test address only (?qa=1): lets the screen checks open any page directly
-if (/[?&]qa=1\b/.test(location.search)) window.__qa = { go: (x) => go(x), state: () => state };
+if (/[?&]qa=1\b/.test(location.search)) window.__qa = { go: (x) => go(x), state: () => state, customers: () => customerList() };
 
 // Redraw the current screen from the database
 function refresh() {
@@ -5624,9 +5624,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.1';
+const VERSION_TAG = 'app v0.54.2';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Continue, Today counts, customer list with codes, folders in Files; backup now says clearly if it reached Google Drive';
+const WHATS_NEW = 'customer list filled in from your workbook: addresses, phones and emails';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 

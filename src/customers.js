@@ -7,7 +7,7 @@
 // words that say nothing about which company it is
 const NOISE = new Set(['ltd', 'limited', 'clg', 'dac', 'plc', 'llp', 'inc', 'the', 'and', 'of', 'co', 'company', 'c/o', 'co.', 't/a', '&']);
 // job titles: a line made of these is the contact's role, not the company
-const TITLE_RE = /\b(manager|director|officer|foreman|engineer|superintendent|registrar|treasurer|principal|secretary|administrator|supervisor|technician|owner|proprietor|ceo|coo|chairman|chairperson|pic|surveyor|caretaker|head)\b/i;
+const TITLE_RE = /\b(manager|director|officer|foreman|engineer|superintendent|registrar|treasurer|principal|secretary|administrator|supervisor|technician|owner|proprietor|ceo|coo|chairman|chairperson|pic|surveyor|caretaker|head|chief|assistant)\b/i;
 const COMPANY_RE = /\b(ltd|limited|clg|dac|plc|services|hospital|hse|hotel|school|centre|center|home|ireland|group|construction|contractors?|contracts|fire|protection|electrical|mechanical|carpentry|club|council|county|management|trust|housing|university|college|church|bar|restaurant|nursing|residence|campus|afc|gfc)\b/i;
 
 // an address line: a number, or a street / estate word
@@ -41,17 +41,51 @@ export function makeCode(company, name, taken = []) {
   return `${pre}-${Date.now() % 1000}`;
 }
 
+// Phone numbers and emails written in a customer box (never FSCF's own)
+const EMAIL_RE = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+const PHONE_RE = /(?:\+353|\(?00353\)?)?[\s(]*0?\d{1,3}\)?[\s-]?\d{3}[\s-]?\d{3,4}/g;
+const OWN_RE = /1007192|100 7192|f\.s\.c\.f|fscf/i;
+export function contactBits(lines = []) {
+  const emails = [];
+  const phones = [];
+  const rest = [];
+  for (const raw of lines) {
+    const l = String(raw || '');
+    if (OWN_RE.test(l)) continue;
+    const e = l.match(EMAIL_RE) || [];
+    // a line that is only phone numbers / emails (with labels like "Phone:", "T", "M", "Tel")
+    const stripped = l.replace(EMAIL_RE, '').replace(/\b(phone|tel|mobile|mob|email|e-mail|t|m|e)\b\s*[:.]?/gi, '').replace(/[|,;/]/g, ' ');
+    const p = (stripped.match(PHONE_RE) || []).map((x) => x.replace(/\s+/g, ' ').trim()).filter((x) => x.replace(/\D/g, '').length >= 8);
+    const leftover = stripped.replace(PHONE_RE, '').replace(/[\s()+-]/g, '');
+    if (e.length || (p.length && !leftover)) { emails.push(...e); phones.push(...p); if (leftover && !p.length) rest.push(l); continue; }
+    rest.push(l);
+  }
+  return { emails: [...new Set(emails.map((x) => x.toLowerCase()))], phones: [...new Set(phones)], rest };
+}
+
 // Name / company / address out of the customer box lines on a workbook tab.
 export function splitLines(lines = []) {
-  const ls = lines.map(clean).filter(Boolean);
+  const ls = contactBits(lines).rest.map(clean).filter(Boolean);
   let name = '';
   let role = '';
   let company = '';
   let i = 0;
   const looksCompany = (s) => !ADDR_RE.test(s) && COMPANY_RE.test(s) || /^[A-Z0-9 &'.,-]{4,}$/.test(s) && s.split(" ").length >= 2 && !TITLE_RE.test(s) && !ADDR_RE.test(s);
-  if (ls[0] && looksCompany(ls[0]) && !(ls[1] && looksCompany(ls[1]) && !TITLE_RE.test(ls[1]))) {
+  // a single word in capitals (ROOSKEY, MONAGHAN) is a place, so part of the address
+  const place = (s) => /^[A-Z][A-Z'.-]+$/.test(s);
+  const isAddr = (s) => ADDR_RE.test(s) || place(s);
+  if (ls[0] && ls[1] && TITLE_RE.test(ls[1]) && !COMPANY_RE.test(ls[0])) {
+    // PAUL HOLDEN / FIRE PREVENTION OFFICER / HSE CAPITAL & ESTATES
+    name = ls[0]; role = ls[1]; i = 2;
+    while (ls[i] && TITLE_RE.test(ls[i]) && !/\b(ltd|limited|clg|dac|plc|hse|hospital|ireland|group|services)\b/i.test(ls[i])) { role += ', ' + ls[i]; i++; }
+    // straight after the job title comes the company, even one word (IBTS, TURNUA)
+    if (ls[i] && !ADDR_RE.test(ls[i])) { company = ls[i]; i++; }
+  } else if (ls[0] && !TITLE_RE.test(ls[0]) && ls[1] && isAddr(ls[1]) && ls[0].split(' ').length >= 2 && (looksCompany(ls[0]) || ls[0].split(' ').length >= 3)) {
+    // Poyntz Urban Logistics / 16 Merrion Row: a company straight away followed by its address
     company = ls[0]; i = 1;
-    if (ls[i] && !looksCompany(ls[i]) && !ADDR_RE.test(ls[i])) { name = ls[i]; i++; }
+  } else if (ls[0] && looksCompany(ls[0]) && !(ls[1] && looksCompany(ls[1]) && !TITLE_RE.test(ls[1]))) {
+    company = ls[0]; i = 1;
+    if (ls[i] && !looksCompany(ls[i]) && !isAddr(ls[i])) { name = ls[i]; i++; }
     if (ls[i] && TITLE_RE.test(ls[i])) { role = ls[i]; i++; }
   } else {
     name = ls[0] || ''; i = 1;
@@ -65,10 +99,34 @@ export function splitLines(lines = []) {
 export function allCustomers(own = [], book = null, names = {}) {
   const out = own.map((c) => ({ ...c, source: c.source || 'app' }));
   const have = new Set(out.map((c) => c.code.toUpperCase()));
+  // phones and emails from every quote and invoice of each customer, newest first
+  const found = {};
+  for (const d of [...(book?.register || [])].sort((a, b) => (b.date || '').localeCompare(a.date || ''))) {
+    const code = (d.cust || '').toUpperCase();
+    if (!code || !d.custLines?.length) continue;
+    const bits = contactBits(d.custLines);
+    if (!bits.emails.length && !bits.phones.length) continue;
+    const who = splitLines(d.custLines).name;
+    const f = (found[code] ||= { emails: [], phones: [], notes: [] });
+    for (const e of bits.emails) if (!f.emails.includes(e)) f.emails.push(e);
+    for (const p of bits.phones) if (!f.phones.includes(p)) f.phones.push(p);
+    f.notes.push(`${who ? who + ': ' : ''}${[...bits.phones, ...bits.emails].join(', ')} (${d.quote || d.inv || d.sheet})`);
+  }
   for (const c of book?.customers || []) {
-    if (!c.id || have.has(c.id.toUpperCase()) || /SAMPLE/i.test(c.id)) continue;
+    if (!c.id || /SAMPLE/i.test(c.id)) continue;
+    const code = c.id.toUpperCase();
     const s = splitLines(c.lines);
-    out.push({ code: c.id.toUpperCase(), ...s, company: names[c.id] || s.company, email: '', phone: '', notes: '', source: 'workbook', bookSites: (c.sites || []).length });
+    const f = found[code] || { emails: [], phones: [], notes: [] };
+    const fromBook = { name: s.name, role: s.role, company: names[c.id] || s.company, address: s.address, email: f.emails.join(', '), phone: f.phones.join(', ') };
+    const note = f.notes.length ? `From your workbook: ${[...new Set(f.notes)].join('; ')}` : '';
+    if (have.has(code)) {
+      // an app copy keeps what the owner typed; empty boxes are filled from the workbook
+      const i = out.findIndex((x) => x.code.toUpperCase() === code);
+      const o = out[i];
+      out[i] = { ...o, ...Object.fromEntries(Object.entries(fromBook).filter(([k, v]) => v && !o[k])), notes: o.notes || note, bookSites: (c.sites || []).length };
+      continue;
+    }
+    out.push({ code, ...fromBook, notes: note, source: 'workbook', bookSites: (c.sites || []).length });
   }
   return out.sort((a, b) => a.code.localeCompare(b.code));
 }
