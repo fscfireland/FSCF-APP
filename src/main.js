@@ -1692,6 +1692,8 @@ async function customerList() {
   const names = (await db.get('settings', 'bizNames').catch(() => null))?.names || {};
   return allCustomers(lists.customers || [], book, names);
 }
+// the details kept for a customer, and how each is named in the archive
+const CUST_FIELDS = [['name', 'Contact name'], ['company', 'Company'], ['code', 'Customer code'], ['role', 'Role'], ['phone', 'Phone'], ['email', 'Email'], ['address', 'Address'], ['notes', 'Notes']];
 async function editCustomer(existing, { name: name0 = '', company: company0 = '' } = {}) {
   const all = await customerList();
   const c = existing || { code: '', name: name0, company: company0, role: '', email: '', phone: '', address: '', notes: '' };
@@ -1712,28 +1714,50 @@ async function editCustomer(existing, { name: name0 = '', company: company0 = ''
       <label class="field"><span>Email</span><input name="email" type="email" value="${esc(c.email || '')}" autocomplete="off"><small class="muted">Used for the customer portal sign-in when it goes live.</small></label>
       <label class="field"><span>Address</span><input name="address" value="${esc(c.address || '')}" autocomplete="off"></label>
       <label class="field"><span>Notes</span><textarea name="notes" rows="2">${esc(c.notes || '')}</textarea></label>
-      ${existing ? `<p class="small muted">${c.source === 'workbook' ? 'From your workbook. Saving keeps your changes in the app (the workbook is not changed). ' : ''}Sites: ${sites.length ? sites.map((x) => esc(x.site || 'Site')).join(', ') : 'none yet (pick this customer in a site\'s details)'}.</p>` : ''}`,
-    buttons: [{ label: 'Cancel', value: false }, { label: existing ? 'Save' : 'Add customer', value: true, kind: 'primary' }],
+      ${existing ? `<p class="small muted">${c.source === 'workbook' ? 'From your workbook. Updating keeps your changes in the app (the workbook is not changed). ' : ''}Sites: ${sites.length ? sites.map((x) => esc(x.site || 'Site')).join(', ') : 'none yet (pick this customer in a site\'s details)'}.</p>` : ''}
+      ${existing ? (() => {
+        const hist = [...(c.history || [])].reverse();
+        if (!hist.length) return '<p class="small muted">Previous details: none yet. Each time you tap Update details, the details as they were are archived here with the date.</p>';
+        return `<details class="cu-hist"><summary><b>Previous details</b> <span class="muted">${hist.length}</span></summary>
+          ${hist.map((h, k) => `<div class="cu-old"><p class="cu-old-when">${esc(new Date(h.at).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' }))} · replaced</p>
+            <dl>${CUST_FIELDS.filter(([f]) => h.changed?.includes(f)).map(([f, l]) => `<dt>${esc(l)} was</dt><dd>${esc(h.before[f] || '(blank)')}</dd>`).join('')}</dl>
+            <details class="cu-old-all"><summary>All details then</summary><dl>${CUST_FIELDS.map(([f, l]) => `<dt>${esc(l)}</dt><dd>${esc(h.before[f] || '—')}</dd>`).join('')}</dl></details>
+            <button type="button" class="btn ghost sm cu-restore" data-k="${hist.length - 1 - k}">Use these again</button></div>`).join('')}
+        </details>`;
+      })() : ''}`,
+    buttons: [{ label: 'Cancel', value: false }, { label: existing ? 'Update details' : 'Add customer', value: true, kind: 'primary' }],
     onOpen: (form) => {
       const code = $('#cu-code', form);
-      const taken = all.filter((x) => x !== existing).map((x) => x.code);
+      const taken = all.filter((x) => x.code !== existing?.code).map((x) => x.code);
       const fill = () => { if (!codeTouched) code.value = (($('#cu-company', form).value + $('#cu-name', form).value).trim()) ? makeCode($('#cu-company', form).value, $('#cu-name', form).value, taken) : ''; };
       code.addEventListener('input', () => { codeTouched = true; });
       $('#cu-company', form).addEventListener('input', fill);
       $('#cu-name', form).addEventListener('input', fill);
       fill();
+      $$('.cu-restore', form).forEach((b) => (b.onclick = () => {
+        const old = c.history[+b.dataset.k].before;
+        codeTouched = true;
+        for (const [f] of CUST_FIELDS) { const box = form.elements[f]; if (box) box.value = old[f] || ''; }
+        toast('Old details put back in the boxes: tap Update details to keep them');
+        form.scrollTop = 0;
+      }));
     },
   });
   if (r.value !== true) return null;
   const code = (r.data.code || '').trim().toUpperCase().replace(/\s+/g, '-');
   if (!code) return null;
-  if (all.some((x) => x !== existing && x.code === code)) { toast(`Code ${code} is already used by another customer`, 'error'); return null; }
-  const rec = { code, name: r.data.name.trim(), company: r.data.company.trim(), role: r.data.role.trim(), email: r.data.email.trim(), phone: r.data.phone.trim(), address: r.data.address.trim(), notes: r.data.notes.trim(), source: 'app', updatedAt: new Date().toISOString() };
+  if (all.some((x) => x.code !== existing?.code && x.code === code)) { toast(`Code ${code} is already used by another customer`, 'error'); return null; }
+  const rec = { code, name: r.data.name.trim(), company: r.data.company.trim(), role: r.data.role.trim(), email: r.data.email.trim(), phone: r.data.phone.trim(), address: r.data.address.trim(), notes: r.data.notes.trim(), source: 'app', updatedAt: new Date().toISOString(), history: existing?.history || [] };
+  if (existing) {
+    const changed = CUST_FIELDS.map(([f]) => f).filter((f) => (existing[f] || '') !== (rec[f] || ''));
+    if (!changed.length) { toast('Nothing changed'); return null; }
+    rec.history = [...rec.history, { at: new Date().toISOString(), changed, before: Object.fromEntries(CUST_FIELDS.map(([f]) => [f, existing[f] || ''])) }];
+  }
   const own = (lists.customers || []).filter((x) => x.code !== (existing?.code || code));
   await saveLists({ customers: [...own, rec] });
   // a renamed code follows on the sites that used it
   if (existing && existing.code !== code) for (const x of sites) await db.put('projects', { ...x, customerCode: code });
-  toast(existing ? `Saved ${code}` : `Customer ${code} added`);
+  toast(existing ? `${code} updated · old details archived` : `Customer ${code} added`);
   return rec;
 }
 async function renderCustomers() {
@@ -5624,9 +5648,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.54.2';
+const VERSION_TAG = 'app v0.54.3';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'customer list filled in from your workbook: addresses, phones and emails';
+const WHATS_NEW = 'customers filled in from your workbook; Update details keeps the old details archived';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
