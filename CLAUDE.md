@@ -286,6 +286,12 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   Photos: Take photo (camera) or Gallery, compressed 1600 px, saved to My files › Tool photos (`tool: true`); photos taken in a
   cancelled dialog are deleted. Status overdue / due within 30 days / ok; Home tile shows overdue count. No default
   intervals (set from the manufacturer); Ref Gen App Regs 2007, Reg 30. Stock list still to do.
+- v0.58.1 (owner, 28 Nov 2026): site › Doors tab "Add door (no drawing)" (planId null, like a task; next pin number,
+  kind from the site's work type). My files has a Training folder (owner keeps his training modules as PDFs there; My files
+  is behind the owner PIN). "Fieldwire" must not appear anywhere on screen (owner): import option is "From an inspection
+  report (PDF)", door notes say "Source plan:", one-off sweep of old notes (flag `fwWord1`); code comments may keep it.
+- ROADMAP (owner, 28 Nov 2026, not started): a photo per fail item (link photos to a defect, show beside it in the app
+  and in the PDF report) — medium job.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

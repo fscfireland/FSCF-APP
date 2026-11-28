@@ -180,6 +180,14 @@ async function loadLists() {
     } catch (err) { console.error(err); }
     await saveLists({ defSweep1: true });
   }
+  if (!lists.fwWord1) {
+    try {
+      for (const d of await db.all('doors')) if (/Fieldwire/i.test(d.notes || '')) await db.put('doors', { ...d, notes: d.notes.replace(/Fieldwire plan:/g, 'Source plan:').replace(/Fieldwire/gi, 'report') });
+      for (const f of await db.all('files')) if (/Fieldwire/i.test(f.notes || '')) await db.put('files', { ...f, notes: f.notes.replace(/Original Fieldwire report/g, 'Original report').replace(/Fieldwire/gi, 'report') });
+      if (lists.libFolders?.length && !lists.libFolders.includes('Training')) await saveLists({ libFolders: [lists.libFolders[0], 'Training', ...lists.libFolders.slice(1)] });
+    } catch (err) { console.error(err); }
+    await saveLists({ fwWord1: true });
+  }
   if (!lists.naSweep1) {
     try { for (const d of await db.all('doors')) { const k = d.kind || (await db.get('plans', d.planId))?.inspType; if (NA_DEFAULT[k] && naDefaultsFor(d, k) !== d) await db.put('doors', d); } } catch (err) { console.error(err); }
     await saveLists({ naSweep1: true });
@@ -2957,7 +2965,7 @@ async function askClaude(text) {
 }
 
 async function importFieldwire(file) {
-  const b = busy('Reading the Fieldwire report…');
+  const b = busy('Reading the report…');
   let fw;
   try { fw = await readFieldwire(file); } catch (err) { b.done(); return toast('Could not read that report: ' + err.message, 'error'); }
   b.done();
@@ -2980,7 +2988,7 @@ async function importFieldwire(file) {
   const plans = [...new Set(fw.doors.map((d) => d.plan).filter(Boolean))];
   const withRecs = fw.doors.filter((d) => d.recommendations.length).length;
   const r = await dialog({
-    title: 'New project from Fieldwire',
+    title: 'New project from a report',
     body: `<p>Found <b>${fw.doors.length} doors</b>${plans.length ? ` on ${plans.length} drawing${plans.length === 1 ? '' : 's'}` : ''}, ${withRecs} with recommendations${fw.checklist.length ? `, and a ${fw.checklist.length}-question checklist` : ''}.</p>
       <label class="field"><span>Site</span><input name="site" required value="${esc(fw.site)}"></label>
       <div class="grid2"><label class="field"><span>Client</span><input name="client" placeholder="e.g. HSE"></label>
@@ -3014,7 +3022,7 @@ async function importFieldwire(file) {
     });
     for (const d of [...fw.doors].sort((a, c) => a.no - c.no)) {
       const notes = [
-        d.plan ? `Fieldwire plan: ${d.plan}` : '',
+        d.plan ? `Source plan: ${d.plan}` : '',
         d.rating ? `Door rating: ${d.rating}` : '',
         d.rfid ? `RFID tag: ${d.rfid}` : '',
         d.tags.length ? `Tags: ${d.tags.join(', ')}` : '',
@@ -3027,10 +3035,10 @@ async function importFieldwire(file) {
         ...(d.attrs && Object.keys(d.attrs).length ? { attrs: d.attrs, replacement: d.attrs.h || d.attrs.w ? 'df' : '' } : {}),
         ...(d.leaf ? { leaf: d.leaf } : {}),
         notes, inspectedOn: r.data.date || fw.date || '', inspectedBy: lists.inspector || '',
-      }, [`Imported from Fieldwire report "${fw.title}"`]);
+      }, [`Imported from report "${fw.title}"`]);
     }
     // keep the original report with the project
-    await addBlob(project.id, file, file.name, 'Reports', { notes: 'Original Fieldwire report this project was created from' });
+    await addBlob(project.id, file, file.name, 'Reports', { notes: 'Original report this project was created from' });
     bz.done();
     toast(`${fw.doors.length} doors imported. Add the drawing, then tap Place`);
     go({ view: 'project', projectId: project.id, tab: 'plans' });
@@ -5011,6 +5019,7 @@ function renderDoorsTab(body, project, plans, doors) {
     <div class="row-btns import-row">
       <label class="btn sm">${icon('upload')} Import from Excel<input type="file" id="imp-file" accept=".xlsx,.xls,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv" hidden></label>
       <button class="btn ghost sm" id="imp-template">${icon('download')} Template</button>
+      <button class="btn sm primary" id="add-nodraw">${icon('plus')} Add door (no drawing)</button>
     </div>
     <div class="chips" role="group" aria-label="Filter by status">
       <button class="chip ${filter === 'all' ? 'is-on' : ''}" data-f="all">All <b>${doors.length}</b></button>
@@ -5052,6 +5061,19 @@ function renderDoorsTab(body, project, plans, doors) {
     n.setSelectionRange(pos, pos);
   };
   $$('.door-row', body).forEach((r) => (r.onclick = () => go({ ...state, doorId: r.dataset.id })));
+  // a door with no drawing, like a task (owner, 28 Nov 2026): buildings with no drawings
+  $('#add-nodraw', body)?.addEventListener('click', async () => {
+    const pinNo = await db.nextPinNo(project.id);
+    const kind = kindIds().find((k) => kitOf(k).name === project.workType) || kindForWork(project.workType) || 'fd';
+    const id = db.uid();
+    await saveDoor({
+      id, projectId: project.id, planId: null, collection: '', pinNo, x: null, y: null, kind,
+      ref: String(pinNo).padStart(3, '0'), location: '', doorType: '', leaf: '', zoneNo: '', zoneName: '', risk: '', category: '',
+      status: 'not_inspected', defects: [], actions: [], checks: {}, materials: [], notes: '', inspectedOn: '', inspectedBy: '',
+    }, ['Added with no drawing']);
+    toast(`${String(pinNo).padStart(3, '0')} added (no drawing)`);
+    go({ ...state, doorId: id });
+  });
 }
 
 function doorRow(d, planName) {
@@ -5454,7 +5476,7 @@ async function updatePlaceButton() {
 }
 
 // The drawing a door came from in its source report (Fieldwire), if known
-const sourcePlanOf = (d) => d.sourcePlan || /Fieldwire plan:\s*(.+)/.exec(d.notes || '')?.[1]?.trim() || '';
+const sourcePlanOf = (d) => d.sourcePlan || /(?:Fieldwire|Source) plan:\s*(.+)/.exec(d.notes || '')?.[1]?.trim() || '';
 
 function startPlacing(d, queue = []) {
   placingId = d.id;
@@ -6267,9 +6289,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.58.0';
+const VERSION_TAG = 'app v0.58.1';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Tool log on Home: each tool with photos, ID / serial, where it is kept and its checks (PAT, calibration, service)';
+const WHATS_NEW = 'Add a door with no drawing (site › Doors); Training folder in My files (PIN); no other app names on screen';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
@@ -8496,7 +8518,7 @@ function drawFieldsEditor(el) {
   const secs = fieldSecs();
   const typeName = Object.fromEntries(FIELD_TYPES);
   el.innerHTML = `
-    <p class="muted small">Extra details you record on a door, like Fieldwire attributes: a number (with a unit), a list you write, text, or yes/no. Fields in a <b>replacement</b> section show when a door's Replacement box is set; the others always show.</p>
+    <p class="muted small">Extra details you record on a door: a number (with a unit), a list you write, text, or yes/no. Fields in a <b>replacement</b> section show when a door's Replacement box is set; the others always show.</p>
     ${secs.map((sc, si) => `
       <div class="fs-sec">
         <div class="fs-head"><span><b>${esc(sc.name)}</b><small>${sc.when === 'replacement' ? 'Shows when a door is marked for replacement' : sc.when === 'switch' ? 'Shows when ticked on the door' : 'Always shows'} · ${sc.base === 'fd' ? 'fire door and final exit checklists' : sc.base ? esc(kitOf(sc.base).name) : 'every inspection type'}</small></span>
@@ -8614,11 +8636,11 @@ async function newProjectMenu() {
   await dialog({
     title: 'New project',
     body: `<div class="np-list">
-      <button type="button" class="np-opt" data-np="blank">${icon('plus')}<span><b>Blank project</b><small>Type the site details, then upload drawings</small></span></button>
+      <button type="button" class="np-opt" data-np="blank">${icon('plus')}<span><b>Blank project</b><small>Type the site details, then upload drawings, or add doors as a list with no drawing</small></span></button>
       <label class="np-opt">${icon('pin')}<span><b>Drawing only – I'll pin it myself</b><small>Upload a PDF, picture or photo with no automatic pins. Free</small></span><input type="file" data-np="manual" accept="application/pdf,.pdf,image/*" hidden></label>
       <label class="np-opt">${icon('plan')}<span><b>From a drawing, auto-pinned</b><small>PDF or picture from your files, Drive or downloads. Pins are placed at the door symbols automatically. Scanned drawings and photos use the drawing reader: cost will be charged to your account</small></span><input type="file" data-np="drawing" accept="application/pdf,.pdf,image/*" hidden></label>
       <label class="np-opt">${icon('camera')}<span><b>From a photo of a drawing, auto-pinned</b><small>Take a photo of a paper drawing now. Auto-pinning a photo uses the drawing reader: cost will be charged to your account</small></span><input type="file" data-np="photo" accept="image/*" capture="environment" hidden></label>
-      <label class="np-opt">${icon('upload')}<span><b>From a Fieldwire report</b><small>Fieldwire PDF report: drawings, pins and checklist answers come across</small></span><input type="file" data-np="fieldwire" accept="application/pdf,.pdf" hidden></label>
+      <label class="np-opt">${icon('upload')}<span><b>From an inspection report (PDF)</b><small>A PDF report with numbered tasks: doors, rooms, ratings, zones and recommendations come across</small></span><input type="file" data-np="fieldwire" accept="application/pdf,.pdf" hidden></label>
     </div>`,
     buttons: [{ label: 'Cancel', value: false }],
     onOpen: (form) => {

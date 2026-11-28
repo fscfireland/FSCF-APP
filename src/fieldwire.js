@@ -20,7 +20,7 @@ export function ratingToType(r) {
 export async function readFieldwire(file) {
   const lines = (await pdfLines(file, 400)).map((l) => l.replace(/\\([_#*&])/g, '$1'));
   const text = lines.join('\n');
-  if (!/fieldwire/i.test(text) && !/\n#\d+\s*-\s/.test('\n' + text)) throw new Error("This doesn't look like a Fieldwire report.");
+  if (!/fieldwire/i.test(text) && !/\n#\d+\s*-\s/.test('\n' + text)) throw new Error("This doesn't look like an inspection report with numbered tasks.");
 
   // header: report title, "SITE — Eircode X", dates
   const title = clean(lines.find((l) => l.trim()) || '');
