@@ -280,6 +280,12 @@ Long lines in PDFs wrap; they are never shrunk or cut off.
   when a template has them. BS 8214 title corrected to the 2026 title everywhere in rams.js.
 - v0.57.1: small date + time beside the settings cog on Home (`#bar-clock`, `clockText`, refreshed every 20 s).
 - v0.57.2: compact Home header (owner): title one line, Rev chip + tagline on one small line trimmed with …, 30 px logo (`.brand-txt`).
+- v0.58.0 Tool log (owner, 28 Nov 2026: photos of his tools): Home tile Tools (view `tools`, `renderTools`, `editTool`)
+  next to Health & safety (Home tiles now 2×2). Each tool = settings row `tool-<uid>` (kind 'tool': name, ident, make, cat,
+  kept, check None/PAT/Calibration/Visual/Service, every months, lastCheck, bought, notes, retired, photos[] = file ids).
+  Photos: Take photo (camera) or Gallery, compressed 1600 px, saved to My files › Tool photos (`tool: true`); photos taken in a
+  cancelled dialog are deleted. Status overdue / due within 30 days / ok; Home tile shows overdue count. No default
+  intervals (set from the manufacturer); Ref Gen App Regs 2007, Reg 30. Stock list still to do.
 - Still to do from the owner's yes-list: reference audit + headings of the remaining older defects/actions, gap and
   threshold readings in mm, no-access reason and photo on fail, customer list, mark invoice sent in the app, read
   all PD sheet layouts, on-site speed, home grouping. Next step the owner wants:

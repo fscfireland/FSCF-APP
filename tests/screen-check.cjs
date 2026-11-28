@@ -73,6 +73,7 @@ const overflow = (p) => p.evaluate(() => {
       ['bizhub', { view: 'bizhub' }],
       ['customers', { view: 'customers' }],
       ['health-safety', { view: 'hs' }],
+      ['tools', { view: 'tools' }],
       ['business', { view: 'business' }],
       ['quotes', { view: 'quotes' }],
       ['pricing', { view: 'pricing' }],
@@ -97,6 +98,7 @@ const overflow = (p) => p.evaluate(() => {
       'site-plans': ['.coll-copy', '.site-cust'],
       customers: ['.cu-row', '#cu-new'],
       'health-safety': ['.hs-tpl', '#lad-add'],
+      tools: ['#tool-add'],
       'site-files': ['#file-newf'],
       'site-export': ['#pdf'],
     };

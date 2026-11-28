@@ -21,6 +21,7 @@ const P = {
   textTool: '<path d="M5 6V4h14v2M12 4v16M9 20h6"/>',
   box: '<rect x="4" y="6" width="16" height="12" rx="1"/>',
   areaTool: '<path d="M4 9l6-5 10 4-3 12H7z"/>',
+  wrench: '<path d="M14.5 6.5a4 4 0 0 0 5 5L12 19a2.1 2.1 0 0 1-3-3l7.5-7.5"/><path d="M14.5 6.5L17 4a4 4 0 0 1 3 3l-2.5 2.5"/>',
   ruler: '<path d="M3 17L17 3l4 4L7 21z"/><path d="M7 13l2 2M10 10l2 2M13 7l2 2"/>',
   undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
   video: '<rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3z"/>',

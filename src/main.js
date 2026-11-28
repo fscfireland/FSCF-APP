@@ -325,6 +325,7 @@ async function render() {
     else if (state.view === 'assistant') await renderAssistant();
     else if (state.view === 'customers') await renderCustomers();
     else if (state.view === 'hs') await renderHealthSafety();
+    else if (state.view === 'tools') await renderTools();
   } else if (state.view === 'plan') {
     await refreshPins();
   }
@@ -452,6 +453,7 @@ async function renderProjects() {
       <div class="tile-pair">
         <button class="lib-card tile ai-card" id="ask-claude">${icon('spark')}<span><b>Ask Claude</b><small>Sites, doors, reports</small></span></button>
         <button class="lib-card tile" id="my-hs">${icon('shield')}<span><b>Health &amp; safety</b><small id="my-hs-sub">RAMS · ladder checks</small></span></button>
+        <button class="lib-card tile" id="my-tools">${icon('wrench')}<span><b>Tools</b><small id="my-tools-sub">Tool log · photos · checks</small></span></button>
         <button class="lib-card tile" id="my-files">${icon('folder')}<span><b>My files</b><small>${libCount} file${libCount === 1 ? '' : 's'} · private${lists.libPin ? ' · PIN' : ''}</small></span></button>
       </div>
       ${projects.length ? `<h1 class="h1">Projects <span class="muted">${projects.length}</span></h1>
@@ -481,6 +483,8 @@ async function renderProjects() {
   `;
   $('#my-files').onclick = () => go({ view: 'library' });
   $('#my-hs')?.addEventListener('click', () => go({ view: 'hs' }));
+  $('#my-tools')?.addEventListener('click', () => go({ view: 'tools' }));
+  toolsTile().catch(() => {});
   hsTile().catch(() => {});
   $('#ask-claude')?.addEventListener('click', () => go({ view: 'assistant' }));
   $('#my-pricing')?.addEventListener('click', async () => { if (priced() || (await unlockOwner({ redraw: false }))) go({ view: 'pricing' }); });
@@ -1572,7 +1576,7 @@ async function bookArchives() {
 // Hidden on a site, on a drawing and while a pin is open, so field work keeps
 // the whole screen. Business asks for the owner PIN.
 // Settings itself is the cog at the top of Home; the last tab is the defect list (owner, 26 Nov 2026)
-const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', hs: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', customers: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'defects' };
+const TAB_OF = { projects: 'home', library: 'home', assistant: 'home', hs: 'home', tools: 'home', schedule: 'schedule', repairsAll: 'repairs', bizhub: 'business', customers: 'business', business: 'business', quotes: 'business', pricing: 'business', settings: 'defects' };
 const TABS = [
   ['home', 'Home', '<path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>', { view: 'projects' }],
   ['schedule', 'Schedule', '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>', { view: 'schedule' }],
@@ -1949,6 +1953,123 @@ async function ladderCheck(l) {
   if (failed) await dialog({ title: 'TAKE THE LADDER OUT OF SERVICE NOW', body: `<p>Ladder <b>${esc(l.ref)}</b> failed its check${defects ? ` (${esc(defects)})` : ''}.</p><p>${v.repairable === 'No' ? 'It cannot be repaired: arrange for it to be destroyed. It is marked as destroyed / no longer in use.' : 'Do not use it until it is repaired and passes a new check.'}</p><p class="small muted">(FSCF Form 129)</p>`, buttons: [{ label: 'OK', value: true, kind: 'primary' }] });
   else toast(`Ladder ${l.ref} passed · next check by ${fmtDate(c.reinspect)} · PDF in My files › Ladder checks`);
   return c;
+}
+
+// ---------- Tool log (owner, 28 Nov 2026): every tool with photos, ID / serial, where it is kept and its checks ----------
+// Records are settings rows (kind 'tool') so they merge per record across devices; photos are files in My files › Tool
+// photos. Inspection of work equipment, with the results recorded: Gen App Regs 2007, Reg 30. The check type and how
+// often are set per tool from its manufacturer's instructions or FSCF practice; the app sets no interval of its own.
+const TOOL_CATS = ['Power tool', 'Hand tool', 'Measuring / gauge', 'Access (steps / podium)', 'Safety / PPE', 'Plant / equipment', 'Other'];
+const TOOL_CHECKS = ['None', 'PAT test', 'Calibration', 'Visual inspection', 'Service'];
+const toolNext = (t) => (t.check && t.check !== 'None' && t.lastCheck && t.every ? addMonths(t.lastCheck, Number(t.every)) : t.nextCheck || '');
+function toolStatus(t) {
+  if (t.retired) return 'retired';
+  const n = toolNext(t);
+  if (!n) return 'none';
+  const days = (Date.parse(n) - Date.parse(today())) / 864e5;
+  return days < 0 ? 'overdue' : days <= 30 ? 'due' : 'ok';
+}
+const TOOL_ST = { overdue: 'Check overdue', due: 'Check due soon', ok: 'OK', none: '', retired: 'Out of use' };
+const toolList = async () => (await db.all('settings')).filter((x) => x.kind === 'tool').sort((a, b) => !!a.retired - !!b.retired || String(a.name).localeCompare(String(b.name)));
+async function toolsTile() {
+  const tools = await toolList();
+  const el = $('#my-tools-sub');
+  if (!el || !tools.length) return;
+  const od = tools.filter((t) => toolStatus(t) === 'overdue').length;
+  const live = tools.filter((t) => !t.retired).length;
+  el.textContent = od ? `${od} check${od === 1 ? '' : 's'} overdue` : `${live} tool${live === 1 ? '' : 's'}`;
+  el.classList.toggle('warn-text', !!od);
+}
+const thumbUrls = [];
+const thumbUrl = (f) => { const u = URL.createObjectURL(f.thumb || f.blob); thumbUrls.push(u); return u; };
+async function renderTools() {
+  thumbUrls.splice(0).forEach((u) => URL.revokeObjectURL(u));
+  const tools = await toolList();
+  const q = (state.q || '').toLowerCase();
+  const shown = tools.filter((t) => !q || [t.name, t.ident, t.make, t.cat, t.kept].join(' ').toLowerCase().includes(q));
+  const firstPhoto = {};
+  for (const t of shown) if (t.photos?.[0]) firstPhoto[t.id] = await db.get('files', t.photos[0]);
+  app.innerHTML = `
+    <header class="bar">
+      <button class="icon-btn" id="back" aria-label="Back">${icon('back')}</button>
+      <div class="bar-title"><b>Tools</b><small>${(() => { const n = tools.filter((t) => !t.retired).length; return `${n} tool${n === 1 ? '' : 's'}`; })()} · photos, ID and checks</small></div>
+    </header>
+    <main class="page">
+      <div class="row-btns"><button type="button" class="btn primary" id="tool-add">${icon('plus')} Add tool</button></div>
+      ${tools.length > 6 ? `<label class="field"><span>Search</span><input id="tool-q" value="${esc(state.q || '')}" placeholder="e.g. drill, gauge, van" autocomplete="off"></label>` : ''}
+      <div class="tool-list">${shown.map((t) => { const st = toolStatus(t); const f = firstPhoto[t.id]; return `<button type="button" class="tool-row" data-id="${esc(t.id)}">
+        <span class="tool-pic">${f ? `<img alt="" src="${thumbUrl(f)}">` : icon('camera')}</span>
+        <span class="q-main"><b>${esc(t.name)}</b><small>${esc([t.make, t.ident && 'ID ' + t.ident, t.kept].filter(Boolean).join(' · '))}</small>${toolNext(t) && !t.retired ? `<small>${esc(t.check)} due ${esc(fmtDate(toolNext(t)))}</small>` : ''}</span>
+        ${TOOL_ST[st] ? `<span class="lad-pill lp-${{ overdue: 'overdue', due: 'due', ok: 'ok', retired: 'retired' }[st]}">${esc(TOOL_ST[st])}</span>` : ''}</button>`; }).join('') || `<p class="muted small">${tools.length ? 'No tools match.' : 'No tools yet. Tap Add tool, take a photo and fill in what you know.'}</p>`}</div>
+      <p class="small muted">Ladders and steps have their own weekly checks on Health &amp; safety › Ladder checks. <span class="keep-case">Ref: Gen App Regs 2007, Reg 30 (inspection of work equipment; results recorded).</span> Check intervals come from each tool's manufacturer or your own practice.</p>
+    </main>`;
+  $('#back').onclick = back;
+  $('#tool-add').onclick = async () => { await editTool(); renderTools(); };
+  $('#tool-q')?.addEventListener('input', (e) => { state.q = e.target.value; clearTimeout(renderTools.t); renderTools.t = setTimeout(() => { renderTools().then(() => { const i = $('#tool-q'); i?.focus(); i?.setSelectionRange(i.value.length, i.value.length); }); }, 300); });
+  $$('.tool-row').forEach((b) => (b.onclick = async () => { await editTool(tools.find((t) => t.id === b.dataset.id)); renderTools(); }));
+}
+async function editTool(t0 = null) {
+  const t = t0 || { cat: 'Power tool', check: 'None', photos: [] };
+  let photos = [...(t.photos || [])];
+  const files = {};
+  for (const id of photos) { const f = await db.get('files', id); if (f) files[id] = f; }
+  photos = photos.filter((id) => files[id]);
+  const drawPics = (f) => {
+    const box = f.querySelector('#tool-pics');
+    box.innerHTML = photos.map((id, i) => `<span class="tool-ph"><img alt="" src="${thumbUrl(files[id])}" data-i="${i}"><button type="button" class="tool-ph-x" data-i="${i}" aria-label="Remove photo">×</button></span>`).join('') || '<small class="muted">No photos yet.</small>';
+    box.querySelectorAll('img').forEach((im) => (im.onclick = () => openFile(files[photos[+im.dataset.i]]).catch(() => {})));
+    box.querySelectorAll('.tool-ph-x').forEach((x) => (x.onclick = (e) => { e.preventDefault(); photos.splice(+x.dataset.i, 1); drawPics(f); }));
+  };
+  const addPics = async (f, list) => {
+    const bz = busy('Saving photo…');
+    try {
+      for (const file of list) {
+        const { blob } = await compressImage(file, 1600, 0.82);
+        const rec = await addBlob(LIB, blob, `Tool ${(f.querySelector('[name=name]').value || 'photo').trim()} ${today()}.jpg`, 'Tool photos', { tool: true });
+        files[rec.id] = rec; photos.push(rec.id);
+      }
+    } catch (err) { toast('Could not add the photo: ' + err.message, 'error'); }
+    bz.done(); drawPics(f);
+  };
+  const r = await dialog({
+    title: t0 ? t0.name : 'Add tool',
+    body: `<div class="tool-pics" id="tool-pics"></div>
+      <div class="row-btns"><label class="btn sm primary">${icon('camera')} Take photo<input type="file" id="tool-cam" accept="image/*" capture="environment" hidden></label>
+        <label class="btn sm">${icon('image')} Gallery<input type="file" id="tool-gal" accept="image/*" multiple hidden></label></div>
+      <label class="field"><span>Tool</span><input name="name" required value="${esc(t.name || '')}" placeholder="e.g. Makita cordless drill" autocomplete="off"></label>
+      <div class="grid2">
+        <label class="field"><span>ID / serial no.</span><input name="ident" value="${esc(t.ident || '')}" autocomplete="off"></label>
+        <label class="field"><span>Make / model</span><input name="make" value="${esc(t.make || '')}" autocomplete="off"></label>
+        <label class="field"><span>Category</span><select name="cat">${TOOL_CATS.map((c) => `<option ${c === t.cat ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+        <label class="field"><span>Kept at</span><input name="kept" value="${esc(t.kept || '')}" placeholder="e.g. Van" autocomplete="off"></label>
+        <label class="field"><span>Check</span><select name="check">${TOOL_CHECKS.map((c) => `<option ${c === t.check ? 'selected' : ''}>${esc(c)}</option>`).join('')}</select></label>
+        <label class="field"><span>Every (months)</span><input name="every" type="number" inputmode="numeric" min="1" value="${esc(t.every || '')}" placeholder="from the manufacturer"></label>
+        <label class="field"><span>Last checked</span><input name="lastCheck" type="date" value="${esc(t.lastCheck || '')}"></label>
+        <label class="field"><span>Bought</span><input name="bought" type="date" value="${esc(t.bought || '')}"></label>
+      </div>
+      <label class="field"><span>Notes</span><textarea name="notes" rows="2" placeholder="e.g. PAT label no., calibration certificate, condition">${esc(t.notes || '')}</textarea></label>
+      ${t0 ? `<label class="check-line"><input type="checkbox" name="retired" ${t.retired ? 'checked' : ''}> Out of use / disposed of</label>` : ''}
+      <p class="small muted keep-case">Ref: Gen App Regs 2007, Reg 30: work equipment inspected, results recorded and kept 5 years. Set the check and interval from the tool's manufacturer instructions.</p>`,
+    buttons: [...(t0 ? [{ label: 'Delete', value: 'del', kind: 'ghost danger-text' }] : []), { label: 'Cancel', value: false }, { label: 'Save', value: true, kind: 'primary' }],
+    onOpen: (f) => {
+      drawPics(f);
+      f.querySelector('#tool-cam').onchange = (e) => { addPics(f, [...e.target.files]); e.target.value = ''; };
+      f.querySelector('#tool-gal').onchange = (e) => { addPics(f, [...e.target.files]); e.target.value = ''; };
+    },
+  });
+  const dropUnused = async (keep) => { for (const id of Object.keys(files)) if (!keep.includes(id) && !(t.photos || []).includes(id)) await db.remove('files', id); };
+  if (r.value === 'del') {
+    if (await confirmBox('Delete tool?', `Delete ${esc(t0.name)} and its photos? To keep its record, tick "Out of use" instead.`)) {
+      for (const id of [...(t0.photos || []), ...photos]) await db.remove('files', id).catch(() => {});
+      await db.remove('settings', t0.id);
+    }
+    return;
+  }
+  if (r.value !== true || !r.data.name?.trim()) { await dropUnused([]); return; } // photos taken in a cancelled dialog are not kept
+  for (const id of (t.photos || [])) if (!photos.includes(id)) await db.remove('files', id).catch(() => {});
+  const d = r.data;
+  await db.put('settings', { ...t, id: t.id || 'tool-' + db.uid(), kind: 'tool', name: d.name.trim(), ident: d.ident || '', make: d.make || '', cat: d.cat, kept: d.kept || '', check: d.check, every: Number(d.every) || '', lastCheck: d.lastCheck || '', bought: d.bought || '', notes: d.notes || '', retired: !!d.retired, photos });
+  toast(t0 ? 'Tool saved' : 'Tool added');
 }
 
 // ---------- Customers ----------
@@ -6146,9 +6267,9 @@ function showAppError(err, where = '') {
     body: `<p>${esc(where ? `While ${where}: ` : '')}<b>${esc(msg)}</b></p><p class="small">Please take a screenshot of this and send it to Claude.</p><p class="small muted">${esc(VERSION_TAG)}${line ? ' · ' + esc(line.trim().slice(0, 120)) : ''}</p>`,
   });
 }
-const VERSION_TAG = 'app v0.57.2';
+const VERSION_TAG = 'app v0.58.0';
 // one line for the "Updated" notice; change it with every release
-const WHATS_NEW = 'Neater, more compact header on Home';
+const WHATS_NEW = 'Tool log on Home: each tool with photos, ID / serial, where it is kept and its checks (PAT, calibration, service)';
 window.addEventListener('error', (e) => showAppError(e.error || e.message));
 window.addEventListener('unhandledrejection', (e) => showAppError(e.reason));
 
